@@ -211,8 +211,8 @@ class PersistentCache:
 
     def set_insider_trades(self, ticker: str, start_date: str, end_date: str, limit: int, data: List[Dict[str, Any]]):
         """Set insider trades to cache."""
-        # Insider trades have TTL of 6 hours
-        self.set('insider_trades', data, ttl=21600, merge_key='filing_date',
+        # Insider trades have TTL of 24 hours
+        self.set('insider_trades', data, ttl=86400, merge_key='filing_date',
                 ticker=ticker, start_date=start_date, end_date=end_date, limit=limit)
 
     def get_company_news(self, ticker: str, start_date: str, end_date: str, limit: int) -> Optional[List[Dict[str, Any]]]:
@@ -223,7 +223,7 @@ class PersistentCache:
     def set_company_news(self, ticker: str, start_date: str, end_date: str, limit: int, data: List[Dict[str, Any]]):
         """Set company news to cache."""
         # News has TTL of 1 hour
-        self.set('company_news', data, ttl=3600, merge_key='date',
+        self.set('company_news', data, ttl=86400, merge_key='date',
                 ticker=ticker, start_date=start_date, end_date=end_date, limit=limit)
 
     def clear_expired(self):

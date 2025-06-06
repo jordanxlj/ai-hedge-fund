@@ -189,18 +189,44 @@ def _cache_llm_response(cache_key: str, response_data: dict):
 
 
 def extract_json_from_response(content: str) -> dict | None:
-    """Extracts JSON from various response formats."""
+    """Extracts JSON from various response formats with error correction."""
     if not content:
         return None
         
     content = content.strip()
     
+    def clean_json_string(json_str: str) -> str:
+        """Clean common JSON formatting issues."""
+        # Fix common escape sequence issues
+        json_str = json_str.replace("\\'", "'")  # Fix incorrect single quote escaping
+        json_str = json_str.replace("\\n", "\\\\n")  # Fix newline escaping
+        json_str = json_str.replace("\n", "\\n")  # Escape unescaped newlines
+        json_str = json_str.replace("\t", "\\t")  # Escape unescaped tabs
+        json_str = json_str.replace("\r", "\\r")  # Escape unescaped carriage returns
+        
+        # Remove any control characters that might cause issues
+        import re
+        json_str = re.sub(r'[\x00-\x1F\x7F]', '', json_str)
+        
+        return json_str
+    
+    def try_parse_json(json_str: str) -> dict | None:
+        """Try to parse JSON with cleaning."""
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            try:
+                # Try with cleaning
+                cleaned = clean_json_string(json_str)
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                return None
+    
     try:
         # Try 1: Direct JSON parsing (if response is pure JSON)
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            pass
+        result = try_parse_json(content)
+        if result:
+            return result
         
         # Try 2: Extract from markdown code block
         json_start = content.find("```json")
@@ -209,7 +235,9 @@ def extract_json_from_response(content: str) -> dict | None:
             json_end = json_text.find("```")
             if json_end != -1:
                 json_text = json_text[:json_end].strip()
-                return json.loads(json_text)
+                result = try_parse_json(json_text)
+                if result:
+                    return result
         
         # Try 3: Extract from generic code block
         code_start = content.find("```")
@@ -220,11 +248,11 @@ def extract_json_from_response(content: str) -> dict | None:
                 code_text = code_text[:code_end].strip()
                 # Skip language identifier if present
                 if code_text.startswith(('json', 'javascript', 'js')):
-                    code_text = code_text.split('\n', 1)[1] if '\n' in code_text else code_text
-                try:
-                    return json.loads(code_text)
-                except json.JSONDecodeError:
-                    pass
+                    lines = code_text.split('\n', 1)
+                    code_text = lines[1] if len(lines) > 1 else code_text
+                result = try_parse_json(code_text)
+                if result:
+                    return result
         
         # Try 4: Find JSON object within text
         brace_start = content.find("{")
@@ -238,10 +266,9 @@ def extract_json_from_response(content: str) -> dict | None:
                     brace_count -= 1
                     if brace_count == 0:
                         potential_json = content[brace_start:i+1]
-                        try:
-                            return json.loads(potential_json)
-                        except json.JSONDecodeError:
-                            pass
+                        result = try_parse_json(potential_json)
+                        if result:
+                            return result
                         break
                         
     except Exception as e:
