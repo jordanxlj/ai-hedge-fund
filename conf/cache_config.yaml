@@ -50,7 +50,7 @@ interfaces:
     description: Company news from financialdatasets.ai
     merge_key: date
     ttl:
-      default: 3600
+      default: 86400
   get_financial_metrics:
     cache_layers:
     - memory
@@ -68,7 +68,7 @@ interfaces:
     description: Insider trading data from financialdatasets.ai
     merge_key: filing_date
     ttl:
-      default: 21600
+      default: 86400
   get_prices:
     cache_layers:
     - memory
