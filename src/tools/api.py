@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 
 from src.data.cache import get_cache
+from src.data.persistent_cache import get_persistent_cache
 from src.data.models import (
     CompanyNews,
     CompanyNewsResponse,
@@ -18,8 +19,9 @@ from src.data.models import (
     CompanyFactsResponse,
 )
 
-# Global cache instance
+# Global cache instances
 _cache = get_cache()
+_persistent_cache = get_persistent_cache()
 
 
 def get_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
@@ -27,9 +29,15 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{start_date}_{end_date}"
     
-    # Check cache first - simple exact match
+    # Check memory cache first - fastest
     if cached_data := _cache.get_prices(cache_key):
         return [Price(**price) for price in cached_data]
+    
+    # Check persistent cache - second fastest
+    if persistent_data := _persistent_cache.get_prices(ticker, start_date, end_date):
+        # Load into memory cache for faster future access
+        _cache.set_prices(cache_key, persistent_data)
+        return [Price(**price) for price in persistent_data]
 
     # If not in cache, fetch from API
     headers = {}
@@ -48,8 +56,10 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
     if not prices:
         return []
 
-    # Cache the results using the comprehensive cache key
-    _cache.set_prices(cache_key, [p.model_dump() for p in prices])
+    # Cache the results in both memory and persistent cache
+    price_data = [p.model_dump() for p in prices]
+    _cache.set_prices(cache_key, price_data)
+    _persistent_cache.set_prices(ticker, start_date, end_date, price_data)
     return prices
 
 
@@ -63,9 +73,15 @@ def get_financial_metrics(
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{period}_{end_date}_{limit}"
     
-    # Check cache first - simple exact match
+    # Check memory cache first - fastest
     if cached_data := _cache.get_financial_metrics(cache_key):
         return [FinancialMetrics(**metric) for metric in cached_data]
+    
+    # Check persistent cache - second fastest
+    if persistent_data := _persistent_cache.get_financial_metrics(ticker, period, end_date, limit):
+        # Load into memory cache for faster future access
+        _cache.set_financial_metrics(cache_key, persistent_data)
+        return [FinancialMetrics(**metric) for metric in persistent_data]
 
     # If not in cache, fetch from API
     headers = {}
@@ -84,8 +100,10 @@ def get_financial_metrics(
     if not financial_metrics:
         return []
 
-    # Cache the results as dicts using the comprehensive cache key
-    _cache.set_financial_metrics(cache_key, [m.model_dump() for m in financial_metrics])
+    # Cache the results in both memory and persistent cache
+    metrics_data = [m.model_dump() for m in financial_metrics]
+    _cache.set_financial_metrics(cache_key, metrics_data)
+    _persistent_cache.set_financial_metrics(ticker, period, end_date, limit, metrics_data)
     return financial_metrics
 
 
@@ -96,8 +114,22 @@ def search_line_items(
     period: str = "ttm",
     limit: int = 10,
 ) -> list[LineItem]:
-    """Fetch line items from API."""
-    # If not in cache or insufficient data, fetch from API
+    """Fetch line items from cache or API."""
+    # Create a cache key that includes all parameters
+    line_items_str = "_".join(sorted(line_items))  # Sort for consistent cache key
+    cache_key = f"{ticker}_{period}_{end_date}_{limit}_{line_items_str}"
+    
+    # Check memory cache first - fastest
+    if cached_data := _cache.get_line_items(cache_key):
+        return [LineItem(**item) for item in cached_data]
+    
+    # Check persistent cache - second fastest
+    if persistent_data := _persistent_cache.get_line_items(ticker, line_items, period, end_date, limit):
+        # Load into memory cache for faster future access
+        _cache.set_line_items(cache_key, persistent_data)
+        return [LineItem(**item) for item in persistent_data]
+
+    # If not in cache, fetch from API
     headers = {}
     if api_key := os.environ.get("FINANCIAL_DATASETS_API_KEY"):
         headers["X-API-KEY"] = api_key
@@ -120,7 +152,10 @@ def search_line_items(
     if not search_results:
         return []
 
-    # Cache the results
+    # Cache the results in both memory and persistent cache
+    line_items_data = [item.model_dump() for item in search_results]
+    _cache.set_line_items(cache_key, line_items_data)
+    _persistent_cache.set_line_items(ticker, line_items, period, end_date, limit, line_items_data)
     return search_results[:limit]
 
 
@@ -134,9 +169,15 @@ def get_insider_trades(
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{start_date or 'none'}_{end_date}_{limit}"
     
-    # Check cache first - simple exact match
+    # Check memory cache first - fastest
     if cached_data := _cache.get_insider_trades(cache_key):
         return [InsiderTrade(**trade) for trade in cached_data]
+    
+    # Check persistent cache - second fastest
+    if persistent_data := _persistent_cache.get_insider_trades(ticker, start_date or '1900-01-01', end_date, limit):
+        # Load into memory cache for faster future access
+        _cache.set_insider_trades(cache_key, persistent_data)
+        return [InsiderTrade(**trade) for trade in persistent_data]
 
     # If not in cache, fetch from API
     headers = {}
@@ -179,8 +220,10 @@ def get_insider_trades(
     if not all_trades:
         return []
 
-    # Cache the results using the comprehensive cache key
-    _cache.set_insider_trades(cache_key, [trade.model_dump() for trade in all_trades])
+    # Cache the results in both memory and persistent cache
+    trades_data = [trade.model_dump() for trade in all_trades]
+    _cache.set_insider_trades(cache_key, trades_data)
+    _persistent_cache.set_insider_trades(ticker, start_date or '1900-01-01', end_date, limit, trades_data)
     return all_trades
 
 
@@ -194,9 +237,15 @@ def get_company_news(
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{start_date or 'none'}_{end_date}_{limit}"
     
-    # Check cache first - simple exact match
+    # Check memory cache first - fastest
     if cached_data := _cache.get_company_news(cache_key):
         return [CompanyNews(**news) for news in cached_data]
+    
+    # Check persistent cache - second fastest
+    if persistent_data := _persistent_cache.get_company_news(ticker, start_date or '1900-01-01', end_date, limit):
+        # Load into memory cache for faster future access
+        _cache.set_company_news(cache_key, persistent_data)
+        return [CompanyNews(**news) for news in persistent_data]
 
     # If not in cache, fetch from API
     headers = {}
@@ -239,9 +288,88 @@ def get_company_news(
     if not all_news:
         return []
 
-    # Cache the results using the comprehensive cache key
-    _cache.set_company_news(cache_key, [news.model_dump() for news in all_news])
+    # Cache the results in both memory and persistent cache
+    news_data = [news.model_dump() for news in all_news]
+    _cache.set_company_news(cache_key, news_data)
+    _persistent_cache.set_company_news(ticker, start_date or '1900-01-01', end_date, limit, news_data)
     return all_news
+
+
+# Cache management functions
+def get_cache_stats():
+    """Get statistics about both memory and persistent caches."""
+    persistent_stats = _persistent_cache.get_cache_stats()
+    
+    return {
+        'memory_cache': {
+            'prices_count': len(_cache._prices_cache),
+            'financial_metrics_count': len(_cache._financial_metrics_cache),
+            'line_items_count': len(_cache._line_items_cache),
+            'insider_trades_count': len(_cache._insider_trades_cache),
+            'company_news_count': len(_cache._company_news_cache),
+        },
+        'persistent_cache': persistent_stats
+    }
+
+
+def clear_cache():
+    """Clear all cached data."""
+    # Clear memory cache
+    _cache._prices_cache.clear()
+    _cache._financial_metrics_cache.clear()
+    _cache._line_items_cache.clear()
+    _cache._insider_trades_cache.clear()
+    _cache._company_news_cache.clear()
+    
+    # Clear persistent cache
+    _persistent_cache.clear_all()
+
+
+def clear_expired_cache():
+    """Clear only expired cache entries."""
+    return _persistent_cache.clear_expired()
+
+
+def force_refresh_ticker(ticker: str):
+    """Force refresh all cache entries for a specific ticker."""
+    # Clear memory cache entries for the ticker
+    keys_to_remove = []
+    for key in _cache._prices_cache:
+        if key.startswith(ticker):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        _cache._prices_cache.pop(key, None)
+        
+    keys_to_remove = []
+    for key in _cache._financial_metrics_cache:
+        if key.startswith(ticker):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        _cache._financial_metrics_cache.pop(key, None)
+    
+    keys_to_remove = []
+    for key in _cache._line_items_cache:
+        if key.startswith(ticker):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        _cache._line_items_cache.pop(key, None)
+    
+    keys_to_remove = []
+    for key in _cache._insider_trades_cache:
+        if key.startswith(ticker):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        _cache._insider_trades_cache.pop(key, None)
+    
+    keys_to_remove = []
+    for key in _cache._company_news_cache:
+        if key.startswith(ticker):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        _cache._company_news_cache.pop(key, None)
+    
+    # Clear persistent cache entries for the ticker
+    return _persistent_cache.force_refresh_ticker(ticker)
 
 
 def get_market_cap(
