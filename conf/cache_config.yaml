@@ -1,0 +1,15 @@
+company_news:
+  default: 3600
+financial_metrics:
+  default: 86400
+insider_trades:
+  default: 21600
+line_items:
+  default: 86400
+llm_responses:
+  default: 86400
+prices:
+  after_hours: 86400
+  market_hours: 3600
+test_type:
+  default: 9999
