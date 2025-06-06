@@ -82,16 +82,20 @@ def call_llm(
                 parsed_result = extract_json_from_response(result.content)
                 if parsed_result:
                     final_result = pydantic_model(**parsed_result)
+                    # Only cache successful responses for DeepSeek models
+                    if is_deepseek and hasattr(final_result, 'model_dump'):
+                        _cache_llm_response(cache_key, final_result.model_dump())
+                    return final_result
                 else:
+                    # Debug: print the actual response content for troubleshooting
+                    print(f"Debug: Failed to extract JSON from DeepSeek response: {repr(result.content[:200])}")
                     raise ValueError("Failed to extract JSON from response")
             else:
                 final_result = result
-
-            # Cache the response for DeepSeek models
-            if is_deepseek and hasattr(final_result, 'model_dump'):
-                _cache_llm_response(cache_key, final_result.model_dump())
-            
-            return final_result
+                # Cache the response for DeepSeek models (JSON mode supported models)
+                if is_deepseek and hasattr(final_result, 'model_dump'):
+                    _cache_llm_response(cache_key, final_result.model_dump())
+                return final_result
 
         except Exception as e:
             if agent_name:
@@ -185,17 +189,64 @@ def _cache_llm_response(cache_key: str, response_data: dict):
 
 
 def extract_json_from_response(content: str) -> dict | None:
-    """Extracts JSON from markdown-formatted response."""
+    """Extracts JSON from various response formats."""
+    if not content:
+        return None
+        
+    content = content.strip()
+    
     try:
+        # Try 1: Direct JSON parsing (if response is pure JSON)
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+        
+        # Try 2: Extract from markdown code block
         json_start = content.find("```json")
         if json_start != -1:
-            json_text = content[json_start + 7 :]  # Skip past ```json
+            json_text = content[json_start + 7:]  # Skip past ```json
             json_end = json_text.find("```")
             if json_end != -1:
                 json_text = json_text[:json_end].strip()
                 return json.loads(json_text)
+        
+        # Try 3: Extract from generic code block
+        code_start = content.find("```")
+        if code_start != -1:
+            code_text = content[code_start + 3:]  # Skip past ```
+            code_end = code_text.find("```")
+            if code_end != -1:
+                code_text = code_text[:code_end].strip()
+                # Skip language identifier if present
+                if code_text.startswith(('json', 'javascript', 'js')):
+                    code_text = code_text.split('\n', 1)[1] if '\n' in code_text else code_text
+                try:
+                    return json.loads(code_text)
+                except json.JSONDecodeError:
+                    pass
+        
+        # Try 4: Find JSON object within text
+        brace_start = content.find("{")
+        if brace_start != -1:
+            # Find the matching closing brace
+            brace_count = 0
+            for i, char in enumerate(content[brace_start:], brace_start):
+                if char == "{":
+                    brace_count += 1
+                elif char == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        potential_json = content[brace_start:i+1]
+                        try:
+                            return json.loads(potential_json)
+                        except json.JSONDecodeError:
+                            pass
+                        break
+                        
     except Exception as e:
         print(f"Error extracting JSON from response: {e}")
+    
     return None
 
 
