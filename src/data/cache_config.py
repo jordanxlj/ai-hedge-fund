@@ -33,26 +33,99 @@ class CacheConfig:
         self.config_file = Path(config_file)
         self.config_file.parent.mkdir(exist_ok=True)
         
-        # Default TTL configurations (in seconds)
+        # Default configuration with TTL in interface properties
         self.default_config = {
-            "prices": {
-                "market_hours": 3600,      # 1 hour during market hours
-                "after_hours": 86400       # 24 hours after market hours
+            # Interface configurations with embedded TTL
+            "interfaces": {
+                # Financial Data APIs
+                "get_prices": {
+                    "cache_type": "prices",
+                    "description": "Stock price data from financialdatasets.ai",
+                    "cache_layers": ["memory", "persistent"],
+                    "merge_key": "time",
+                    "ttl": {
+                        "market_hours": 3600,      # 1 hour during market hours
+                        "after_hours": 86400       # 24 hours after market hours
+                    }
+                },
+                "get_financial_metrics": {
+                    "cache_type": "financial_metrics", 
+                    "description": "Financial metrics data from financialdatasets.ai",
+                    "cache_layers": ["memory", "persistent"],
+                    "merge_key": "report_period",
+                    "ttl": {
+                        "default": 86400           # 24 hours
+                    }
+                },
+                "search_line_items": {
+                    "cache_type": "line_items",
+                    "description": "Financial statement line items from financialdatasets.ai", 
+                    "cache_layers": ["memory", "persistent"],
+                    "merge_key": "report_period",
+                    "ttl": {
+                        "default": 86400           # 24 hours
+                    }
+                },
+                "get_insider_trades": {
+                    "cache_type": "insider_trades",
+                    "description": "Insider trading data from financialdatasets.ai",
+                    "cache_layers": ["memory", "persistent"], 
+                    "merge_key": "filing_date",
+                    "ttl": {
+                        "default": 21600           # 6 hours
+                    }
+                },
+                "get_company_news": {
+                    "cache_type": "company_news",
+                    "description": "Company news from financialdatasets.ai",
+                    "cache_layers": ["memory", "persistent"],
+                    "merge_key": "date",
+                    "ttl": {
+                        "default": 3600            # 1 hour
+                    }
+                },
+                
+                # LLM APIs
+                "call_llm_deepseek": {
+                    "cache_type": "llm_responses",
+                    "description": "DeepSeek LLM responses (deepseek-reasoner, deepseek-chat)",
+                    "cache_layers": ["persistent"],
+                    "providers": ["DeepSeek"],
+                    "models": ["deepseek-reasoner", "deepseek-chat", "deepseek-*"],
+                    "cache_key_components": ["prompt", "model_name", "pydantic_model", "agent_name"],
+                    "ttl": {
+                        "default": 86400           # 24 hours
+                    }
+                },
+                "call_llm_other": {
+                    "cache_type": "none", 
+                    "description": "Other LLM providers (no caching)",
+                    "cache_layers": [],
+                    "providers": ["OpenAI", "Anthropic", "Gemini", "Groq", "Ollama"],
+                    "ttl": {
+                        "default": 0               # No caching
+                    }
+                }
             },
-            "financial_metrics": {
-                "default": 86400           # 24 hours
-            },
-            "line_items": {
-                "default": 86400           # 24 hours
-            },
-            "insider_trades": {
-                "default": 21600           # 6 hours
-            },
-            "company_news": {
-                "default": 3600            # 1 hour
-            },
-            "llm_responses": {
-                "default": 86400           # 24 hours
+            
+            # Agent Model Configuration
+            "agent_models": {
+                "portfolio_manager": {
+                    "default_model": "gpt-4o",
+                    "default_provider": "OpenAI"
+                },
+                "bill_ackman": {
+                    "default_model": "gpt-4o", 
+                    "default_provider": "OpenAI"
+                },
+                "michael_burry": {
+                    "default_model": "gpt-4o",
+                    "default_provider": "OpenAI"
+                },
+                "rakesh_jhunjhunwala": {
+                    "default_model": "gpt-4o",
+                    "default_provider": "OpenAI"
+                }
             }
         }
         
@@ -92,7 +165,7 @@ class CacheConfig:
     
     def get_ttl(self, cache_type: str, **kwargs) -> int:
         """
-        Get TTL for a specific cache type.
+        Get TTL for a specific cache type by finding the corresponding interface.
         
         Args:
             cache_type: Type of cache (e.g., 'prices', 'financial_metrics')
@@ -101,30 +174,65 @@ class CacheConfig:
         Returns:
             TTL in seconds
         """
-        if cache_type not in self.config:
+        # Find interface with this cache_type
+        interfaces = self.config.get("interfaces", {})
+        interface_config = None
+        
+        for interface_name, config in interfaces.items():
+            if config.get("cache_type") == cache_type:
+                interface_config = config
+                break
+        
+        if not interface_config:
             print(f"Warning: Unknown cache type '{cache_type}', using default TTL")
             return 3600  # 1 hour default
         
-        type_config = self.config[cache_type]
+        ttl_config = interface_config.get("ttl", {})
         
         # Special handling for prices based on market hours
         if cache_type == "prices":
             current_hour = datetime.now().hour
             is_market_hours = 9 <= current_hour <= 16  # Rough market hours
-            return type_config["market_hours"] if is_market_hours else type_config["after_hours"]
+            return ttl_config.get("market_hours", 3600) if is_market_hours else ttl_config.get("after_hours", 86400)
         
         # Default handling
-        return type_config.get("default", 3600)
+        return ttl_config.get("default", 3600)
     
     def set_ttl(self, cache_type: str, ttl_config: Dict[str, int]):
         """
-        Set TTL configuration for a cache type.
+        Set TTL configuration for a cache type by finding the corresponding interface.
         
         Args:
             cache_type: Type of cache
             ttl_config: TTL configuration dictionary
         """
-        self.config[cache_type] = ttl_config
+        interfaces = self.config.get("interfaces", {})
+        
+        # Find interface with this cache_type
+        for interface_name, config in interfaces.items():
+            if config.get("cache_type") == cache_type:
+                config["ttl"] = ttl_config
+                self._save_config(self.config)
+                return
+        
+        print(f"Warning: Cache type '{cache_type}' not found in any interface")
+    
+    def set_interface_ttl(self, interface_name: str, ttl_config: Dict[str, int]):
+        """
+        Set TTL configuration for a specific interface.
+        
+        Args:
+            interface_name: Name of the interface
+            ttl_config: TTL configuration dictionary
+        """
+        if "interfaces" not in self.config:
+            self.config["interfaces"] = {}
+        
+        if interface_name not in self.config["interfaces"]:
+            print(f"Warning: Interface '{interface_name}' not found")
+            return
+        
+        self.config["interfaces"][interface_name]["ttl"] = ttl_config
         self._save_config(self.config)
     
     def get_all_config(self) -> Dict[str, Any]:
@@ -135,6 +243,52 @@ class CacheConfig:
         """Reset configuration to defaults."""
         self.config = self.default_config.copy()
         self._save_config(self.config)
+    
+    def get_interfaces(self) -> Dict[str, Any]:
+        """Get all interface configurations."""
+        return self.config.get("interfaces", {})
+    
+    def get_interface_config(self, interface_name: str) -> Dict[str, Any]:
+        """Get full configuration for a specific interface."""
+        interfaces = self.get_interfaces()
+        return interfaces.get(interface_name, {})
+    
+    def get_interface_cache_type(self, interface_name: str) -> str:
+        """Get cache type for a specific interface."""
+        interface_config = self.get_interface_config(interface_name)
+        return interface_config.get("cache_type", "none")
+    
+    def get_interface_description(self, interface_name: str) -> str:
+        """Get description for a specific interface."""
+        interface_config = self.get_interface_config(interface_name)
+        return interface_config.get("description", "No description available")
+    
+    def get_cache_layers(self, interface_name: str) -> list:
+        """Get cache layers used by a specific interface."""
+        interface_config = self.get_interface_config(interface_name)
+        return interface_config.get("cache_layers", [])
+    
+    def get_interface_ttl(self, interface_name: str) -> Dict[str, int]:
+        """Get TTL configuration for a specific interface."""
+        interface_config = self.get_interface_config(interface_name)
+        return interface_config.get("ttl", {"default": 3600})
+    
+    def get_agent_default_model(self, agent_name: str) -> tuple:
+        """Get default model and provider for an agent."""
+        agent_models = self.config.get("agent_models", {})
+        agent_config = agent_models.get(agent_name, {})
+        model = agent_config.get("default_model", "gpt-4o")
+        provider = agent_config.get("default_provider", "OpenAI")
+        return model, provider
+    
+    def list_cached_interfaces(self) -> list:
+        """List all interfaces that use caching."""
+        interfaces = self.get_interfaces()
+        cached_interfaces = []
+        for interface, config in interfaces.items():
+            if config.get("cache_type", "none") != "none":
+                cached_interfaces.append(interface)
+        return cached_interfaces
 
 
 # Global cache config instance

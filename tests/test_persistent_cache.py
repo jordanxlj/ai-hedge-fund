@@ -456,8 +456,18 @@ class TestCacheConfig:
             loaded_config = yaml.safe_load(f)
         
         assert isinstance(loaded_config, dict)
-        assert 'prices' in loaded_config
-        assert 'llm_responses' in loaded_config
+        # 现在配置结构是 interfaces > interface_name > properties
+        assert 'interfaces' in loaded_config
+        assert 'agent_models' in loaded_config
+        
+        # 检查接口配置
+        interfaces = loaded_config['interfaces']
+        assert 'get_prices' in interfaces
+        assert 'call_llm_deepseek' in interfaces
+        
+        # 检查接口有TTL配置
+        assert 'ttl' in interfaces['get_prices']
+        assert 'ttl' in interfaces['call_llm_deepseek']
     
     def test_ttl_retrieval(self):
         """测试TTL值获取"""

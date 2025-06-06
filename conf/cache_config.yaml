@@ -1,15 +1,90 @@
-company_news:
-  default: 3600
-financial_metrics:
-  default: 86400
-insider_trades:
-  default: 21600
-line_items:
-  default: 86400
-llm_responses:
-  default: 86400
-prices:
-  after_hours: 86400
-  market_hours: 3600
-test_type:
-  default: 9999
+agent_models:
+  bill_ackman:
+    default_model: gpt-4o
+    default_provider: OpenAI
+  michael_burry:
+    default_model: gpt-4o
+    default_provider: OpenAI
+  portfolio_manager:
+    default_model: gpt-4o
+    default_provider: OpenAI
+  rakesh_jhunjhunwala:
+    default_model: gpt-4o
+    default_provider: OpenAI
+interfaces:
+  call_llm_deepseek:
+    cache_key_components:
+    - prompt
+    - model_name
+    - pydantic_model
+    - agent_name
+    cache_layers:
+    - persistent
+    cache_type: llm_responses
+    description: DeepSeek LLM responses (deepseek-reasoner, deepseek-chat)
+    models:
+    - deepseek-reasoner
+    - deepseek-chat
+    - deepseek-*
+    providers:
+    - DeepSeek
+    ttl:
+      default: 86400
+  call_llm_other:
+    cache_layers: []
+    cache_type: none
+    description: Other LLM providers (no caching)
+    providers:
+    - OpenAI
+    - Anthropic
+    - Gemini
+    - Groq
+    - Ollama
+    ttl:
+      default: 0
+  get_company_news:
+    cache_layers:
+    - memory
+    - persistent
+    cache_type: company_news
+    description: Company news from financialdatasets.ai
+    merge_key: date
+    ttl:
+      default: 3600
+  get_financial_metrics:
+    cache_layers:
+    - memory
+    - persistent
+    cache_type: financial_metrics
+    description: Financial metrics data from financialdatasets.ai
+    merge_key: report_period
+    ttl:
+      default: 86400
+  get_insider_trades:
+    cache_layers:
+    - memory
+    - persistent
+    cache_type: insider_trades
+    description: Insider trading data from financialdatasets.ai
+    merge_key: filing_date
+    ttl:
+      default: 21600
+  get_prices:
+    cache_layers:
+    - memory
+    - persistent
+    cache_type: prices
+    description: Stock price data from financialdatasets.ai
+    merge_key: time
+    ttl:
+      after_hours: 86400
+      market_hours: 3600
+  search_line_items:
+    cache_layers:
+    - memory
+    - persistent
+    cache_type: line_items
+    description: Financial statement line items from financialdatasets.ai
+    merge_key: report_period
+    ttl:
+      default: 86400

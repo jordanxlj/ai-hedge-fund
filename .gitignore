@@ -55,3 +55,4 @@ node_modules
 # temperory files
 poetry.lock
 .cursor/
+.cache/
