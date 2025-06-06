@@ -11,7 +11,7 @@ This system employs several agents working together:
 5. Charlie Munger Agent - Warren Buffett's partner, only buys wonderful businesses at fair prices
 6. Michael Burry Agent - The Big Short contrarian who hunts for deep value
 7. Peter Lynch Agent - Practical investor who seeks "ten-baggers" in everyday businesses
-8. Phil Fisher Agent - Meticulous growth investor who uses deep "scuttlebutt" research 
+8. Phil Fisher Agent - Meticulous growth investor who uses deep "scuttlebutt" research
 9. Rakesh Jhunjhunwala Agent - The Big Bull of India
 10. Stanley Druckenmiller Agent - Macro legend who hunts for asymmetric opportunities with growth potential
 11. Warren Buffett Agent - The oracle of Omaha, seeks wonderful companies at a fair price
@@ -21,9 +21,8 @@ This system employs several agents working together:
 15. Technicals Agent - Analyzes technical indicators and generates trading signals
 16. Risk Manager - Calculates risk metrics and sets position limits
 17. Portfolio Manager - Makes final trading decisions and generates orders
-    
-<img width="1042" alt="Screenshot 2025-03-22 at 6 19 07 PM" src="https://github.com/user-attachments/assets/cbae3dcf-b571-490d-b0ad-3f0f035ac0d4" />
 
+<img width="1042" alt="Screenshot 2025-03-22 at 6 19 07 PM" src="https://github.com/user-attachments/assets/cbae3dcf-b571-490d-b0ad-3f0f035ac0d4" />
 
 **Note**: the system simulates trading decisions, it does not actually trade.
 
@@ -42,6 +41,7 @@ This project is for **educational and research purposes only**.
 By using this software, you agree to use it solely for learning purposes.
 
 ## Table of Contents
+
 - [Setup](#setup)
   - [Using Poetry](#using-poetry)
   - [Using Docker](#using-docker)
@@ -57,28 +57,34 @@ By using this software, you agree to use it solely for learning purposes.
 ### Using Poetry
 
 Clone the repository:
+
 ```bash
 git clone https://github.com/virattt/ai-hedge-fund.git
 cd ai-hedge-fund
 ```
 
 1. Install Poetry (if not already installed):
+
 ```bash
+
 curl -sSL https://install.python-poetry.org | python3 -
 ```
 
 2. Install dependencies:
+
 ```bash
 poetry install
 ```
 
 3. Set up your environment variables:
+
 ```bash
 # Create .env file for your API keys
 cp .env.example .env
 ```
 
 4. Set your API keys:
+
 ```bash
 # For running LLMs hosted by openai (gpt-4o, gpt-4o-mini, etc.)
 # Get your OpenAI API key from https://platform.openai.com/
@@ -96,22 +102,23 @@ FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
 ### Using Docker
 
 1. Make sure you have Docker installed on your system. If not, you can download it from [Docker's official website](https://www.docker.com/get-started).
-
 2. Clone the repository:
+
 ```bash
 git clone https://github.com/virattt/ai-hedge-fund.git
 cd ai-hedge-fund
 ```
 
 3. Set up your environment variables:
+
 ```bash
 # Create .env file for your API keys
 cp .env.example .env
 ```
 
 4. Edit the .env file to add your API keys as described above.
-
 5. Build the Docker image:
+
 ```bash
 # On Linux/Mac:
 ./run.sh build
@@ -131,11 +138,13 @@ For any other ticker, you will need to set the `FINANCIAL_DATASETS_API_KEY` in t
 ### Running the Hedge Fund
 
 #### With Poetry
+
 ```bash
 poetry run python src/main.py --ticker AAPL,MSFT,NVDA
 ```
 
 #### With Docker
+
 ```bash
 # On Linux/Mac:
 ./run.sh --ticker AAPL,MSFT,NVDA main
@@ -189,11 +198,13 @@ run.bat --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 ma
 ### Running the Backtester
 
 #### With Poetry
+
 ```bash
 poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
 ```
 
 #### With Docker
+
 ```bash
 # On Linux/Mac:
 ./run.sh --ticker AAPL,MSFT,NVDA backtest
@@ -204,7 +215,6 @@ run.bat --ticker AAPL,MSFT,NVDA backtest
 
 **Example Output:**
 <img width="941" alt="Screenshot 2025-01-06 at 5 47 52 PM" src="https://github.com/user-attachments/assets/00e794ea-8628-44e6-9a84-8f8a31ad3b47" />
-
 
 You can optionally specify the start and end dates to backtest over a specific time period.
 
@@ -220,6 +230,7 @@ run.bat --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --end-date 2024-03-01 ba
 ```
 
 You can also specify a `--ollama` flag to run the backtester using local LLMs.
+
 ```bash
 # With Poetry:
 poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA --ollama
