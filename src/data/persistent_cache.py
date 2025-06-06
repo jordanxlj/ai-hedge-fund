@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import hashlib
+from .cache_config import get_cache_ttl
 
 
 class PersistentCache:
@@ -173,10 +174,8 @@ class PersistentCache:
 
     def set_prices(self, ticker: str, start_date: str, end_date: str, data: List[Dict[str, Any]]):
         """Set price data to cache."""
-        # Prices have TTL of 1 hour during market hours, 24 hours otherwise
-        current_hour = datetime.now().hour
-        is_market_hours = 9 <= current_hour <= 16  # Rough market hours
-        ttl = 3600 if is_market_hours else 86400  # 1 hour vs 24 hours
+        # Use TTL from configuration
+        ttl = get_cache_ttl('prices')
         self.set('prices', data, ttl=ttl, merge_key='time', 
                 ticker=ticker, start_date=start_date, end_date=end_date)
 
@@ -187,8 +186,9 @@ class PersistentCache:
 
     def set_financial_metrics(self, ticker: str, period: str, end_date: str, limit: int, data: List[Dict[str, Any]]):
         """Set financial metrics to cache."""
-        # Financial metrics have longer TTL (24 hours)
-        self.set('financial_metrics', data, ttl=86400, merge_key='report_period',
+        # Use TTL from configuration
+        ttl = get_cache_ttl('financial_metrics')
+        self.set('financial_metrics', data, ttl=ttl, merge_key='report_period',
                 ticker=ticker, period=period, end_date=end_date, limit=limit)
 
     def get_line_items(self, ticker: str, line_items: List[str], period: str, end_date: str, limit: int) -> Optional[List[Dict[str, Any]]]:
@@ -200,8 +200,9 @@ class PersistentCache:
     def set_line_items(self, ticker: str, line_items: List[str], period: str, end_date: str, limit: int, data: List[Dict[str, Any]]):
         """Set line items to cache."""
         line_items_str = "_".join(sorted(line_items))  # Sort for consistent cache key
-        # Line items have TTL of 24 hours
-        self.set('line_items', data, ttl=86400, merge_key='report_period',
+        # Use TTL from configuration
+        ttl = get_cache_ttl('line_items')
+        self.set('line_items', data, ttl=ttl, merge_key='report_period',
                 ticker=ticker, line_items=line_items_str, period=period, end_date=end_date, limit=limit)
 
     def get_insider_trades(self, ticker: str, start_date: str, end_date: str, limit: int) -> Optional[List[Dict[str, Any]]]:
@@ -211,8 +212,9 @@ class PersistentCache:
 
     def set_insider_trades(self, ticker: str, start_date: str, end_date: str, limit: int, data: List[Dict[str, Any]]):
         """Set insider trades to cache."""
-        # Insider trades have TTL of 24 hours
-        self.set('insider_trades', data, ttl=86400, merge_key='filing_date',
+        # Use TTL from configuration
+        ttl = get_cache_ttl('insider_trades')
+        self.set('insider_trades', data, ttl=ttl, merge_key='filing_date',
                 ticker=ticker, start_date=start_date, end_date=end_date, limit=limit)
 
     def get_company_news(self, ticker: str, start_date: str, end_date: str, limit: int) -> Optional[List[Dict[str, Any]]]:
@@ -222,8 +224,9 @@ class PersistentCache:
 
     def set_company_news(self, ticker: str, start_date: str, end_date: str, limit: int, data: List[Dict[str, Any]]):
         """Set company news to cache."""
-        # News has TTL of 1 hour
-        self.set('company_news', data, ttl=86400, merge_key='date',
+        # Use TTL from configuration
+        ttl = get_cache_ttl('company_news')
+        self.set('company_news', data, ttl=ttl, merge_key='date',
                 ticker=ticker, start_date=start_date, end_date=end_date, limit=limit)
 
     def clear_expired(self):

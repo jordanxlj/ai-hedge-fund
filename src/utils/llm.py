@@ -176,14 +176,16 @@ def _get_cached_llm_response(cache_key: str) -> dict | None:
 def _cache_llm_response(cache_key: str, response_data: dict):
     """Cache LLM response for future use."""
     try:
+        from src.data.cache_config import get_cache_ttl
         cache = get_persistent_cache()
         cache_data = [{
             'cache_key': cache_key,
             'response': response_data,
             'timestamp': str(hashlib.md5(cache_key.encode()).hexdigest())  # Use hash as timestamp placeholder
         }]
-        # Cache LLM responses for 24 hours (86400 seconds)
-        cache.set('llm_responses', cache_data, ttl=86400, cache_key=cache_key)
+        # Use TTL from configuration
+        ttl = get_cache_ttl('llm_responses')
+        cache.set('llm_responses', cache_data, ttl=ttl, cache_key=cache_key)
     except Exception as e:
         print(f"Error caching LLM response: {e}")
 

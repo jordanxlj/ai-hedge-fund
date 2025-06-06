@@ -19,6 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from src.data.persistent_cache import PersistentCache
+from src.data.cache_config import CacheConfig, get_cache_ttl
 
 
 class TestPersistentCache:
@@ -177,7 +178,7 @@ class TestPersistentCache:
         result = cache.get_prices("AAPL", "2023-01-01", "2023-01-02")
         assert result == test_data
 
-    @patch('src.data.persistent_cache.datetime')
+    @patch('src.data.cache_config.datetime')
     def test_prices_ttl_market_hours(self, mock_datetime, cache):
         """测试价格数据在市场时间的TTL"""
         # 模拟市场时间（上午10点）
@@ -186,12 +187,13 @@ class TestPersistentCache:
         test_data = [{"ticker": "AAPL", "time": "2023-01-01", "price": 150.0}]
         cache.set_prices("AAPL", "2023-01-01", "2023-01-01", test_data)
         
-        # 检查TTL是否为1小时（3600秒）
+        # 检查TTL是否为市场时间的配置值
+        expected_ttl = get_cache_ttl('prices')  # 从配置获取期望的TTL
         cache_key = cache._get_cache_key("prices", ticker="AAPL", start_date="2023-01-01", end_date="2023-01-01")
         metadata = cache._cache_metadata[cache_key]
-        assert metadata["ttl"] == 3600
+        assert metadata["ttl"] == expected_ttl
 
-    @patch('src.data.persistent_cache.datetime')
+    @patch('src.data.cache_config.datetime')
     def test_prices_ttl_after_market(self, mock_datetime, cache):
         """测试价格数据在非市场时间的TTL"""
         # 模拟非市场时间（晚上8点）
@@ -200,10 +202,11 @@ class TestPersistentCache:
         test_data = [{"ticker": "AAPL", "time": "2023-01-01", "price": 150.0}]
         cache.set_prices("AAPL", "2023-01-01", "2023-01-01", test_data)
         
-        # 检查TTL是否为24小时（86400秒）
+        # 检查TTL是否为非市场时间的配置值
+        expected_ttl = get_cache_ttl('prices')  # 从配置获取期望的TTL
         cache_key = cache._get_cache_key("prices", ticker="AAPL", start_date="2023-01-01", end_date="2023-01-01")
         metadata = cache._cache_metadata[cache_key]
-        assert metadata["ttl"] == 86400
+        assert metadata["ttl"] == expected_ttl
 
     def test_financial_metrics_methods(self, cache):
         """测试财务指标专用方法"""
@@ -428,6 +431,52 @@ class TestPersistentCache:
         assert len(result) == 1000
         assert result[0]["id"] == 0
         assert result[-1]["id"] == 999
+
+
+class TestCacheConfig:
+    """测试YAML配置功能"""
+    
+    @pytest.fixture
+    def temp_config_dir(self):
+        """创建临时配置目录"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield temp_dir
+    
+    def test_yaml_config_creation(self, temp_config_dir):
+        """测试YAML配置文件创建"""
+        config_file = Path(temp_config_dir) / "cache_config.yaml"
+        config = CacheConfig(config_file=str(config_file))
+        
+        # 检查配置文件是否创建
+        assert config_file.exists()
+        
+        # 检查是否为有效的YAML内容
+        import yaml
+        with open(config_file, 'r', encoding='utf-8') as f:
+            loaded_config = yaml.safe_load(f)
+        
+        assert isinstance(loaded_config, dict)
+        assert 'prices' in loaded_config
+        assert 'llm_responses' in loaded_config
+    
+    def test_ttl_retrieval(self):
+        """测试TTL值获取"""
+        # 测试各种缓存类型的TTL
+        ttl_prices = get_cache_ttl('prices')
+        ttl_financial = get_cache_ttl('financial_metrics')
+        ttl_llm = get_cache_ttl('llm_responses')
+        
+        assert isinstance(ttl_prices, int)
+        assert isinstance(ttl_financial, int)
+        assert isinstance(ttl_llm, int)
+        assert ttl_prices > 0
+        assert ttl_financial > 0
+        assert ttl_llm > 0
+    
+    def test_unknown_cache_type(self):
+        """测试未知缓存类型的处理"""
+        ttl = get_cache_ttl('unknown_type')
+        assert ttl == 3600  # 默认1小时
 
 
 class TestGlobalFunctions:
