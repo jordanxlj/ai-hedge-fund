@@ -1,10 +1,12 @@
 """Helper functions for LLM"""
 
 import json
+import hashlib
 from pydantic import BaseModel
 from src.llm.models import get_model, get_model_info
 from src.utils.progress import progress
 from src.graph.state import AgentState
+from src.data.persistent_cache import get_persistent_cache
 
 
 def call_llm(
@@ -17,6 +19,7 @@ def call_llm(
 ) -> BaseModel:
     """
     Makes an LLM call with retry logic, handling both JSON supported and non-JSON supported models.
+    For DeepSeek models, responses are cached to improve performance.
 
     Args:
         prompt: The prompt to send to the LLM
@@ -31,6 +34,8 @@ def call_llm(
     """
     
     # Extract model configuration if state is provided and agent_name is available
+    model_name = None
+    model_provider = None
     if state and agent_name:
         model_name, model_provider = get_agent_model_config(state, agent_name)
     
@@ -39,6 +44,22 @@ def call_llm(
         model_name = "gpt-4o"
     if not model_provider:
         model_provider = "OPENAI"
+
+    # Check if this is a DeepSeek model and use cache
+    is_deepseek = model_provider == "DeepSeek" or (model_name and model_name.startswith("deepseek"))
+    
+    if is_deepseek:
+        # Generate cache key based on prompt, model, and pydantic model
+        cache_key = _generate_llm_cache_key(prompt, model_name, pydantic_model.__name__, agent_name)
+        
+        # Try to get cached response
+        cached_response = _get_cached_llm_response(cache_key)
+        if cached_response:
+            try:
+                return pydantic_model(**cached_response)
+            except Exception as e:
+                print(f"Error loading cached response: {e}")
+                # Fall through to make fresh API call
 
     model_info = get_model_info(model_name, model_provider)
     llm = get_model(model_name, model_provider)
@@ -60,9 +81,17 @@ def call_llm(
             if model_info and not model_info.has_json_mode():
                 parsed_result = extract_json_from_response(result.content)
                 if parsed_result:
-                    return pydantic_model(**parsed_result)
+                    final_result = pydantic_model(**parsed_result)
+                else:
+                    raise ValueError("Failed to extract JSON from response")
             else:
-                return result
+                final_result = result
+
+            # Cache the response for DeepSeek models
+            if is_deepseek and hasattr(final_result, 'model_dump'):
+                _cache_llm_response(cache_key, final_result.model_dump())
+            
+            return final_result
 
         except Exception as e:
             if agent_name:
@@ -99,6 +128,60 @@ def create_default_response(model_class: type[BaseModel]) -> BaseModel:
                 default_values[field_name] = None
 
     return model_class(**default_values)
+
+
+def _generate_llm_cache_key(prompt: any, model_name: str, pydantic_model_name: str, agent_name: str = None) -> str:
+    """Generate a unique cache key for LLM requests."""
+    # Convert prompt to string for hashing
+    if isinstance(prompt, list) and all(hasattr(msg, 'content') for msg in prompt):
+        # List of BaseMessage objects
+        prompt_str = str([msg.content for msg in prompt])
+    elif hasattr(prompt, 'messages'):
+        # ChatPromptTemplate case
+        prompt_str = str([msg.content if hasattr(msg, 'content') else str(msg) for msg in prompt.messages])
+    elif hasattr(prompt, '__str__'):
+        prompt_str = str(prompt)
+    else:
+        prompt_str = repr(prompt)
+    
+    # Create cache key components
+    components = [
+        prompt_str,
+        model_name,
+        pydantic_model_name,
+        agent_name or "unknown"
+    ]
+    
+    # Generate hash
+    combined = "_".join(components)
+    return hashlib.md5(combined.encode()).hexdigest()
+
+
+def _get_cached_llm_response(cache_key: str) -> dict | None:
+    """Get cached LLM response if available."""
+    try:
+        cache = get_persistent_cache()
+        cached_data = cache.get('llm_responses', cache_key=cache_key)
+        if cached_data and len(cached_data) > 0:
+            return cached_data[0].get('response')
+    except Exception as e:
+        print(f"Error reading from LLM cache: {e}")
+    return None
+
+
+def _cache_llm_response(cache_key: str, response_data: dict):
+    """Cache LLM response for future use."""
+    try:
+        cache = get_persistent_cache()
+        cache_data = [{
+            'cache_key': cache_key,
+            'response': response_data,
+            'timestamp': str(hashlib.md5(cache_key.encode()).hexdigest())  # Use hash as timestamp placeholder
+        }]
+        # Cache LLM responses for 24 hours (86400 seconds)
+        cache.set('llm_responses', cache_data, ttl=86400, cache_key=cache_key)
+    except Exception as e:
+        print(f"Error caching LLM response: {e}")
 
 
 def extract_json_from_response(content: str) -> dict | None:
