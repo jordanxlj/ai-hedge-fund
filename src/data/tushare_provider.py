@@ -145,11 +145,40 @@ class TushareProvider(AbstractDataProvider):
                 print(f"Tushare暂不支持港股财务指标数据: {ticker}")
                 return []
             
-            # A股使用fina_indicator
+            # A股使用fina_indicator获取主要财务指标
             df = self.pro.fina_indicator(
                 ts_code=tushare_ticker, 
                 end_date=end_date.replace('-', '') if end_date else None
             )
+            
+            # 获取PE、PB等估值指标（从daily_basic表）
+            valuation_df = None
+            try:
+                # 尝试获取最近交易日的估值数据
+                trade_date = end_date.replace('-', '')
+                valuation_df = self.pro.daily_basic(
+                    ts_code=tushare_ticker,
+                    trade_date=trade_date,
+                    fields='ts_code,trade_date,pe,pb,ps'
+                )
+                if valuation_df.empty:
+                    # 如果当日没有数据，尝试获取最近一个月的数据
+                    from datetime import datetime, timedelta
+                    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                    start_dt = end_dt - timedelta(days=30)
+                    start_date_str = start_dt.strftime('%Y%m%d')
+                    
+                    valuation_df = self.pro.daily_basic(
+                        ts_code=tushare_ticker,
+                        start_date=start_date_str,
+                        end_date=trade_date,
+                        fields='ts_code,trade_date,pe,pb,ps'
+                    )
+                    if not valuation_df.empty:
+                        valuation_df = valuation_df.sort_values('trade_date', ascending=False)
+            except Exception as e:
+                print(f"获取估值指标失败 {ticker}: {e}")
+                valuation_df = None
             
             if df.empty:
                 print(f"财务指标数据为空 {ticker}")
@@ -159,18 +188,60 @@ class TushareProvider(AbstractDataProvider):
             
             metrics = []
             for _, row in df.iterrows():
+                # 获取对应期间的估值指标
+                pe_ratio = None
+                pb_ratio = None
+                ps_ratio = None
+                if valuation_df is not None and not valuation_df.empty:
+                    # 使用最近的估值数据
+                    val_row = valuation_df.iloc[0]
+                    pe_ratio = self._safe_get_float(val_row, 'pe')
+                    pb_ratio = self._safe_get_float(val_row, 'pb') 
+                    ps_ratio = self._safe_get_float(val_row, 'ps')
+                
+                # 安全地获取并转换数值字段
+                def safe_percentage_to_decimal(row, field_name):
+                    """安全地将百分比数值转换为小数"""
+                    value = self._safe_get_float(row, field_name)
+                    return value / 100 if value is not None else None
+                
+                def safe_get_value(row, field_name):
+                    """安全地获取数值"""
+                    return self._safe_get_float(row, field_name)
+                
                 metric = FinancialMetrics(
                     ticker=ticker,
                     report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
                     period=period,
-                    roe=float(row['roe']) if 'roe' in row and pd.notna(row['roe']) else None,
-                    roa=float(row['roa']) if 'roa' in row and pd.notna(row['roa']) else None,
-                    current_ratio=float(row['current_ratio']) if 'current_ratio' in row and pd.notna(row['current_ratio']) else None,
-                    quick_ratio=float(row['quick_ratio']) if 'quick_ratio' in row and pd.notna(row['quick_ratio']) else None,
-                    debt_to_equity=float(row['debt_to_assets']) if 'debt_to_assets' in row and pd.notna(row['debt_to_assets']) else None,
-                    eps=float(row['eps']) if 'eps' in row and pd.notna(row['eps']) else None,
-                    pe_ratio=self._safe_get_float(row, 'pe'),
-                    pb_ratio=self._safe_get_float(row, 'pb'),
+                    # 基础字段映射
+                    return_on_equity=safe_percentage_to_decimal(row, 'roe'),  # ROE转换为小数
+                    return_on_assets=safe_percentage_to_decimal(row, 'roa_yearly'),  # ROA转换为小数
+                    current_ratio=safe_get_value(row, 'current_ratio'),
+                    quick_ratio=safe_get_value(row, 'quick_ratio'),
+                    debt_to_assets=safe_percentage_to_decimal(row, 'debt_to_assets'),  # 负债率转换为小数
+                    debt_to_equity=safe_get_value(row, 'debt_to_eqt'),
+                    # 盈利能力指标
+                    gross_margin=safe_percentage_to_decimal(row, 'grossprofit_margin'),  # 毛利率
+                    operating_margin=safe_percentage_to_decimal(row, 'op_of_gr'),  # 营业利润率
+                    net_margin=safe_percentage_to_decimal(row, 'netprofit_margin'),  # 净利率
+                    # 每股指标
+                    earnings_per_share=safe_get_value(row, 'eps'),
+                    book_value_per_share=safe_get_value(row, 'bps'),
+                    free_cash_flow_per_share=safe_get_value(row, 'fcff_ps'),
+                    # 增长率指标
+                    revenue_growth=safe_percentage_to_decimal(row, 'or_yoy'),  # 营收增长率
+                    earnings_growth=safe_percentage_to_decimal(row, 'netprofit_yoy'),  # 净利润增长率
+                    book_value_growth=safe_percentage_to_decimal(row, 'bps_yoy'),  # 每股净资产增长率
+                    # 估值指标 (从daily_basic获取)
+                    price_to_earnings_ratio=pe_ratio,
+                    price_to_book_ratio=pb_ratio,
+                    price_to_sales_ratio=ps_ratio,
+                    # Tushare兼容字段
+                    roe=safe_get_value(row, 'roe'),
+                    roa=safe_get_value(row, 'roa_yearly'),
+                    eps=safe_get_value(row, 'eps'),
+                    pe_ratio=pe_ratio,
+                    pb_ratio=pb_ratio,
                 )
                 metrics.append(metric)
             
