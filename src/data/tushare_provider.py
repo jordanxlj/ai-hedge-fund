@@ -32,12 +32,8 @@ class TushareProvider(AbstractDataProvider):
                 self.pro = None
     
     def _convert_ticker(self, ticker: str) -> str:
-        """转换股票代码格式 (如 AAPL -> 000001.SZ)"""
-        # 这里需要根据实际需求来转换股票代码格式
-        # 示例：如果是美股代码，可能需要映射到A股代码
-        # 或者保持原有格式，取决于具体使用场景
-        
-        # 简单的转换逻辑：如果是6位数字，认为是A股代码
+        """转换股票代码格式，支持A股和港股"""
+        # A股代码转换
         if len(ticker) == 6 and ticker.isdigit():
             # 判断是上交所还是深交所
             if ticker.startswith(('60', '68')):
@@ -45,12 +41,25 @@ class TushareProvider(AbstractDataProvider):
             else:
                 return f"{ticker}.SZ"
         
+        # 港股代码转换 (如 00700 -> 00700.HK)
+        if len(ticker) == 5 and ticker.isdigit():
+            return f"{ticker}.HK"
+        
+        # 港股代码转换 (如 700 -> 00700.HK)
+        if len(ticker) <= 4 and ticker.isdigit():
+            ticker_padded = ticker.zfill(5)  # 补齐到5位
+            return f"{ticker_padded}.HK"
+        
         # 如果已经有后缀，直接返回
         if '.' in ticker:
             return ticker
             
         # 对于其他格式，暂时直接返回
         return ticker
+    
+    def _is_hk_stock(self, ticker: str) -> bool:
+        """判断是否为港股代码"""
+        return ticker.endswith('.HK') or (len(ticker) <= 5 and ticker.isdigit())
     
     def _convert_date_format(self, date_str: str) -> str:
         """转换日期格式 (YYYY-MM-DD -> YYYYMMDD)"""
@@ -65,7 +74,7 @@ class TushareProvider(AbstractDataProvider):
         start_date: str,
         end_date: str
     ) -> List[Price]:
-        """获取股价数据"""
+        """获取股价数据，支持A股和港股"""
         try:
             if self.pro is None:
                 logger.error("Tushare API未初始化")
@@ -75,12 +84,21 @@ class TushareProvider(AbstractDataProvider):
             start_date_ts = self._convert_date_format(start_date)
             end_date_ts = self._convert_date_format(end_date)
             
-            # 获取日K线数据
-            df = self.pro.daily(
-                ts_code=ts_code,
-                start_date=start_date_ts,
-                end_date=end_date_ts
-            )
+            # 根据股票类型选择不同的API
+            if self._is_hk_stock(ticker):
+                # 港股使用hk_daily
+                df = self.pro.hk_daily(
+                    ts_code=ts_code,
+                    start_date=start_date_ts,
+                    end_date=end_date_ts
+                )
+            else:
+                # A股使用daily
+                df = self.pro.daily(
+                    ts_code=ts_code,
+                    start_date=start_date_ts,
+                    end_date=end_date_ts
+                )
             
             if df is None or df.empty:
                 return []
@@ -110,7 +128,7 @@ class TushareProvider(AbstractDataProvider):
                             start_date: Optional[str] = None, end_date: Optional[str] = None, 
                             limit: int = 10) -> List[FinancialMetrics]:
         """
-        获取财务指标
+        获取财务指标，支持A股和港股
         """
         if not self.is_available():
             return []
@@ -118,7 +136,12 @@ class TushareProvider(AbstractDataProvider):
         try:
             tushare_ticker = self._convert_ticker(ticker)
             
-            # 获取基本财务指标
+            # 港股暂不支持财务指标数据
+            if self._is_hk_stock(ticker):
+                print(f"Tushare暂不支持港股财务指标数据: {ticker}")
+                return []
+            
+            # A股使用fina_indicator
             df = self.pro.fina_indicator(ts_code=tushare_ticker, 
                                         start_date=start_date.replace('-', '') if start_date else None,
                                         end_date=end_date.replace('-', '') if end_date else None)
@@ -169,10 +192,16 @@ class TushareProvider(AbstractDataProvider):
         period: str = "ttm",
         limit: int = 10,
     ) -> List[LineItem]:
-        """搜索财务报表项目"""
+        """搜索财务报表项目，支持A股和港股"""
         try:
             ts_code = self._convert_ticker(ticker)
             
+            # 港股暂不支持财务报表数据
+            if self._is_hk_stock(ticker):
+                print(f"Tushare暂不支持港股财务报表数据: {ticker}")
+                return []
+            
+            # A股财务数据
             # 获取财务报表数据 - 利润表
             income_df = self.pro.income(
                 ts_code=ts_code,
@@ -200,17 +229,22 @@ class TushareProvider(AbstractDataProvider):
                                 period=period,
                                 line_item=item_name,
                                 value=float(row['revenue']),
-                                unit="CNY"
+                                unit="HKD" if self._is_hk_stock(ticker) else "CNY",
+                                currency="HKD" if self._is_hk_stock(ticker) else "CNY"
                             )
                             line_items_data.append(line_item)
-                        elif item_name.lower() in ['net_income', '净利润'] and pd.notna(row['n_income']):
+                        # 处理净利润字段（A股使用n_income，港股使用net_profit）
+                        net_income_field = 'net_profit' if self._is_hk_stock(ticker) else 'n_income'
+                        if (item_name.lower() in ['net_income', '净利润'] and 
+                            net_income_field in row and pd.notna(row[net_income_field])):
                             line_item = LineItem(
                                 ticker=ticker,
                                 report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
                                 period=period,
                                 line_item=item_name,
-                                value=float(row['n_income']),
-                                unit="CNY"
+                                value=float(row[net_income_field]),
+                                unit="HKD" if self._is_hk_stock(ticker) else "CNY",
+                                currency="HKD" if self._is_hk_stock(ticker) else "CNY"
                             )
                             line_items_data.append(line_item)
             
@@ -225,7 +259,8 @@ class TushareProvider(AbstractDataProvider):
                                 period=period,
                                 line_item=item_name,
                                 value=float(row['total_assets']),
-                                unit="CNY"
+                                unit="HKD" if self._is_hk_stock(ticker) else "CNY",
+                                currency="HKD" if self._is_hk_stock(ticker) else "CNY"
                             )
                             line_items_data.append(line_item)
             
@@ -301,7 +336,12 @@ class TushareProvider(AbstractDataProvider):
             # 首先尝试获取最近的交易日
             trade_date = end_date.replace('-', '')
             
-            # 使用daily_basic获取市值数据
+            # 港股暂不支持市值数据
+            if self._is_hk_stock(ticker):
+                print(f"Tushare暂不支持港股市值数据: {ticker}")
+                return None
+            
+            # A股使用daily_basic获取市值数据
             df = self.pro.daily_basic(ts_code=tushare_ticker, 
                                      trade_date=trade_date,
                                      fields='ts_code,trade_date,total_mv')
@@ -325,10 +365,10 @@ class TushareProvider(AbstractDataProvider):
                 # 取最近的有数据的日期
                 df = df.sort_values('trade_date', ascending=False)
             
-            # total_mv单位是万元，转换为元
+            # A股total_mv字段，单位是万元
             if pd.notna(df.iloc[0]['total_mv']):
                 market_cap = float(df.iloc[0]['total_mv']) * 10000
-                print(f"获取市值成功 {ticker}: {market_cap:,.0f} 元 (日期: {df.iloc[0]['trade_date']})")
+                print(f"获取市值成功 {ticker}: {market_cap:,.0f} 人民币 (日期: {df.iloc[0]['trade_date']})")
                 return market_cap
             else:
                 print(f"市值字段为空 {ticker}")

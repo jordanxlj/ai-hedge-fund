@@ -29,19 +29,27 @@ data_providers:
       - Global
     tushare:
       api_key_env: TUSHARE_API_KEY
-      description: 中国A股财务数据API服务
+      description: 中国A股和港股数据API服务
       features:
-      - prices
-      - financial_metrics
-      - line_items
-      - insider_trades
-      - market_cap
+        CN:  # 中国A股 - 全功能支持
+        - prices
+        - financial_metrics
+        - line_items
+        - insider_trades
+        - market_cap
+        HK:  # 香港股市 - 仅行情数据
+        - prices
       limitations:
       - 不支持公司新闻数据
       - 股票代码格式需要转换
+      - 港股仅支持行情数据，不支持财务数据
       name: Tushare Pro
       supported_markets:
-      - CN
+      - CN  # 中国A股
+      - HK  # 香港股市 (限制功能)
+      ticker_formats:
+        CN: "6位数字.SH/SZ (如: 000001.SZ, 600000.SH)"
+        HK: "5位数字.HK (如: 00700.HK)"
   default: tushare
 interfaces:
   call_llm_deepseek:
