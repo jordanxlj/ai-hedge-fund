@@ -7,6 +7,7 @@ import json
 from typing_extensions import Literal
 from src.utils.progress import progress
 from src.utils.llm import call_llm
+from src.utils.line_item_helpers import get_line_item_value
 import math
 
 
@@ -106,8 +107,9 @@ def analyze_earnings_stability(metrics: list, financial_line_items: list) -> dic
 
     eps_vals = []
     for item in financial_line_items:
-        if item.earnings_per_share is not None:
-            eps_vals.append(item.earnings_per_share)
+        eps_value = get_line_item_value(financial_line_items, "earnings_per_share", item.report_period)
+        if eps_value is not None:
+            eps_vals.append(eps_value)
 
     if len(eps_vals) < 2:
         details.append("Not enough multi-year EPS data.")
@@ -146,11 +148,12 @@ def analyze_financial_strength(financial_line_items: list) -> dict:
     if not financial_line_items:
         return {"score": score, "details": "No data for financial strength analysis"}
 
-    latest_item = financial_line_items[0]
-    total_assets = latest_item.total_assets or 0
-    total_liabilities = latest_item.total_liabilities or 0
-    current_assets = latest_item.current_assets or 0
-    current_liabilities = latest_item.current_liabilities or 0
+    # Get the latest period's data
+    latest_period = financial_line_items[0].report_period
+    total_assets = get_line_item_value(financial_line_items, "total_assets", latest_period) or 0
+    total_liabilities = get_line_item_value(financial_line_items, "total_liabilities", latest_period) or 0
+    current_assets = get_line_item_value(financial_line_items, "current_assets", latest_period) or 0
+    current_liabilities = get_line_item_value(financial_line_items, "current_liabilities", latest_period) or 0
 
     # 1. Current ratio
     if current_liabilities > 0:
@@ -181,7 +184,11 @@ def analyze_financial_strength(financial_line_items: list) -> dict:
         details.append("Cannot compute debt ratio (missing total_assets).")
 
     # 3. Dividend track record
-    div_periods = [item.dividends_and_other_cash_distributions for item in financial_line_items if item.dividends_and_other_cash_distributions is not None]
+    div_periods = []
+    for item in financial_line_items:
+        div_value = get_line_item_value(financial_line_items, "dividends_and_other_cash_distributions", item.report_period)
+        if div_value is not None:
+            div_periods.append(div_value)
     if div_periods:
         # In many data feeds, dividend outflow is shown as a negative number
         # (money going out to shareholders). We'll consider any negative as 'paid a dividend'.
@@ -211,12 +218,13 @@ def analyze_valuation_graham(financial_line_items: list, market_cap: float) -> d
     if not financial_line_items or not market_cap or market_cap <= 0:
         return {"score": 0, "details": "Insufficient data to perform valuation"}
 
-    latest = financial_line_items[0]
-    current_assets = latest.current_assets or 0
-    total_liabilities = latest.total_liabilities or 0
-    book_value_ps = latest.book_value_per_share or 0
-    eps = latest.earnings_per_share or 0
-    shares_outstanding = latest.outstanding_shares or 0
+    # Get the latest period's data
+    latest_period = financial_line_items[0].report_period
+    current_assets = get_line_item_value(financial_line_items, "current_assets", latest_period) or 0
+    total_liabilities = get_line_item_value(financial_line_items, "total_liabilities", latest_period) or 0
+    book_value_ps = get_line_item_value(financial_line_items, "book_value_per_share", latest_period) or 0
+    eps = get_line_item_value(financial_line_items, "earnings_per_share", latest_period) or 0
+    shares_outstanding = get_line_item_value(financial_line_items, "outstanding_shares", latest_period) or 0
 
     details = []
     score = 0

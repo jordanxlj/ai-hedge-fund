@@ -17,6 +17,7 @@ from src.tools.api import (
     get_market_cap,
     search_line_items,
 )
+from src.utils.line_item_helpers import create_line_item_accessor
 
 def valuation_analyst_agent(state: AgentState):
     """Run valuation across tickers and write signals back to `state`."""
@@ -60,25 +61,28 @@ def valuation_analyst_agent(state: AgentState):
         if len(line_items) < 2:
             progress.update_status("valuation_analyst_agent", ticker, "Failed: Insufficient financial line items")
             continue
-        li_curr, li_prev = line_items[0], line_items[1]
+        
+        # 创建访问器对象来方便访问line_item值
+        li_curr = create_line_item_accessor([line_items[0]])
+        li_prev = create_line_item_accessor([line_items[1]])
 
         # ------------------------------------------------------------------
         # Valuation models
         # ------------------------------------------------------------------
-        wc_change = li_curr.working_capital - li_prev.working_capital
+        wc_change = (li_curr.get('working_capital', 0) or 0) - (li_prev.get('working_capital', 0) or 0)
 
         # Owner Earnings
         owner_val = calculate_owner_earnings_value(
-            net_income=li_curr.net_income,
-            depreciation=li_curr.depreciation_and_amortization,
-            capex=li_curr.capital_expenditure,
+            net_income=li_curr.get('net_income', 0) or 0,
+            depreciation=li_curr.get('depreciation_and_amortization', 0) or 0,
+            capex=li_curr.get('capital_expenditure', 0) or 0,
             working_capital_change=wc_change,
             growth_rate=most_recent_metrics.earnings_growth or 0.05,
         )
 
         # Discounted Cash Flow
         dcf_val = calculate_intrinsic_value(
-            free_cash_flow=li_curr.free_cash_flow,
+            free_cash_flow=li_curr.get('free_cash_flow', 0) or 0,
             growth_rate=most_recent_metrics.earnings_growth or 0.05,
             discount_rate=0.10,
             terminal_growth_rate=0.03,
@@ -91,7 +95,7 @@ def valuation_analyst_agent(state: AgentState):
         # Residual Income Model
         rim_val = calculate_residual_income_value(
             market_cap=most_recent_metrics.market_cap,
-            net_income=li_curr.net_income,
+            net_income=li_curr.get('net_income', 0) or 0,
             price_to_book_ratio=most_recent_metrics.price_to_book_ratio,
             book_value_growth=most_recent_metrics.book_value_growth or 0.03,
         )

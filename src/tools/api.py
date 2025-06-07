@@ -147,16 +147,33 @@ def search_line_items(
     if response.status_code != 200:
         raise Exception(f"Error fetching data: {ticker} - {response.status_code} - {response.text}")
     data = response.json()
-    response_model = LineItemResponse(**data)
-    search_results = response_model.search_results
-    if not search_results:
+    
+    # Transform the raw API data into LineItem format
+    transformed_results = []
+    if "search_results" in data and data["search_results"]:
+        for raw_item in data["search_results"]:
+            # For each requested line item, extract its value from the raw data
+            for line_item_name in line_items:
+                if line_item_name in raw_item and raw_item[line_item_name] is not None:
+                    transformed_item = LineItem(
+                        ticker=raw_item.get("ticker", ticker),
+                        report_period=raw_item.get("report_period", ""),
+                        period=raw_item.get("period", period),
+                        line_item=line_item_name,
+                        value=float(raw_item[line_item_name]),
+                        unit=raw_item.get("unit", "USD"),
+                        currency=raw_item.get("currency", "USD")
+                    )
+                    transformed_results.append(transformed_item)
+    
+    if not transformed_results:
         return []
 
     # Cache the results in both memory and persistent cache
-    line_items_data = [item.model_dump() for item in search_results]
+    line_items_data = [item.model_dump() for item in transformed_results]
     _cache.set_line_items(cache_key, line_items_data)
     _persistent_cache.set_line_items(ticker, line_items, period, end_date, limit, line_items_data)
-    return search_results[:limit]
+    return transformed_results[:limit]
 
 
 def get_insider_trades(
@@ -266,8 +283,14 @@ def get_company_news(
             raise Exception(f"Error fetching data: {ticker} - {response.status_code} - {response.text}")
 
         data = response.json()
+        
+        # Transform the response to match the expected CompanyNewsResponse structure
+        # The API returns {'news': [...]} but CompanyNewsResponse expects {'company_news': [...]}
+        if 'news' in data and 'company_news' not in data:
+            data = {'company_news': data['news']}
+        
         response_model = CompanyNewsResponse(**data)
-        company_news = response_model.news
+        company_news = response_model.company_news
 
         if not company_news:
             break

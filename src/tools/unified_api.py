@@ -162,13 +162,23 @@ def search_line_items(
     
     # Check memory cache first - fastest
     if cached_data := _cache.get_line_items(cache_key):
-        return [LineItem(**item) for item in cached_data]
+        try:
+            return [LineItem(**item) for item in cached_data]
+        except Exception as e:
+            # If cached data format is invalid, clear it and fetch fresh
+            logger.warning(f"Invalid cached data format for line_items {ticker}, clearing cache: {e}")
+            _cache._line_items_cache.pop(cache_key, None)
     
     # Check persistent cache - second fastest
     if persistent_data := _persistent_cache.get_line_items(ticker, line_items, period, end_date, limit):
-        # Load into memory cache for faster future access
-        _cache.set_line_items(cache_key, persistent_data)
-        return [LineItem(**item) for item in persistent_data]
+        try:
+            line_items_objs = [LineItem(**item) for item in persistent_data]
+            # Load into memory cache for faster future access
+            _cache.set_line_items(cache_key, persistent_data)
+            return line_items_objs
+        except Exception as e:
+            # If persistent data format is invalid, ignore and fetch fresh
+            logger.warning(f"Invalid persistent data format for line_items {ticker}: {e}")
 
     # If not in cache, fetch from data provider
     try:
