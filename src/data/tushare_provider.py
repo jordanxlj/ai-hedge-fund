@@ -106,26 +106,28 @@ class TushareProvider(AbstractDataProvider):
             logger.error(f"获取股价数据失败 {ticker}: {e}")
             return []
     
-    def get_financial_metrics(
-        self,
-        ticker: str,
-        end_date: str,
-        period: str = "ttm",
-        limit: int = 10,
-    ) -> List[FinancialMetrics]:
-        """获取财务指标数据"""
+    def get_financial_metrics(self, ticker: str, period: str = "annual", 
+                            start_date: Optional[str] = None, end_date: Optional[str] = None, 
+                            limit: int = 10) -> List[FinancialMetrics]:
+        """
+        获取财务指标
+        """
+        if not self.is_available():
+            return []
+        
         try:
-            ts_code = self._convert_ticker(ticker)
+            tushare_ticker = self._convert_ticker(ticker)
             
-            # 获取财务指标数据
-            df = self.pro.fina_indicator(
-                ts_code=ts_code,
-                end_date=self._convert_date_format(end_date),
-                fields='ts_code,end_date,roe,roa,current_ratio,quick_ratio,debt_to_assets,eps,pe,pb'
-            )
+            # 获取基本财务指标
+            df = self.pro.fina_indicator(ts_code=tushare_ticker, 
+                                        start_date=start_date.replace('-', '') if start_date else None,
+                                        end_date=end_date.replace('-', '') if end_date else None)
             
-            if df is None or df.empty:
+            if df.empty:
+                print(f"财务指标数据为空 {ticker}")
                 return []
+            
+            print(f"获取财务指标 {ticker}: {len(df)} 条记录，字段: {list(df.columns)}")
             
             metrics = []
             for _, row in df.iterrows():
@@ -133,22 +135,31 @@ class TushareProvider(AbstractDataProvider):
                     ticker=ticker,
                     report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
                     period=period,
-                    roe=float(row['roe']) if pd.notna(row['roe']) else None,
-                    roa=float(row['roa']) if pd.notna(row['roa']) else None,
-                    current_ratio=float(row['current_ratio']) if pd.notna(row['current_ratio']) else None,
-                    quick_ratio=float(row['quick_ratio']) if pd.notna(row['quick_ratio']) else None,
-                    debt_to_equity=float(row['debt_to_assets']) if pd.notna(row['debt_to_assets']) else None,
-                    eps=float(row['eps']) if pd.notna(row['eps']) else None,
-                    pe_ratio=float(row['pe']) if pd.notna(row['pe']) else None,
-                    pb_ratio=float(row['pb']) if pd.notna(row['pb']) else None,
+                    roe=float(row['roe']) if 'roe' in row and pd.notna(row['roe']) else None,
+                    roa=float(row['roa']) if 'roa' in row and pd.notna(row['roa']) else None,
+                    current_ratio=float(row['current_ratio']) if 'current_ratio' in row and pd.notna(row['current_ratio']) else None,
+                    quick_ratio=float(row['quick_ratio']) if 'quick_ratio' in row and pd.notna(row['quick_ratio']) else None,
+                    debt_to_equity=float(row['debt_to_assets']) if 'debt_to_assets' in row and pd.notna(row['debt_to_assets']) else None,
+                    eps=float(row['eps']) if 'eps' in row and pd.notna(row['eps']) else None,
+                    pe_ratio=self._safe_get_float(row, 'pe'),
+                    pb_ratio=self._safe_get_float(row, 'pb'),
                 )
                 metrics.append(metric)
             
             return metrics[:limit]
             
         except Exception as e:
-            logger.error(f"获取财务指标失败 {ticker}: {e}")
+            print(f"获取财务指标失败 {ticker}: {e}")
             return []
+    
+    def _safe_get_float(self, row, field: str) -> Optional[float]:
+        """安全获取浮点数字段"""
+        try:
+            if field in row and pd.notna(row[field]):
+                return float(row[field])
+        except (KeyError, ValueError, TypeError):
+            pass
+        return None
     
     def search_line_items(
         self,
@@ -235,10 +246,10 @@ class TushareProvider(AbstractDataProvider):
         try:
             ts_code = self._convert_ticker(ticker)
             
-            # 获取股东减持数据
-            df = self.pro.share_float(
-                ts_code=ts_code,
-                end_date=self._convert_date_format(end_date) if end_date else None
+            # 获取股东减持数据 - 使用更简单的API
+            df = self.pro.top_list(
+                trade_date=self._convert_date_format(end_date) if end_date else None,
+                ts_code=ts_code
             )
             
             if df is None or df.empty:
@@ -248,11 +259,11 @@ class TushareProvider(AbstractDataProvider):
             for _, row in df.iterrows():
                 trade = InsiderTrade(
                     ticker=ticker,
-                    filing_date=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8] if pd.notna(row['end_date']) else end_date,
+                    filing_date=row['trade_date'][:4] + '-' + row['trade_date'][4:6] + '-' + row['trade_date'][6:8] if pd.notna(row['trade_date']) else end_date,
                     transaction_type="减持",
-                    shares=float(row['float_share']) if pd.notna(row['float_share']) else 0,
-                    price=0.0,  # Tushare减持数据中通常没有具体价格
-                    value=0.0
+                    shares=float(row['amount']) if pd.notna(row['amount']) else 0,
+                    price=float(row['close']) if pd.notna(row['close']) else 0.0,
+                    value=float(row['amount']) * float(row['close']) if pd.notna(row['amount']) and pd.notna(row['close']) else 0.0
                 )
                 trades.append(trade)
             
@@ -279,32 +290,52 @@ class TushareProvider(AbstractDataProvider):
             logger.error(f"获取公司新闻失败 {ticker}: {e}")
             return []
     
-    def get_market_cap(
-        self,
-        ticker: str,
-        end_date: str,
-    ) -> Optional[float]:
-        """获取市值"""
-        try:
-            ts_code = self._convert_ticker(ticker)
-            
-            # 获取基本信息
-            df = self.pro.daily_basic(
-                ts_code=ts_code,
-                trade_date=self._convert_date_format(end_date)
-            )
-            
-            if df is None or df.empty:
-                return None
-            
-            # 总市值 (万元)
-            if pd.notna(df.iloc[0]['total_mv']):
-                return float(df.iloc[0]['total_mv']) * 10000  # 转换为元
-            
+    def get_market_cap(self, ticker: str, end_date: str) -> Optional[float]:
+        """获取市值数据"""
+        if not self.is_available():
             return None
             
+        try:
+            tushare_ticker = self._convert_ticker(ticker)
+            
+            # 首先尝试获取最近的交易日
+            trade_date = end_date.replace('-', '')
+            
+            # 使用daily_basic获取市值数据
+            df = self.pro.daily_basic(ts_code=tushare_ticker, 
+                                     trade_date=trade_date,
+                                     fields='ts_code,trade_date,total_mv')
+            
+            if df.empty:
+                # 如果指定日期没有数据，尝试获取最近一个月的数据
+                from datetime import datetime, timedelta
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                start_dt = end_dt - timedelta(days=30)
+                start_date_str = start_dt.strftime('%Y%m%d')
+                
+                df = self.pro.daily_basic(ts_code=tushare_ticker, 
+                                         start_date=start_date_str,
+                                         end_date=trade_date,
+                                         fields='ts_code,trade_date,total_mv')
+                
+                if df.empty:
+                    print(f"市值数据为空 {ticker} 在日期 {end_date}")
+                    return None
+                
+                # 取最近的有数据的日期
+                df = df.sort_values('trade_date', ascending=False)
+            
+            # total_mv单位是万元，转换为元
+            if pd.notna(df.iloc[0]['total_mv']):
+                market_cap = float(df.iloc[0]['total_mv']) * 10000
+                print(f"获取市值成功 {ticker}: {market_cap:,.0f} 元 (日期: {df.iloc[0]['trade_date']})")
+                return market_cap
+            else:
+                print(f"市值字段为空 {ticker}")
+                return None
+            
         except Exception as e:
-            logger.error(f"获取市值失败 {ticker}: {e}")
+            print(f"获取市值失败 {ticker}: {e}")
             return None
     
     def is_available(self) -> bool:
