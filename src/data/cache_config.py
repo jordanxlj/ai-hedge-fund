@@ -289,6 +289,58 @@ class CacheConfig:
             if config.get("cache_type", "none") != "none":
                 cached_interfaces.append(interface)
         return cached_interfaces
+    
+    def get_data_provider_config(self) -> Dict[str, Any]:
+        """获取数据提供商配置"""
+        try:
+            config = self._load_config()
+            return config.get('data_providers', {
+                'default': 'financial_datasets',
+                'available': {
+                    'financial_datasets': {
+                        'name': 'FinancialDatasets.ai',
+                        'description': '美股财务数据API服务'
+                    },
+                    'tushare': {
+                        'name': 'Tushare Pro',
+                        'description': '中国A股财务数据API服务'
+                    }
+                }
+            })
+        except Exception as e:
+            print(f"Warning: 无法获取数据提供商配置 - {e}")
+            return {'default': 'financial_datasets', 'available': {}}
+    
+    def get_default_data_provider(self) -> str:
+        """获取默认数据提供商"""
+        try:
+            config = self.get_data_provider_config()
+            return config.get('default', 'financial_datasets')
+        except Exception as e:
+            print(f"Warning: 无法获取默认数据提供商 - {e}")
+            return 'financial_datasets'
+    
+    def set_default_data_provider(self, provider_name: str):
+        """设置默认数据提供商"""
+        try:
+            config = self._load_config()
+            if 'data_providers' not in config:
+                config['data_providers'] = {'available': {}}
+            
+            config['data_providers']['default'] = provider_name
+            self._save_config(config)
+            print(f"默认数据提供商已设置为: {provider_name}")
+        except Exception as e:
+            print(f"Error: 无法设置默认数据提供商 - {e}")
+    
+    def get_available_data_providers(self) -> Dict[str, Any]:
+        """获取可用的数据提供商列表"""
+        try:
+            config = self.get_data_provider_config()
+            return config.get('available', {})
+        except Exception as e:
+            print(f"Warning: 无法获取可用数据提供商列表 - {e}")
+            return {}
 
 
 # Global cache config instance

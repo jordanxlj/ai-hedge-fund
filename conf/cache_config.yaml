@@ -11,6 +11,38 @@ agent_models:
   rakesh_jhunjhunwala:
     default_model: gpt-4o
     default_provider: OpenAI
+data_providers:
+  available:
+    financial_datasets:
+      api_key_env: FINANCIAL_DATASETS_API_KEY
+      description: 美股财务数据API服务
+      features:
+      - prices
+      - financial_metrics
+      - line_items
+      - insider_trades
+      - company_news
+      - market_cap
+      name: FinancialDatasets.ai
+      supported_markets:
+      - US
+      - Global
+    tushare:
+      api_key_env: TUSHARE_API_KEY
+      description: 中国A股财务数据API服务
+      features:
+      - prices
+      - financial_metrics
+      - line_items
+      - insider_trades
+      - market_cap
+      limitations:
+      - 不支持公司新闻数据
+      - 股票代码格式需要转换
+      name: Tushare Pro
+      supported_markets:
+      - CN
+  default: tushare
 interfaces:
   call_llm_deepseek:
     cache_key_components:
