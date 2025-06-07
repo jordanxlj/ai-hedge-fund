@@ -123,10 +123,27 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                 "limit": limit,
             }
             response = self._make_request("POST", url, json=body)
+            data = response.json()
             
-            # 解析响应
-            line_item_response = LineItemResponse(**response.json())
-            return line_item_response.search_results or []
+            # Transform the raw API data into LineItem format
+            transformed_results = []
+            if "search_results" in data and data["search_results"]:
+                for raw_item in data["search_results"]:
+                    # For each requested line item, extract its value from the raw data
+                    for line_item_name in line_items:
+                        if line_item_name in raw_item and raw_item[line_item_name] is not None:
+                            transformed_item = LineItem(
+                                ticker=raw_item.get("ticker", ticker),
+                                report_period=raw_item.get("report_period", ""),
+                                period=raw_item.get("period", period),
+                                line_item=line_item_name,
+                                value=float(raw_item[line_item_name]),
+                                unit=raw_item.get("unit", "USD"),
+                                currency=raw_item.get("currency", "USD")
+                            )
+                            transformed_results.append(transformed_item)
+            
+            return transformed_results[:limit]
             
         except Exception as e:
             logger.error(f"搜索财务报表项目失败 {ticker}: {e}")
@@ -165,7 +182,9 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                     break
                 
                 # 更新日期范围以获取下一页
-                current_end_date = insider_response.insider_trades[-1].filing_date
+                last_filing_date = insider_response.insider_trades[-1].filing_date
+                # Extract only the date part (YYYY-MM-DD) from the datetime string
+                current_end_date = last_filing_date.split("T")[0] if "T" in last_filing_date else last_filing_date
                 if current_end_date == end_date:
                     break
 
@@ -188,13 +207,18 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             current_end_date = end_date
 
             while True:
-                url = f"{self.base_url}/company-news/?ticker={ticker}&date_lte={current_end_date}"
+                url = f"{self.base_url}/news/?ticker={ticker}&end_date={current_end_date}"
                 if start_date:
-                    url += f"&date_gte={start_date}"
+                    url += f"&start_date={start_date}"
                 url += f"&limit={limit}"
 
                 response = self._make_request("GET", url)
                 data = response.json()
+                
+                # Transform the response to match the expected CompanyNewsResponse structure
+                # The API returns {'news': [...]} but CompanyNewsResponse expects {'company_news': [...]}
+                if 'news' in data and 'company_news' not in data:
+                    data = {'company_news': data['news']}
                 
                 # 解析响应
                 news_response = CompanyNewsResponse(**data)
@@ -208,7 +232,9 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                     break
                 
                 # 更新日期范围以获取下一页
-                current_end_date = news_response.company_news[-1].date
+                last_news_date = news_response.company_news[-1].date
+                # Extract only the date part (YYYY-MM-DD) from the datetime string
+                current_end_date = last_news_date.split("T")[0] if "T" in last_news_date else last_news_date
                 if current_end_date == end_date:
                     break
 

@@ -124,9 +124,13 @@ class TushareProvider(AbstractDataProvider):
             logger.error(f"获取股价数据失败 {ticker}: {e}")
             return []
     
-    def get_financial_metrics(self, ticker: str, period: str = "annual", 
-                            start_date: Optional[str] = None, end_date: Optional[str] = None, 
-                            limit: int = 10) -> List[FinancialMetrics]:
+    def get_financial_metrics(
+        self,
+        ticker: str,
+        end_date: str,
+        period: str = "ttm",
+        limit: int = 10,
+    ) -> List[FinancialMetrics]:
         """
         获取财务指标，支持A股和港股
         """
@@ -142,9 +146,10 @@ class TushareProvider(AbstractDataProvider):
                 return []
             
             # A股使用fina_indicator
-            df = self.pro.fina_indicator(ts_code=tushare_ticker, 
-                                        start_date=start_date.replace('-', '') if start_date else None,
-                                        end_date=end_date.replace('-', '') if end_date else None)
+            df = self.pro.fina_indicator(
+                ts_code=tushare_ticker, 
+                end_date=end_date.replace('-', '') if end_date else None
+            )
             
             if df.empty:
                 print(f"财务指标数据为空 {ticker}")
