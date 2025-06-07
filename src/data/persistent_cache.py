@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import hashlib
-from .cache_config import get_cache_ttl
+from .data_config import get_cache_ttl
 
 
 class PersistentCache:

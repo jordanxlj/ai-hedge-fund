@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 
-class CacheConfig:
+class DataConfig:
     """Manages cache TTL configurations."""
     
     def __init__(self, config_file: str = None):
@@ -26,9 +26,9 @@ class CacheConfig:
         if config_file is None:
             # Use YAML if available, otherwise JSON
             if YAML_AVAILABLE:
-                config_file = "conf/cache_config.yaml"
+                config_file = "conf/data_config.yaml"
             else:
-                config_file = "conf/cache_config.json"
+                config_file = "conf/data_config.json"
         
         self.config_file = Path(config_file)
         self.config_file.parent.mkdir(exist_ok=True)
@@ -344,19 +344,25 @@ class CacheConfig:
 
 
 # Global cache config instance
-_cache_config = CacheConfig()
+_data_config = DataConfig()
 
 
-def get_cache_config() -> CacheConfig:
-    """Get the global cache configuration instance."""
-    return _cache_config
+def get_data_config() -> DataConfig:
+    """Get the global data configuration instance."""
+    return _data_config
+
+
+# Backward compatibility alias
+def get_cache_config() -> DataConfig:
+    """Deprecated: Use get_data_config() instead."""
+    return get_data_config()
 
 
 def get_cache_ttl(cache_type: str, **kwargs) -> int:
     """Get TTL for a cache type."""
-    return _cache_config.get_ttl(cache_type, **kwargs)
+    return _data_config.get_ttl(cache_type, **kwargs)
 
 
 def set_cache_ttl(cache_type: str, ttl_config: Dict[str, int]):
     """Set TTL configuration for a cache type."""
-    _cache_config.set_ttl(cache_type, ttl_config) 
+    _data_config.set_ttl(cache_type, ttl_config) 

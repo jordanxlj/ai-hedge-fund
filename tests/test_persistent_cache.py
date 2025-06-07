@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 
 from src.data.persistent_cache import PersistentCache
-from src.data.cache_config import CacheConfig, get_cache_ttl
+from src.data.data_config import DataConfig, get_cache_ttl
 
 
 class TestPersistentCache:
@@ -178,7 +178,7 @@ class TestPersistentCache:
         result = cache.get_prices("AAPL", "2023-01-01", "2023-01-02")
         assert result == test_data
 
-    @patch('src.data.cache_config.datetime')
+    @patch('src.data.data_config.datetime')
     def test_prices_ttl_market_hours(self, mock_datetime, cache):
         """测试价格数据在市场时间的TTL"""
         # 模拟市场时间（上午10点）
@@ -193,7 +193,7 @@ class TestPersistentCache:
         metadata = cache._cache_metadata[cache_key]
         assert metadata["ttl"] == expected_ttl
 
-    @patch('src.data.cache_config.datetime')
+    @patch('src.data.data_config.datetime')
     def test_prices_ttl_after_market(self, mock_datetime, cache):
         """测试价格数据在非市场时间的TTL"""
         # 模拟非市场时间（晚上8点）
@@ -433,7 +433,7 @@ class TestPersistentCache:
         assert result[-1]["id"] == 999
 
 
-class TestCacheConfig:
+class TestDataConfig:
     """测试YAML配置功能"""
     
     @pytest.fixture
@@ -444,8 +444,8 @@ class TestCacheConfig:
     
     def test_yaml_config_creation(self, temp_config_dir):
         """测试YAML配置文件创建"""
-        config_file = Path(temp_config_dir) / "cache_config.yaml"
-        config = CacheConfig(config_file=str(config_file))
+        config_file = Path(temp_config_dir) / "data_config.yaml"
+        config = DataConfig(config_file=str(config_file))
         
         # 检查配置文件是否创建
         assert config_file.exists()

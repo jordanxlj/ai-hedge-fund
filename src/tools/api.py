@@ -4,7 +4,7 @@ import pandas as pd
 
 from src.data.cache import get_cache
 from src.data.persistent_cache import get_persistent_cache
-from src.data.cache_config import get_cache_config
+from src.data.data_config import get_data_config
 from src.data.data_provider_factory import DataProviderFactory, DataProviderType, AbstractDataProvider
 from src.data.models import (
     Price,
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Global cache instances
 _cache = get_cache()
 _persistent_cache = get_persistent_cache()
-_config = get_cache_config()
+_config = get_data_config()
 
 # Global data provider instance
 _data_provider: Optional[AbstractDataProvider] = None

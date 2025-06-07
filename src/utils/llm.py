@@ -176,7 +176,7 @@ def _get_cached_llm_response(cache_key: str) -> dict | None:
 def _cache_llm_response(cache_key: str, response_data: dict):
     """Cache LLM response for future use."""
     try:
-        from src.data.cache_config import get_cache_ttl
+        from src.data.data_config import get_cache_ttl
         cache = get_persistent_cache()
         cache_data = [{
             'cache_key': cache_key,
