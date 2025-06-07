@@ -50,7 +50,7 @@ data_providers:
       ticker_formats:
         CN: "6位数字.SH/SZ (如: 000001.SZ, 600000.SH)"
         HK: "5位数字.HK (如: 00700.HK)"
-  default: tushare
+  default: financial_datasets
 interfaces:
   call_llm_deepseek:
     cache_key_components:

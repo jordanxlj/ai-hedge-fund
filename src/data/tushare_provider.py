@@ -33,7 +33,11 @@ class TushareProvider(AbstractDataProvider):
     
     def _convert_ticker(self, ticker: str) -> str:
         """转换股票代码格式，支持A股和港股"""
-        # A股代码转换
+        # 如果已经有后缀，直接返回
+        if '.' in ticker:
+            return ticker
+        
+        # A股代码转换（6位数字）
         if len(ticker) == 6 and ticker.isdigit():
             # 判断是上交所还是深交所
             if ticker.startswith(('60', '68')):
@@ -41,25 +45,21 @@ class TushareProvider(AbstractDataProvider):
             else:
                 return f"{ticker}.SZ"
         
-        # 港股代码转换 (如 00700 -> 00700.HK)
+        # 港股代码转换 (5位数字，如 00700)
         if len(ticker) == 5 and ticker.isdigit():
             return f"{ticker}.HK"
         
-        # 港股代码转换 (如 700 -> 00700.HK)
+        # 港股代码转换 (1-4位数字，如 700，补齐到5位)
         if len(ticker) <= 4 and ticker.isdigit():
             ticker_padded = ticker.zfill(5)  # 补齐到5位
             return f"{ticker_padded}.HK"
         
-        # 如果已经有后缀，直接返回
-        if '.' in ticker:
-            return ticker
-            
-        # 对于其他格式，暂时直接返回
+        # 对于其他格式，直接返回
         return ticker
     
     def _is_hk_stock(self, ticker: str) -> bool:
         """判断是否为港股代码"""
-        return ticker.endswith('.HK') or (len(ticker) <= 5 and ticker.isdigit())
+        return ticker.endswith('.HK')
     
     def _convert_date_format(self, date_str: str) -> str:
         """转换日期格式 (YYYY-MM-DD -> YYYYMMDD)"""
