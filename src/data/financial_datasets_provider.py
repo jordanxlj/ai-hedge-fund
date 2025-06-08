@@ -38,11 +38,36 @@ class FinancialDatasetsProvider(AbstractDataProvider):
     def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
         """发送HTTP请求，添加统一的异常处理"""
         try:
+            # 获取当前接口的超时配置
+            from src.data.data_config import get_timeout_seconds
+            # 从调用栈中推断当前使用的接口
+            import inspect
+            frame = inspect.currentframe()
+            caller_name = None
+            try:
+                # 找到调用_make_request的方法名
+                caller_frame = frame.f_back.f_back  # 跳过装饰器的frame
+                if caller_frame:
+                    caller_name = caller_frame.f_code.co_name
+            finally:
+                del frame
+            
+            # 根据调用者确定接口名称
+            interface_mapping = {
+                'get_prices': 'get_prices',
+                'get_financial_metrics': 'get_financial_metrics',
+                'search_line_items': 'search_line_items',
+                'get_insider_trades': 'get_insider_trades',
+                'get_company_news': 'get_company_news'
+            }
+            interface_name = interface_mapping.get(caller_name, 'get_prices')  # 默认使用get_prices配置
+            timeout_seconds = get_timeout_seconds(interface_name)
+            
             response = requests.request(
                 method=method,
                 url=url,
                 headers=self._get_headers(),
-                timeout=30,
+                timeout=timeout_seconds,
                 **kwargs
             )
             

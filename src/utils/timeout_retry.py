@@ -58,10 +58,8 @@ def with_http_timeout_retry(interface_name: str):
             
             for attempt in range(max_retries):
                 try:
-                    # 将超时设置添加到kwargs中
-                    if 'timeout' not in kwargs:
-                        kwargs['timeout'] = timeout_seconds
-                    
+                    # 不向被装饰的函数传递timeout参数
+                    # 超时在FinancialDatasetsProvider的_make_request方法中处理
                     result = func(*args, **kwargs)
                     return result
                     
