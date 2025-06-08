@@ -341,6 +341,36 @@ class DataConfig:
         except Exception as e:
             print(f"Warning: 无法获取可用数据提供商列表 - {e}")
             return {}
+    
+    def get_timeout_config(self, interface_name: str) -> Dict[str, Any]:
+        """获取接口的超时配置"""
+        interface_config = self.get_interface_config(interface_name)
+        return interface_config.get("timeout", {
+            "timeout_seconds": 30,  # 默认超时时间
+            "max_retries": 3,       # 默认重试次数
+            "retry_delay_factor": 0.1  # 默认重试延迟系数
+        })
+    
+    def get_timeout_seconds(self, interface_name: str) -> int:
+        """获取接口的超时时间（秒）"""
+        timeout_config = self.get_timeout_config(interface_name)
+        return timeout_config.get("timeout_seconds", 30)
+    
+    def get_max_retries(self, interface_name: str) -> int:
+        """获取接口的最大重试次数"""
+        timeout_config = self.get_timeout_config(interface_name)
+        return timeout_config.get("max_retries", 3)
+    
+    def get_retry_delay_factor(self, interface_name: str) -> float:
+        """获取接口的重试延迟系数"""
+        timeout_config = self.get_timeout_config(interface_name)
+        return timeout_config.get("retry_delay_factor", 0.1)
+    
+    def get_retry_delay(self, interface_name: str) -> float:
+        """计算实际的重试延迟时间（秒）"""
+        timeout_seconds = self.get_timeout_seconds(interface_name)
+        delay_factor = self.get_retry_delay_factor(interface_name)
+        return timeout_seconds * delay_factor
 
 
 # Global cache config instance
@@ -365,4 +395,24 @@ def get_cache_ttl(cache_type: str, **kwargs) -> int:
 
 def set_cache_ttl(cache_type: str, ttl_config: Dict[str, int]):
     """Set TTL configuration for a cache type."""
-    _data_config.set_ttl(cache_type, ttl_config) 
+    _data_config.set_ttl(cache_type, ttl_config)
+
+
+def get_timeout_config(interface_name: str) -> Dict[str, Any]:
+    """Get timeout configuration for an interface."""
+    return _data_config.get_timeout_config(interface_name)
+
+
+def get_timeout_seconds(interface_name: str) -> int:
+    """Get timeout seconds for an interface."""
+    return _data_config.get_timeout_seconds(interface_name)
+
+
+def get_max_retries(interface_name: str) -> int:
+    """Get max retries for an interface."""
+    return _data_config.get_max_retries(interface_name)
+
+
+def get_retry_delay(interface_name: str) -> float:
+    """Get retry delay for an interface."""
+    return _data_config.get_retry_delay(interface_name) 

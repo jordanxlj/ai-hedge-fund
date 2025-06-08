@@ -7,6 +7,7 @@ from src.llm.models import get_model, get_model_info
 from src.utils.progress import progress
 from src.graph.state import AgentState
 from src.data.persistent_cache import get_persistent_cache
+from src.utils.timeout_retry import with_llm_timeout_retry
 
 
 def call_llm(
@@ -14,7 +15,7 @@ def call_llm(
     pydantic_model: type[BaseModel],
     agent_name: str | None = None,
     state: AgentState | None = None,
-    max_retries: int = 3,
+    max_retries: int = None,
     default_factory=None,
 ) -> BaseModel:
     """
@@ -47,6 +48,16 @@ def call_llm(
 
     # Check if this is a DeepSeek model and use cache
     is_deepseek = model_provider == "DeepSeek" or (model_name and model_name.startswith("deepseek"))
+    
+    # Get timeout and retry configuration from data config
+    from src.data.data_config import get_max_retries, get_retry_delay
+    interface_name = "call_llm_deepseek" if is_deepseek else "call_llm_other"
+    
+    # Use configured max_retries if not provided
+    if max_retries is None:
+        max_retries = get_max_retries(interface_name)
+    
+    retry_delay = get_retry_delay(interface_name)
     
     if is_deepseek:
         # Generate cache key based on prompt, model, and pydantic model
@@ -107,6 +118,11 @@ def call_llm(
                 if default_factory:
                     return default_factory()
                 return create_default_response(pydantic_model)
+            else:
+                # Wait before retrying
+                import time
+                print(f"LLM调用第 {attempt + 1} 次尝试失败: {e}, 将在 {retry_delay} 秒后重试")
+                time.sleep(retry_delay)
 
     # This should never be reached due to the retry logic above
     return create_default_response(pydantic_model)

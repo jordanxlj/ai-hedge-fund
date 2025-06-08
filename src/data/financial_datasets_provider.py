@@ -16,6 +16,7 @@ from src.data.models import (
     CompanyNews,
     CompanyNewsResponse,
 )
+from src.utils.timeout_retry import with_http_timeout_retry
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             logger.error(f"请求异常: {e}")
             raise Exception(f"请求异常: {e}")
     
+    @with_http_timeout_retry("get_prices")
     def get_prices(
         self,
         ticker: str,
@@ -84,6 +86,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             logger.error(f"获取股价数据失败 {ticker}: {e}")
             return []
     
+    @with_http_timeout_retry("get_financial_metrics")
     def get_financial_metrics(
         self,
         ticker: str,
@@ -104,6 +107,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             logger.error(f"获取财务指标失败 {ticker}: {e}")
             return []
     
+    @with_http_timeout_retry("search_line_items")
     def search_line_items(
         self,
         ticker: str,
@@ -149,6 +153,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             logger.error(f"搜索财务报表项目失败 {ticker}: {e}")
             return []
     
+    @with_http_timeout_retry("get_insider_trades")
     def get_insider_trades(
         self,
         ticker: str,
@@ -194,6 +199,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             logger.error(f"获取内部交易数据失败 {ticker}: {e}")
             return []
     
+    @with_http_timeout_retry("get_company_news")
     def get_company_news(
         self,
         ticker: str,
