@@ -11,46 +11,17 @@ agent_models:
   rakesh_jhunjhunwala:
     default_model: gpt-4o
     default_provider: OpenAI
+
 data_providers:
   available:
     financial_datasets:
       api_key_env: FINANCIAL_DATASETS_API_KEY
-      description: 美股财务数据API服务
-      features:
-      - prices
-      - financial_metrics
-      - line_items
-      - insider_trades
-      - company_news
-      - market_cap
       name: FinancialDatasets.ai
-      supported_markets:
-      - US
-      - Global
     tushare:
       api_key_env: TUSHARE_API_KEY
-      description: 中国A股和港股数据API服务
-      features:
-        CN:  # 中国A股 - 全功能支持
-        - prices
-        - financial_metrics
-        - line_items
-        - insider_trades
-        - market_cap
-        HK:  # 香港股市 - 仅行情数据
-        - prices
-      limitations:
-      - 不支持公司新闻数据
-      - 股票代码格式需要转换
-      - 港股仅支持行情数据，不支持财务数据
       name: Tushare Pro
-      supported_markets:
-      - CN  # 中国A股
-      - HK  # 香港股市 (限制功能)
-      ticker_formats:
-        CN: "6位数字.SH/SZ (如: 000001.SZ, 600000.SH)"
-        HK: "5位数字.HK (如: 00700.HK)"
   default: financial_datasets
+
 interfaces:
   call_llm_deepseek:
     cache_key_components:
@@ -61,7 +32,6 @@ interfaces:
     cache_layers:
     - persistent
     cache_type: llm_responses
-    description: DeepSeek LLM responses (deepseek-reasoner, deepseek-chat)
     models:
     - deepseek-reasoner
     - deepseek-chat
@@ -69,15 +39,14 @@ interfaces:
     providers:
     - DeepSeek
     timeout:
-      timeout_seconds: 30  # LLM调用超时时间（秒）
-      max_retries: 3       # 最大重试次数
-      retry_delay_factor: 0.1  # 重试延迟系数（相对于超时时间）
+      timeout_seconds: 30
+      max_retries: 3
+      retry_delay_factor: 0.1
     ttl:
       default: 86400
   call_llm_other:
     cache_layers: []
     cache_type: none
-    description: Other LLM providers (no caching)
     providers:
     - OpenAI
     - Anthropic
@@ -85,9 +54,9 @@ interfaces:
     - Groq
     - Ollama
     timeout:
-      timeout_seconds: 30  # LLM调用超时时间（秒）
-      max_retries: 3       # 最大重试次数
-      retry_delay_factor: 0.1  # 重试延迟系数（相对于超时时间）
+      timeout_seconds: 30
+      max_retries: 3
+      retry_delay_factor: 0.1
     ttl:
       default: 0
   get_company_news:
@@ -95,12 +64,11 @@ interfaces:
     - memory
     - persistent
     cache_type: company_news
-    description: Company news from financialdatasets.ai
     merge_key: date
     timeout:
-      timeout_seconds: 5   # 数据获取超时时间（秒）
-      max_retries: 3       # 最大重试次数
-      retry_delay_factor: 0.5  # 重试延迟系数（相对于超时时间）
+      timeout_seconds: 5
+      max_retries: 3
+      retry_delay_factor: 0.5
     ttl:
       default: 86400
   get_financial_metrics:
@@ -108,12 +76,11 @@ interfaces:
     - memory
     - persistent
     cache_type: financial_metrics
-    description: Financial metrics data from financialdatasets.ai
     merge_key: report_period
     timeout:
-      timeout_seconds: 5   # 数据获取超时时间（秒）
-      max_retries: 3       # 最大重试次数
-      retry_delay_factor: 0.5  # 重试延迟系数（相对于超时时间）
+      timeout_seconds: 5
+      max_retries: 3
+      retry_delay_factor: 0.5
     ttl:
       default: 86400
   get_insider_trades:
@@ -121,12 +88,11 @@ interfaces:
     - memory
     - persistent
     cache_type: insider_trades
-    description: Insider trading data from financialdatasets.ai
     merge_key: filing_date
     timeout:
-      timeout_seconds: 5   # 数据获取超时时间（秒）
-      max_retries: 3       # 最大重试次数
-      retry_delay_factor: 0.5  # 重试延迟系数（相对于超时时间）
+      timeout_seconds: 5
+      max_retries: 3
+      retry_delay_factor: 0.5
     ttl:
       default: 86400
   get_prices:
@@ -134,12 +100,11 @@ interfaces:
     - memory
     - persistent
     cache_type: prices
-    description: Stock price data from financialdatasets.ai
     merge_key: time
     timeout:
-      timeout_seconds: 5   # 数据获取超时时间（秒）
-      max_retries: 3       # 最大重试次数
-      retry_delay_factor: 0.5  # 重试延迟系数（相对于超时时间）
+      timeout_seconds: 5
+      max_retries: 3
+      retry_delay_factor: 0.5
     ttl:
       after_hours: 86400
       market_hours: 3600
@@ -148,11 +113,10 @@ interfaces:
     - memory
     - persistent
     cache_type: line_items
-    description: Financial statement line items from financialdatasets.ai
     merge_key: report_period
     timeout:
-      timeout_seconds: 5   # 数据获取超时时间（秒）
-      max_retries: 3       # 最大重试次数
-      retry_delay_factor: 0.5  # 重试延迟系数（相对于超时时间）
+      timeout_seconds: 5
+      max_retries: 3
+      retry_delay_factor: 0.5
     ttl:
       default: 86400

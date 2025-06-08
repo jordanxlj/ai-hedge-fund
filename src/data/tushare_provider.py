@@ -62,6 +62,142 @@ class TushareProvider(AbstractDataProvider):
         """判断是否为港股代码"""
         return ticker.endswith('.HK')
     
+    def _get_hk_to_a_stock_mapping(self) -> dict:
+        """获取H股到A股的代码映射
+        
+        Returns:
+            dict: H股代码到A股代码的映射字典
+        """
+        # 常见的H股和A股双重上市公司映射
+        # 格式: "H股代码": "A股代码"
+        hk_to_a_mapping = {
+            # 腾讯控股 - 目前只在港股上市，无A股对应
+            # "00700.HK": None,
+            
+            # 中国移动
+            "00941.HK": "600941.SH",
+            
+            # 中国石化
+            "00386.HK": "600028.SH",
+            
+            # 中国石油
+            "00857.HK": "601857.SH",
+            
+            # 中国平安
+            "02318.HK": "601318.SH",
+            
+            # 招商银行
+            "03968.HK": "600036.SH",
+            
+            # 中国银行
+            "03988.HK": "601988.SH",
+            
+            # 建设银行
+            "00939.HK": "601939.SH",
+            
+            # 工商银行
+            "01398.HK": "601398.SH",
+            
+            # 农业银行
+            "01288.HK": "601288.SH",
+            
+            # 中国人寿
+            "02628.HK": "601628.SH",
+            
+            # 中信证券
+            "06030.HK": "600030.SH",
+            
+            # 海螺水泥
+            "00914.HK": "600585.SH",
+            
+            # 紫金矿业
+            "02899.HK": "601899.SH",
+            
+            # 中国神华
+            "01088.HK": "601088.SH",
+            
+            # 中煤能源
+            "01898.HK": "601898.SH",
+            
+            # 大秦铁路
+            "01199.HK": "601006.SH",
+            
+            # 广深铁路
+            "00525.HK": "601333.SH",
+            
+            # 京沪高铁
+            "01816.HK": "601816.SH",
+            
+            # 中国铁建
+            "01186.HK": "601186.SH",
+            
+            # 中国中铁
+            "00390.HK": "601390.SH",
+            
+            # 中国交建
+            "01800.HK": "601800.SH",
+            
+            # 海油工程
+            "02883.HK": "600583.SH",
+            
+            # 中海油
+            "00883.HK": "600938.SH",
+            
+            # 中国联通
+            "00762.HK": "600050.SH",
+            
+            # 中国电信
+            "00728.HK": "601728.SH",
+            
+            # 比亚迪
+            "01211.HK": "002594.SZ",
+            
+            # 华能国际
+            "00902.HK": "600011.SH",
+            
+            # 大唐发电
+            "00991.HK": "601991.SH",
+            
+            # 华电国际
+            "01071.HK": "600027.SH",
+            
+            # 东方航空
+            "00670.HK": "600115.SH",
+            
+            # 南方航空
+            "01055.HK": "600029.SH",
+            
+            # 国航
+            "00753.HK": "601111.SH",
+            
+            # 海南航空
+            "00966.HK": "600221.SH",
+        }
+        
+        return hk_to_a_mapping
+    
+    def _get_corresponding_a_stock(self, hk_ticker: str) -> str:
+        """获取H股对应的A股代码
+        
+        Args:
+            hk_ticker: H股代码 (如 "00700.HK")
+            
+        Returns:
+            str: 对应的A股代码，如果没有对应则返回原H股代码
+        """
+        if not self._is_hk_stock(hk_ticker):
+            return hk_ticker
+        
+        mapping = self._get_hk_to_a_stock_mapping()
+        a_stock_code = mapping.get(hk_ticker)
+        
+        if a_stock_code:
+            logger.info(f"H股 {hk_ticker} 找到对应A股代码: {a_stock_code}")
+            return a_stock_code
+        else:
+            logger.info(f"H股 {hk_ticker} 未找到对应A股代码，将使用原H股代码")
+            return hk_ticker
+    
     def _convert_date_format(self, date_str: str) -> str:
         """转换日期格式 (YYYY-MM-DD -> YYYYMMDD)"""
         try:
@@ -136,17 +272,26 @@ class TushareProvider(AbstractDataProvider):
     ) -> List[FinancialMetrics]:
         """
         获取财务指标，支持A股和港股
+        对于H股，如果有对应的A股代码，则使用A股接口查询基本面信息
         """
         if not self.is_available():
             return []
         
         try:
             tushare_ticker = self._convert_ticker(ticker)
+            original_ticker = ticker  # 保存原始ticker用于返回结果
             
-            # 港股暂不支持财务指标数据
+            # 如果是H股，尝试获取对应的A股代码
             if self._is_hk_stock(ticker):
-                print(f"Tushare暂不支持港股财务指标数据: {ticker}")
-                return []
+                corresponding_a_stock = self._get_corresponding_a_stock(tushare_ticker)
+                if corresponding_a_stock != tushare_ticker:
+                    # 找到了对应的A股代码，使用A股接口查询
+                    print(f"H股 {ticker} 使用对应A股代码 {corresponding_a_stock} 查询基本面信息")
+                    tushare_ticker = corresponding_a_stock
+                else:
+                    # 没有找到对应的A股代码，H股暂不支持财务指标数据
+                    print(f"H股 {ticker} 未找到对应A股代码，Tushare暂不支持纯港股财务指标数据")
+                    return []
             
             # A股使用fina_indicator获取主要财务指标
             df = self.pro.fina_indicator(
@@ -213,7 +358,7 @@ class TushareProvider(AbstractDataProvider):
                     return self._safe_get_float(row, field_name)
                 
                 metric = FinancialMetrics(
-                    ticker=ticker,
+                    ticker=original_ticker,
                     report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
                     period=period,
                     # 基础字段映射
@@ -272,14 +417,23 @@ class TushareProvider(AbstractDataProvider):
         period: str = "ttm",
         limit: int = 10,
     ) -> List[LineItem]:
-        """搜索财务报表项目，支持A股和港股"""
+        """搜索财务报表项目，支持A股和港股
+        对于H股，如果有对应的A股代码，则使用A股接口查询财务报表数据"""
         try:
             ts_code = self._convert_ticker(ticker)
+            original_ticker = ticker  # 保存原始ticker用于返回结果
             
-            # 港股暂不支持财务报表数据
+            # 如果是H股，尝试获取对应的A股代码
             if self._is_hk_stock(ticker):
-                print(f"Tushare暂不支持港股财务报表数据: {ticker}")
-                return []
+                corresponding_a_stock = self._get_corresponding_a_stock(ts_code)
+                if corresponding_a_stock != ts_code:
+                    # 找到了对应的A股代码，使用A股接口查询
+                    print(f"H股 {ticker} 使用对应A股代码 {corresponding_a_stock} 查询财务报表数据")
+                    ts_code = corresponding_a_stock
+                else:
+                    # 没有找到对应的A股代码，H股暂不支持财务报表数据
+                    print(f"H股 {ticker} 未找到对应A股代码，Tushare暂不支持纯港股财务报表数据")
+                    return []
             
             # A股财务数据
             # 获取财务报表数据 - 利润表
