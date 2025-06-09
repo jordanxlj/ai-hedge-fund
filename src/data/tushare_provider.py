@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+from pathlib import Path
 from typing import List, Optional
 import logging
 from datetime import datetime, timedelta
@@ -26,7 +27,7 @@ class TushareProvider(AbstractDataProvider):
         super().__init__("Tushare", api_key or os.environ.get("TUSHARE_API_KEY"))
         self.pro = None
         # 初始化时加载H股到A股映射
-        self.h2a_mapping = self._load_h2a_mapping()
+        self.h2a_mapping = self._load_h2a_mapping('conf/H2A_mapping.yaml')
         
         if self.api_key:
             try:
@@ -66,19 +67,18 @@ class TushareProvider(AbstractDataProvider):
         """判断是否为港股代码"""
         return ticker.endswith('.HK')
     
-    def _load_h2a_mapping(self) -> dict:
+    def _load_h2a_mapping(self, config_file) -> dict:
         """从YAML配置文件加载H股到A股的代码映射，在初始化时调用
         
         Returns:
             dict: H股代码到A股代码的映射字典，如果文件不存在或加载失败则返回空字典
         """
         try:
-            # 获取配置文件路径
-            config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'conf', 'H2A_mapping.yaml')
-            config_path = os.path.abspath(config_path)
+            # 获取配置文件路径 - 使用pathlib
+            config_path = Path(config_file)
             
             # 检查文件是否存在
-            if not os.path.exists(config_path):
+            if not config_path.exists():
                 logger.info(f"H2A_mapping.yaml 文件不存在: {config_path}，将不使用H股到A股映射")
                 return {}
             
