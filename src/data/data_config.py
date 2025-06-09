@@ -1,16 +1,9 @@
 """Cache configuration for TTL policies."""
 
-try:
-    import yaml
-    YAML_AVAILABLE = True
-except ImportError:
-    import json
-    YAML_AVAILABLE = False
-    print("Warning: PyYAML not available, falling back to JSON format")
-
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
+from src.utils.config_utils import load_yaml_config, save_yaml_config
 
 
 class DataConfig:
@@ -24,144 +17,24 @@ class DataConfig:
             config_file: Path to the configuration file
         """
         if config_file is None:
-            # Use YAML if available, otherwise JSON
-            if YAML_AVAILABLE:
-                config_file = "conf/data_config.yaml"
-            else:
-                config_file = "conf/data_config.json"
+            config_file = "conf/data_config.yaml"
         
         self.config_file = Path(config_file)
-        self.config_file.parent.mkdir(exist_ok=True)
         
-        # Default configuration with TTL in interface properties
-        self.default_config = {
-            # Interface configurations with embedded TTL
-            "interfaces": {
-                # Financial Data APIs
-                "get_prices": {
-                    "cache_type": "prices",
-                    "description": "Stock price data from financialdatasets.ai",
-                    "cache_layers": ["memory", "persistent"],
-                    "merge_key": "time",
-                    "ttl": {
-                        "market_hours": 3600,      # 1 hour during market hours
-                        "after_hours": 86400       # 24 hours after market hours
-                    }
-                },
-                "get_financial_metrics": {
-                    "cache_type": "financial_metrics", 
-                    "description": "Financial metrics data from financialdatasets.ai",
-                    "cache_layers": ["memory", "persistent"],
-                    "merge_key": "report_period",
-                    "ttl": {
-                        "default": 86400           # 24 hours
-                    }
-                },
-                "search_line_items": {
-                    "cache_type": "line_items",
-                    "description": "Financial statement line items from financialdatasets.ai", 
-                    "cache_layers": ["memory", "persistent"],
-                    "merge_key": "report_period",
-                    "ttl": {
-                        "default": 86400           # 24 hours
-                    }
-                },
-                "get_insider_trades": {
-                    "cache_type": "insider_trades",
-                    "description": "Insider trading data from financialdatasets.ai",
-                    "cache_layers": ["memory", "persistent"], 
-                    "merge_key": "filing_date",
-                    "ttl": {
-                        "default": 21600           # 6 hours
-                    }
-                },
-                "get_company_news": {
-                    "cache_type": "company_news",
-                    "description": "Company news from financialdatasets.ai",
-                    "cache_layers": ["memory", "persistent"],
-                    "merge_key": "date",
-                    "ttl": {
-                        "default": 3600            # 1 hour
-                    }
-                },
-                
-                # LLM APIs
-                "call_llm_deepseek": {
-                    "cache_type": "llm_responses",
-                    "description": "DeepSeek LLM responses (deepseek-reasoner, deepseek-chat)",
-                    "cache_layers": ["persistent"],
-                    "providers": ["DeepSeek"],
-                    "models": ["deepseek-reasoner", "deepseek-chat", "deepseek-*"],
-                    "cache_key_components": ["prompt", "model_name", "pydantic_model", "agent_name"],
-                    "ttl": {
-                        "default": 86400           # 24 hours
-                    }
-                },
-                "call_llm_other": {
-                    "cache_type": "none", 
-                    "description": "Other LLM providers (no caching)",
-                    "cache_layers": [],
-                    "providers": ["OpenAI", "Anthropic", "Gemini", "Groq", "Ollama"],
-                    "ttl": {
-                        "default": 0               # No caching
-                    }
-                }
-            },
-            
-            # Agent Model Configuration
-            "agent_models": {
-                "portfolio_manager": {
-                    "default_model": "gpt-4o",
-                    "default_provider": "OpenAI"
-                },
-                "bill_ackman": {
-                    "default_model": "gpt-4o", 
-                    "default_provider": "OpenAI"
-                },
-                "michael_burry": {
-                    "default_model": "gpt-4o",
-                    "default_provider": "OpenAI"
-                },
-                "rakesh_jhunjhunwala": {
-                    "default_model": "gpt-4o",
-                    "default_provider": "OpenAI"
-                }
-            }
-        }
+        # 检查配置文件是否存在
+        if not self.config_file.exists():
+            raise FileNotFoundError(f"配置文件不存在: {self.config_file}")
         
         # Load configuration from file
-        self.config = self._load_config()
-    
-    def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from file."""
-        if self.config_file.exists():
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    if YAML_AVAILABLE and self.config_file.suffix == '.yaml':
-                        loaded_config = yaml.safe_load(f)
-                    else:
-                        loaded_config = json.load(f)
-                # Merge with defaults (in case new types are added)
-                config = self.default_config.copy()
-                config.update(loaded_config)
-                return config
-            except (yaml.YAMLError, json.JSONDecodeError, IOError) as e:
-                print(f"Warning: Could not load cache config from {self.config_file}: {e}, using defaults")
-        
-        # Save default config to file
-        self._save_config(self.default_config)
-        return self.default_config.copy()
+        try:
+            self.config = load_yaml_config(self.config_file)
+        except Exception as e:
+            raise RuntimeError(f"加载配置文件失败: {self.config_file}, 错误: {e}")
     
     def _save_config(self, config: Dict[str, Any]):
         """Save configuration to file."""
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                if YAML_AVAILABLE and self.config_file.suffix == '.yaml':
-                    yaml.dump(config, f, default_flow_style=False, indent=2, allow_unicode=True)
-                else:
-                    json.dump(config, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            print(f"Warning: Could not save cache config: {e}")
+        if not save_yaml_config(self.config_file, config):
+            raise RuntimeError(f"保存配置文件失败: {self.config_file}")
     
     def get_ttl(self, cache_type: str, **kwargs) -> int:
         """
@@ -240,9 +113,15 @@ class DataConfig:
         return self.config.copy()
     
     def reset_to_defaults(self):
-        """Reset configuration to defaults."""
-        self.config = self.default_config.copy()
-        self._save_config(self.config)
+        """Reset configuration to defaults. 此方法已不再支持，因为不再有默认配置。"""
+        raise NotImplementedError("不再支持重置到默认配置，请确保配置文件存在且正确")
+    
+    def reload_config(self):
+        """重新加载配置文件"""
+        try:
+            self.config = load_yaml_config(self.config_file)
+        except Exception as e:
+            raise RuntimeError(f"重新加载配置文件失败: {self.config_file}, 错误: {e}")
     
     def get_interfaces(self) -> Dict[str, Any]:
         """Get all interface configurations."""
@@ -292,55 +171,35 @@ class DataConfig:
     
     def get_data_provider_config(self) -> Dict[str, Any]:
         """获取数据提供商配置"""
-        try:
-            config = self._load_config()
-            return config.get('data_providers', {
-                'default': 'financial_datasets',
-                'available': {
-                    'financial_datasets': {
-                        'name': 'FinancialDatasets.ai',
-                        'description': '美股财务数据API服务'
-                    },
-                    'tushare': {
-                        'name': 'Tushare Pro',
-                        'description': '中国A股财务数据API服务'
-                    }
-                }
-            })
-        except Exception as e:
-            print(f"Warning: 无法获取数据提供商配置 - {e}")
-            return {'default': 'financial_datasets', 'available': {}}
+        data_providers = self.config.get('data_providers')
+        if not data_providers:
+            raise ValueError("配置文件中缺少 data_providers 配置")
+        return data_providers
     
     def get_default_data_provider(self) -> str:
         """获取默认数据提供商"""
-        try:
-            config = self.get_data_provider_config()
-            return config.get('default', 'financial_datasets')
-        except Exception as e:
-            print(f"Warning: 无法获取默认数据提供商 - {e}")
-            return 'financial_datasets'
+        config = self.get_data_provider_config()
+        default_provider = config.get('default')
+        if not default_provider:
+            raise ValueError("配置文件中缺少默认数据提供商配置")
+        return default_provider
     
     def set_default_data_provider(self, provider_name: str):
         """设置默认数据提供商"""
-        try:
-            config = self._load_config()
-            if 'data_providers' not in config:
-                config['data_providers'] = {'available': {}}
-            
-            config['data_providers']['default'] = provider_name
-            self._save_config(config)
-            print(f"默认数据提供商已设置为: {provider_name}")
-        except Exception as e:
-            print(f"Error: 无法设置默认数据提供商 - {e}")
+        if 'data_providers' not in self.config:
+            raise ValueError("配置文件中缺少 data_providers 配置")
+        
+        self.config['data_providers']['default'] = provider_name
+        self._save_config(self.config)
+        print(f"默认数据提供商已设置为: {provider_name}")
     
     def get_available_data_providers(self) -> Dict[str, Any]:
         """获取可用的数据提供商列表"""
-        try:
-            config = self.get_data_provider_config()
-            return config.get('available', {})
-        except Exception as e:
-            print(f"Warning: 无法获取可用数据提供商列表 - {e}")
-            return {}
+        config = self.get_data_provider_config()
+        available = config.get('available')
+        if available is None:
+            raise ValueError("配置文件中缺少可用数据提供商配置")
+        return available
     
     def get_timeout_config(self, interface_name: str) -> Dict[str, Any]:
         """获取接口的超时配置"""

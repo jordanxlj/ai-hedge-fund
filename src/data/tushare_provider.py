@@ -4,9 +4,9 @@ from typing import List, Optional
 import logging
 from datetime import datetime, timedelta
 import tushare as ts
-import yaml
 
 from src.data.abstract_data_provider import AbstractDataProvider
+from src.utils.config_utils import load_yaml_config
 from src.data.models import (
     Price,
     FinancialMetrics,
@@ -82,9 +82,8 @@ class TushareProvider(AbstractDataProvider):
                 logger.info(f"H2A_mapping.yaml 文件不存在: {config_path}，将不使用H股到A股映射")
                 return {}
             
-            # 读取YAML配置文件
-            with open(config_path, 'r', encoding='utf-8') as file:
-                config = yaml.safe_load(file)
+            # 使用配置工具加载YAML文件
+            config = load_yaml_config(config_path, {})
             
             # 获取映射数据
             hk_to_a_mapping = config.get('h2a_mapping', {})
