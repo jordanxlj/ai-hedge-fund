@@ -297,7 +297,7 @@ class TushareProvider(AbstractDataProvider):
                     report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
                     period=period,
                     # 基础字段映射
-                    return_on_equity=safe_percentage_to_decimal(row, 'roe'),  # ROE转换为小数
+                    return_on_equity=safe_percentage_to_decimal(row, 'roe_waa'),  # ROE使用加权平均值转换为小数
                     return_on_assets=safe_percentage_to_decimal(row, 'roa_yearly'),  # ROA转换为小数
                     current_ratio=safe_get_value(row, 'current_ratio'),
                     quick_ratio=safe_get_value(row, 'quick_ratio'),
@@ -319,8 +319,8 @@ class TushareProvider(AbstractDataProvider):
                     price_to_earnings_ratio=pe_ratio,
                     price_to_book_ratio=pb_ratio,
                     price_to_sales_ratio=ps_ratio,
-                    # Tushare兼容字段
-                    roe=safe_get_value(row, 'roe'),
+                    # Tushare兼容字段  
+                    roe=safe_get_value(row, 'roe_waa'),
                     roa=safe_get_value(row, 'roa_yearly'),
                     eps=safe_get_value(row, 'eps'),
                     pe_ratio=pe_ratio,
