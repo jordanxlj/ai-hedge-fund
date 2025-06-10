@@ -18,7 +18,7 @@ from src.tools.api import (
 )
 from src.utils.llm import call_llm
 from src.utils.progress import progress
-from src.prompts.aswath_damodaran import get_michael_burry_prompt_template
+from src.prompts import get_michael_burry_prompt_template
 
 __all__ = [
     "MichaelBurrySignal",

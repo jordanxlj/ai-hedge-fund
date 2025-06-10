@@ -1,6 +1,6 @@
 from src.graph.state import AgentState, show_agent_reasoning
 from langchain_core.messages import HumanMessage
-from src.prompts.warren_buffett import get_warren_buffett_prompt_template
+from src.prompts import get_warren_buffett_prompt_template
 from pydantic import BaseModel
 import json
 from typing_extensions import Literal

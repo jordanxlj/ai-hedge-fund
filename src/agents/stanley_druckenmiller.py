@@ -7,7 +7,7 @@ from src.tools.api import (
     get_company_news,
     get_prices,
 )
-from src.prompts.stanley_druckenmiller import get_stanley_druckenmiller_prompt_template
+from src.prompts import get_stanley_druckenmiller_prompt_template
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 import json

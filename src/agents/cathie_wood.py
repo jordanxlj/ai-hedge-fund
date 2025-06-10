@@ -1,6 +1,6 @@
 from src.graph.state import AgentState, show_agent_reasoning
 from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
-from src.prompts.cathie_wood import get_cathie_wood_prompt_template
+from src.prompts import get_cathie_wood_prompt_template
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 import json

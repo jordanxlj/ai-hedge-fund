@@ -5,7 +5,7 @@ from typing_extensions import Literal
 from pydantic import BaseModel
 
 from src.graph.state import AgentState, show_agent_reasoning
-from src.prompts.aswath_damodaran import get_aswath_damodaran_prompt_template
+from src.prompts import get_aswath_damodaran_prompt_template
 from langchain_core.messages import HumanMessage
 
 from src.tools.api import (

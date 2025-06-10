@@ -2,7 +2,7 @@ from langchain_openai import ChatOpenAI
 from src.graph.state import AgentState, show_agent_reasoning
 from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
 from langchain_core.messages import HumanMessage
-from src.prompts.bill_ackman import get_bill_ackman_prompt_template
+from src.prompts import get_bill_ackman_prompt_template
 from pydantic import BaseModel
 import json
 from typing_extensions import Literal
