@@ -5,7 +5,7 @@ from typing_extensions import Literal
 from pydantic import BaseModel
 
 from src.graph.state import AgentState, show_agent_reasoning
-from langchain_core.prompts import ChatPromptTemplate
+from src.prompts.aswath_damodaran import get_aswath_damodaran_prompt_template
 from langchain_core.messages import HumanMessage
 
 from src.tools.api import (
@@ -171,13 +171,19 @@ def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str
     else:
         details.append("Revenue data incomplete")
 
-    # FCFF growth (proxy: free_cash_flow trend)
-    fcfs = [li.free_cash_flow for li in reversed(line_items) if li.free_cash_flow]
-    if len(fcfs) >= 2 and fcfs[-1] > fcfs[0]:
-        score += 1
-        details.append("Positive FCFF growth")
+    # FCFF growth (proxy: free_cash_flow trend from line_items)
+    fcfs = [item.free_cash_flow for item in line_items if hasattr(item, 'free_cash_flow') and item.free_cash_flow]
+    if len(fcfs) >= 2:
+        # Sort by report_period to ensure chronological order
+        sorted_items = sorted([item for item in line_items if hasattr(item, 'free_cash_flow') and item.free_cash_flow], 
+                              key=lambda x: x.report_period)
+        if len(sorted_items) >= 2 and sorted_items[-1].free_cash_flow > sorted_items[0].free_cash_flow:
+            score += 1
+            details.append("Positive FCFF growth")
+        else:
+            details.append("Flat or declining FCFF")
     else:
-        details.append("Flat or declining FCFF")
+        details.append("Insufficient FCFF data")
 
     # Reinvestment efficiency (ROIC vs. 10 % hurdle)
     latest = metrics[0]
@@ -292,8 +298,17 @@ def calculate_intrinsic_value_dcf(metrics: list, line_items: list, risk_analysis
         return {"intrinsic_value": None, "details": ["Insufficient data"]}
 
     latest_m = metrics[0]
-    fcff0 = getattr(latest_m, "free_cash_flow", None)
-    shares = getattr(line_items[0], "outstanding_shares", None)
+    
+    # Get free cash flow from line_items (latest period)
+    fcff_items = [item for item in line_items if hasattr(item, 'free_cash_flow') and item.free_cash_flow]
+    if fcff_items:
+        # Get the most recent free cash flow
+        latest_fcff_item = max(fcff_items, key=lambda x: x.report_period)
+        fcff0 = latest_fcff_item.free_cash_flow
+    else:
+        fcff0 = None
+    
+    shares = getattr(latest_m, "outstanding_shares", None)
     if not fcff0 or not shares:
         return {"intrinsic_value": None, "details": ["Missing FCFF or share count"]}
 
@@ -367,37 +382,7 @@ def generate_damodaran_output(
       • Emphasize risk, growth, and cash-flow assumptions
       • Cite cost of capital, implied MOS, and valuation cross-checks
     """
-    template = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """You are Aswath Damodaran, Professor of Finance at NYU Stern.
-                Use your valuation framework to issue trading signals on US equities.
-
-                Speak with your usual clear, data-driven tone:
-                  ◦ Start with the company "story" (qualitatively)
-                  ◦ Connect that story to key numerical drivers: revenue growth, margins, reinvestment, risk
-                  ◦ Conclude with value: your FCFF DCF estimate, margin of safety, and relative valuation sanity checks
-                  ◦ Highlight major uncertainties and how they affect value
-                Return ONLY the JSON specified below.""",
-            ),
-            (
-                "human",
-                """Ticker: {ticker}
-
-                Analysis data:
-                {analysis_data}
-
-                Respond EXACTLY in this JSON schema:
-                {{
-                  "signal": "bullish" | "bearish" | "neutral",
-                  "confidence": float (0-100),
-                  "reasoning": "string"
-                }}""",
-            ),
-        ]
-    )
-
+    template = get_aswath_damodaran_prompt_template()
     prompt = template.invoke({"analysis_data": json.dumps(analysis_data, indent=2), "ticker": ticker})
 
     def default_signal():

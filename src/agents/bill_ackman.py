@@ -1,8 +1,8 @@
 from langchain_openai import ChatOpenAI
 from src.graph.state import AgentState, show_agent_reasoning
 from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
+from src.prompts.bill_ackman import get_bill_ackman_prompt_template
 from pydantic import BaseModel
 import json
 from typing_extensions import Literal
@@ -404,46 +404,7 @@ def generate_ackman_output(
     Includes more explicit references to brand strength, activism potential, 
     catalysts, and management changes in the system prompt.
     """
-    template = ChatPromptTemplate.from_messages([
-        (
-            "system",
-            """You are a Bill Ackman AI agent, making investment decisions using his principles:
-
-            1. Seek high-quality businesses with durable competitive advantages (moats), often in well-known consumer or service brands.
-            2. Prioritize consistent free cash flow and growth potential over the long term.
-            3. Advocate for strong financial discipline (reasonable leverage, efficient capital allocation).
-            4. Valuation matters: target intrinsic value with a margin of safety.
-            5. Consider activism where management or operational improvements can unlock substantial upside.
-            6. Concentrate on a few high-conviction investments.
-
-            In your reasoning:
-            - Emphasize brand strength, moat, or unique market positioning.
-            - Review free cash flow generation and margin trends as key signals.
-            - Analyze leverage, share buybacks, and dividends as capital discipline metrics.
-            - Provide a valuation assessment with numerical backup (DCF, multiples, etc.).
-            - Identify any catalysts for activism or value creation (e.g., cost cuts, better capital allocation).
-            - Use a confident, analytic, and sometimes confrontational tone when discussing weaknesses or opportunities.
-
-            Return your final recommendation (signal: bullish, neutral, or bearish) with a 0-100 confidence and a thorough reasoning section.
-            """
-        ),
-        (
-            "human",
-            """Based on the following analysis, create an Ackman-style investment signal.
-
-            Analysis Data for {ticker}:
-            {analysis_data}
-
-            Return your output in strictly valid JSON:
-            {{
-              "signal": "bullish" | "bearish" | "neutral",
-              "confidence": float (0-100),
-              "reasoning": "string"
-            }}
-            """
-        )
-    ])
-
+    template = get_bill_ackman_prompt_template()
     prompt = template.invoke({
         "analysis_data": json.dumps(analysis_data, indent=2),
         "ticker": ticker
