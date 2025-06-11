@@ -153,6 +153,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             response = self._make_request("POST", url, json=body)
             data = response.json()
             logger.debug(f"search_line_items result: search {url}, body {body}, result {data}")
+
             response_model = LineItemResponse(**data)
             search_results = response_model.search_results
             if not search_results:
