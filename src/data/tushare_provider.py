@@ -382,56 +382,78 @@ class TushareProvider(AbstractDataProvider):
             balance_df = self.pro.balancesheet(
                 ts_code=ts_code,
                 end_date=self._convert_date_format(end_date),
-                fields='ts_code,end_date,total_assets,total_liab,total_equity'
+                fields='ts_code,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int'
             )
             
             line_items_data = []
             
+            # 处理利润表数据和资产负债表数据，合并到同一个字典中
+            # 组织数据：按report_period分组
+            data_by_period = {}
+            
             # 处理利润表数据
             if income_df is not None and not income_df.empty:
+                logger.debug(f"处理利润表数据，行数: {len(income_df)}")
+                logger.debug(f"利润表可用字段: {list(income_df.columns)}")
                 for _, row in income_df.iterrows():
-                    for item_name in line_items:
-                        if item_name.lower() in ['revenue', '营业收入'] and pd.notna(row['revenue']):
-                            line_item = LineItem(
-                                ticker=ticker,
-                                report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
-                                period=period,
-                                line_item=item_name,
-                                value=float(row['revenue']),
-                                unit="HKD" if self._is_hk_stock(ticker) else "CNY",
-                                currency="HKD" if self._is_hk_stock(ticker) else "CNY"
-                            )
-                            line_items_data.append(line_item)
-                        # 处理净利润字段（A股使用n_income，港股使用net_profit）
-                        net_income_field = 'net_profit' if self._is_hk_stock(ticker) else 'n_income'
-                        if (item_name.lower() in ['net_income', '净利润'] and 
-                            net_income_field in row and pd.notna(row[net_income_field])):
-                            line_item = LineItem(
-                                ticker=ticker,
-                                report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
-                                period=period,
-                                line_item=item_name,
-                                value=float(row[net_income_field]),
-                                unit="HKD" if self._is_hk_stock(ticker) else "CNY",
-                                currency="HKD" if self._is_hk_stock(ticker) else "CNY"
-                            )
-                            line_items_data.append(line_item)
+                    report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
+                    if report_period not in data_by_period:
+                        data_by_period[report_period] = {
+                            'ticker': ticker,
+                            'report_period': report_period,
+                            'period': period,
+                            'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
+                        }
+                    
+                    # 添加收入数据
+                    if 'revenue' in row and pd.notna(row['revenue']):
+                        data_by_period[report_period]['revenue'] = float(row['revenue'])
+                    
+                    # 添加净利润数据 
+                    net_income_field = 'net_profit' if self._is_hk_stock(ticker) else 'n_income'
+                    if net_income_field in row and pd.notna(row[net_income_field]):
+                        data_by_period[report_period]['net_income'] = float(row[net_income_field])
+                    
+                    # 添加营业利润数据
+                    if 'operate_profit' in row and pd.notna(row['operate_profit']):
+                        data_by_period[report_period]['operating_profit'] = float(row['operate_profit'])
+                    
+                    # 添加利润总额数据
+                    if 'total_profit' in row and pd.notna(row['total_profit']):
+                        data_by_period[report_period]['total_profit'] = float(row['total_profit'])
             
             # 处理资产负债表数据
             if balance_df is not None and not balance_df.empty:
+                logger.debug(f"处理资产负债表数据，行数: {len(balance_df)}")
+                logger.debug(f"资产负债表可用字段: {list(balance_df.columns)}")
                 for _, row in balance_df.iterrows():
-                    for item_name in line_items:
-                        if item_name.lower() in ['total_assets', '总资产'] and pd.notna(row['total_assets']):
-                            line_item = LineItem(
-                                ticker=ticker,
-                                report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
-                                period=period,
-                                line_item=item_name,
-                                value=float(row['total_assets']),
-                                unit="HKD" if self._is_hk_stock(ticker) else "CNY",
-                                currency="HKD" if self._is_hk_stock(ticker) else "CNY"
-                            )
-                            line_items_data.append(line_item)
+                    report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
+                    if report_period not in data_by_period:
+                        data_by_period[report_period] = {
+                            'ticker': ticker,
+                            'report_period': report_period,
+                            'period': period,
+                            'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
+                        }
+                    
+                    # 添加总资产数据
+                    if 'total_assets' in row and pd.notna(row['total_assets']):
+                        data_by_period[report_period]['total_assets'] = float(row['total_assets'])
+                    
+                    # 添加总负债数据
+                    if 'total_liab' in row and pd.notna(row['total_liab']):
+                        data_by_period[report_period]['total_liabilities'] = float(row['total_liab'])
+                    
+                    # 添加股东权益数据 (Tushare字段名: total_hldr_eqy_exc_min_int)
+                    if 'total_hldr_eqy_exc_min_int' in row and pd.notna(row['total_hldr_eqy_exc_min_int']):
+                        data_by_period[report_period]['total_equity'] = float(row['total_hldr_eqy_exc_min_int'])
+            
+            # 将字典转换为LineItem对象
+            logger.debug(f"数据按期间分组结果: {list(data_by_period.keys())}")
+            for period_data in data_by_period.values():
+                logger.debug(f"创建LineItem: {period_data['ticker']} - {period_data['report_period']}")
+                line_item = LineItem(**period_data)
+                line_items_data.append(line_item)
             
             return line_items_data[:limit]
             

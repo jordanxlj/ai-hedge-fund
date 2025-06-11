@@ -80,9 +80,6 @@ class LineItem(BaseModel):
     ticker: str
     report_period: str
     period: str
-    #line_item: str
-    #value: float
-    #unit: str | None = None
     currency: str | None = None
 
     # Allow additional fields dynamically

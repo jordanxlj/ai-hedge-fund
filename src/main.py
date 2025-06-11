@@ -1,4 +1,8 @@
 import sys
+from src.utils.log_util import logger_setup as _init_logging
+
+# Initialise logging first so subsequent imports are covered
+_init_logging()
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
