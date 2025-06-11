@@ -1,21 +1,30 @@
 import logging
+import logging.config
+import os
+from pathlib import Path
 
 def logger_setup():
-    # 创建一个自定义日志记录器
-    logger = logging.getLogger(__name__)
-
-    # 创建一个文件处理器，将日志写入文件
-    handler = logging.FileHandler('ai-hedge-fund.log')
-
-    # 设置日志消息的格式
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s')
-    handler.setFormatter(formatter)
-
-    # 将处理器添加到日志记录器
-    logger.addHandler(handler)
-
-    # 设置日志级别
-    logger.setLevel(logging.DEBUG)
-
-    # 使用自定义日志记录器记录消息
-    logger.info('-------------ai hedge fund start---------------')
+    """使用log.ini配置文件初始化日志系统"""
+    # 获取项目根目录路径
+    current_dir = Path(__file__).parent
+    project_root = current_dir.parent.parent
+    log_config_path = project_root / "conf" / "log.ini"
+    
+    if log_config_path.exists():
+        # 使用配置文件初始化日志
+        logging.config.fileConfig(log_config_path)
+        logger = logging.getLogger(__name__)
+        logger.info('-------------ai hedge fund start---------------')
+    else:
+        # 如果配置文件不存在，回退到默认配置
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s',
+            handlers=[
+                logging.FileHandler('ai-hedge-fund.log'),
+                logging.StreamHandler()
+            ]
+        )
+        logger = logging.getLogger(__name__)
+        logger.warning(f'日志配置文件 {log_config_path} 不存在，使用默认配置')
+        logger.info('-------------ai hedge fund start---------------')
