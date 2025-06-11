@@ -5,6 +5,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 from colorama import Fore, Style, init
 import questionary
+
 from src.agents.portfolio_manager import portfolio_management_agent
 from src.agents.risk_manager import risk_management_agent
 from src.graph.state import AgentState
@@ -13,11 +14,12 @@ from src.utils.analysts import ANALYST_ORDER, get_analyst_nodes
 from src.utils.progress import progress
 from src.llm.models import LLM_ORDER, OLLAMA_LLM_ORDER, get_model_info, ModelProvider
 from src.utils.ollama import ensure_ollama_and_model
+from src.utils.visualize import save_graph_as_png
+from src.utils.log_util import logger_setup
 
 import argparse
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from src.utils.visualize import save_graph_as_png
 import json
 
 # Load environment variables from .env file
@@ -133,6 +135,7 @@ def create_workflow(selected_analysts=None):
 
 
 if __name__ == "__main__":
+    logger_setup()
     parser = argparse.ArgumentParser(description="Run the hedge fund trading system")
     parser.add_argument("--initial-cash", type=float, default=100000.0, help="Initial cash position. Defaults to 100000.0)")
     parser.add_argument("--margin-requirement", type=float, default=0.0, help="Initial margin requirement. Defaults to 0.0")

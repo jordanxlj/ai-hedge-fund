@@ -20,7 +20,6 @@ from src.utils.timeout_retry import with_http_timeout_retry
 
 logger = logging.getLogger(__name__)
 
-
 class FinancialDatasetsProvider(AbstractDataProvider):
     """FinancialDatasets.ai数据提供商实现"""
     
@@ -153,26 +152,15 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             }
             response = self._make_request("POST", url, json=body)
             data = response.json()
-            
-            # Transform the raw API data into LineItem format
-            transformed_results = []
-            if "search_results" in data and data["search_results"]:
-                for raw_item in data["search_results"]:
-                    # For each requested line item, extract its value from the raw data
-                    for line_item_name in line_items:
-                        if line_item_name in raw_item and raw_item[line_item_name] is not None:
-                            transformed_item = LineItem(
-                                ticker=raw_item.get("ticker", ticker),
-                                report_period=raw_item.get("report_period", ""),
-                                period=raw_item.get("period", period),
-                                line_item=line_item_name,
-                                value=float(raw_item[line_item_name]),
-                                unit=raw_item.get("unit", "USD"),
-                                currency=raw_item.get("currency", "USD")
-                            )
-                            transformed_results.append(transformed_item)
-            
-            return transformed_results[:limit]
+            logger.debug(f"search_line_items result: search {url}, body {body}, result {data}")
+            response_model = LineItemResponse(**data)
+            search_results = response_model.search_results
+            if not search_results:
+                return []
+            logger.debug(f"search_line_items: search results {search_results[:limit]}")
+
+            # Cache the results
+            return search_results[:limit]
             
         except Exception as e:
             logger.error(f"搜索财务报表项目失败 {ticker}: {e}")

@@ -7,7 +7,9 @@ import json
 from typing_extensions import Literal
 from src.utils.progress import progress
 from src.utils.llm import call_llm
+import logging
 
+logger = logging.getLogger(__name__)
 
 class CathieWoodSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -56,6 +58,7 @@ def cathie_wood_agent(state: AgentState):
             period="annual",
             limit=5,
         )
+        logger.debug(f"Financial line items: {financial_line_items}")
 
         progress.update_status("cathie_wood_agent", ticker, "Getting market cap")
         market_cap = get_market_cap(ticker, end_date)

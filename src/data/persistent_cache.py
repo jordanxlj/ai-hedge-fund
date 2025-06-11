@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import hashlib
 from .data_config import get_cache_ttl
+import logging
 
+logger = logging.getLogger(__name__)
 
 class PersistentCache:
     """File-based persistent cache with TTL support for API responses."""
@@ -194,14 +196,18 @@ class PersistentCache:
     def get_line_items(self, ticker: str, line_items: List[str], period: str, end_date: str, limit: int) -> Optional[List[Dict[str, Any]]]:
         """Get cached line items if available."""
         line_items_str = "_".join(sorted(line_items))  # Sort for consistent cache key
-        return self.get('line_items', ticker=ticker, line_items=line_items_str,
+        result = self.get('line_items', ticker=ticker, line_items=line_items_str,
                       period=period, end_date=end_date, limit=limit)
+        logger.debug(f"get_line_items result: {result}")
+        return result
 
     def set_line_items(self, ticker: str, line_items: List[str], period: str, end_date: str, limit: int, data: List[Dict[str, Any]]):
         """Set line items to cache."""
         line_items_str = "_".join(sorted(line_items))  # Sort for consistent cache key
         # Use TTL from configuration
         ttl = get_cache_ttl('line_items')
+        logger.debug(f"set_line_items: {line_items_str}")
+
         self.set('line_items', data, ttl=ttl, merge_key='report_period',
                 ticker=ticker, line_items=line_items_str, period=period, end_date=end_date, limit=limit)
 

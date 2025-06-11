@@ -173,6 +173,7 @@ def search_line_items(
     if persistent_data := _persistent_cache.get_line_items(ticker, line_items, period, end_date, limit):
         try:
             line_items_objs = [LineItem(**item) for item in persistent_data]
+            logger.debug(f"persistent_data: {line_items_objs}")
             # Load into memory cache for faster future access
             _cache.set_line_items(cache_key, persistent_data)
             return line_items_objs
@@ -184,7 +185,8 @@ def search_line_items(
     try:
         provider = _get_data_provider()
         search_results = provider.search_line_items(ticker, line_items, end_date, period, limit)
-        
+        logger.debug(f"search_results: {search_results}")
+
         if not search_results:
             return []
 
