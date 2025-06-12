@@ -16,6 +16,7 @@ from src.data.models import (
     CompanyNews,
 )
 from src.utils.timeout_retry import with_timeout_retry
+from src.data.tushare_mapping import get_tushare_fields, apply_field_mapping
 
 logger = logging.getLogger(__name__)
 
@@ -386,10 +387,17 @@ class TushareProvider(AbstractDataProvider):
             )
             
             # 获取财务报表数据 - 现金流量表
+            cashflow_fields = get_tushare_fields('cashflow', [
+                'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
+                'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
+                'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
+                'net_cash_increase', 'cash_from_investments'
+            ])
+            
             cashflow_df = self.pro.cashflow(
                 ts_code=ts_code,
                 end_date=self._convert_date_format(end_date),
-                fields='ts_code,end_date,n_cashflow_act,n_cashflow_inv_act,n_cashflow_fna_act,c_fr_sale_sg,c_paid_goods_s,c_paid_to_for_empl,c_paid_for_taxes,n_incr_cash_cash_equ,c_recp_invest,c_pay_acq_const_fiolta,free_cashflow'
+                fields=cashflow_fields
             )
             
             line_items_data = []
@@ -459,6 +467,7 @@ class TushareProvider(AbstractDataProvider):
             if cashflow_df is not None and not cashflow_df.empty:
                 logger.debug(f"处理现金流量表数据，行数: {len(cashflow_df)}")
                 logger.debug(f"现金流量表可用字段: {list(cashflow_df.columns)}")
+                
                 for _, row in cashflow_df.iterrows():
                     report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
                     if report_period not in data_by_period:
@@ -468,62 +477,28 @@ class TushareProvider(AbstractDataProvider):
                             'period': period,
                             'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
                         }
-                    logger.debug(f"search_line_items: {row}, {report_period}")
                     
-                    # 添加经营活动现金流量净额 (保留字段，允许None)
-                    data_by_period[report_period]['operating_cash_flow'] = (
-                        float(row['n_cashflow_act']) if 'n_cashflow_act' in row and pd.notna(row['n_cashflow_act']) else None
-                    )
+                    logger.debug(f"search_line_items cashflow: {row.to_dict()}")
                     
-                    # 添加投资活动现金流量净额 (保留字段，允许None)
-                    data_by_period[report_period]['investing_cash_flow'] = (
-                        float(row['n_cashflow_inv_act']) if 'n_cashflow_inv_act' in row and pd.notna(row['n_cashflow_inv_act']) else None
-                    )
+                    # 使用映射表转换字段
+                    row_dict = row.to_dict()
+                    mapped_fields = apply_field_mapping(row_dict, 'cashflow')
                     
-                    # 添加筹资活动现金流量净额 (保留字段，允许None)
-                    data_by_period[report_period]['financing_cash_flow'] = (
-                        float(row['n_cash_flows_fnc_act']) if 'n_cash_flows_fnc_act' in row and pd.notna(row['n_cash_flows_fnc_act']) else None
-                    )
+                    # 添加映射后的现金流字段，保留所有字段（包括None值）
+                    target_cashflow_fields = [
+                        'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
+                        'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
+                        'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
+                        'net_cash_increase', 'cash_from_investments'
+                    ]
                     
-                    # 添加销售商品、提供劳务收到的现金 (保留字段，允许None)
-                    data_by_period[report_period]['cash_from_sales'] = (
-                        float(row['c_fr_sale_sg']) if 'c_fr_sale_sg' in row and pd.notna(row['c_fr_sale_sg']) else None
-                    )
-                    
-                    # 添加购买商品、接受劳务支付的现金 (保留字段，允许None)
-                    data_by_period[report_period]['cash_paid_for_goods'] = (
-                        float(row['c_paid_goods_s']) if 'c_paid_goods_s' in row and pd.notna(row['c_paid_goods_s']) else None
-                    )
-                    
-                    # 添加支付给职工以及为职工支付的现金 (保留字段，允许None)
-                    data_by_period[report_period]['cash_paid_to_employees'] = (
-                        float(row['c_paid_to_for_empl']) if 'c_paid_to_for_empl' in row and pd.notna(row['c_paid_to_for_empl']) else None
-                    )
-                    
-                    # 添加支付的各项税费 (保留字段，允许None)
-                    data_by_period[report_period]['cash_paid_for_taxes'] = (
-                        float(row['c_paid_for_taxes']) if 'c_paid_for_taxes' in row and pd.notna(row['c_paid_for_taxes']) else None
-                    )
-                    
-                    # 添加现金及现金等价物净增加额 (保留字段，允许None)
-                    data_by_period[report_period]['net_cash_increase'] = (
-                        float(row['n_incr_cash_cash_equ']) if 'n_incr_cash_cash_equ' in row and pd.notna(row['n_incr_cash_cash_equ']) else None
-                    )
-                    
-                    # 添加收回投资收到的现金 (保留字段，允许None)
-                    data_by_period[report_period]['cash_from_investments'] = (
-                        float(row['c_disp_withdrwl_invest']) if 'c_disp_withdrwl_invest' in row and pd.notna(row['c_disp_withdrwl_invest']) else None
-                    )
-                    
-                    # 添加购建固定资产、无形资产和其他长期资产支付的现金 (保留字段，允许None)
-                    data_by_period[report_period]['capital_expenditure'] = (
-                        float(row['c_pay_acq_const_fiolta']) if 'c_pay_acq_const_fiolta' in row and pd.notna(row['c_pay_acq_const_fiolta']) else None
-                    )
-                    
-                    # 添加自由现金流 (保留字段，允许None)
-                    data_by_period[report_period]['free_cash_flow'] = (
-                        float(row['free_cashflow']) if 'free_cashflow' in row and pd.notna(row['free_cashflow']) else None
-                    )
+                    for field in target_cashflow_fields:
+                        if field in mapped_fields and pd.notna(mapped_fields[field]):
+                            data_by_period[report_period][field] = float(mapped_fields[field])
+                        else:
+                            data_by_period[report_period][field] = None
+                            
+                    logger.debug(f"现金流字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in target_cashflow_fields]}")
             
             # 将字典转换为LineItem对象
             logger.debug(f"数据按期间分组结果: {list(data_by_period.keys())}")
