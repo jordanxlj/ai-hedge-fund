@@ -327,6 +327,7 @@ class TushareProvider(AbstractDataProvider):
                     pe_ratio=pe_ratio,
                     pb_ratio=pb_ratio,
                 )
+                logger.debug(f"metric: {metric}")
                 metrics.append(metric)
             
             return metrics[:limit]
@@ -385,19 +386,20 @@ class TushareProvider(AbstractDataProvider):
                 end_date=self._convert_date_format(end_date),
                 fields='ts_code,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int'
             )
-            
+
             # 获取财务报表数据 - 现金流量表
-            cashflow_fields = get_tushare_fields('cashflow', [
+            cashflow_fields = [
                 'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
                 'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
                 'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
                 'net_cash_increase', 'cash_from_investments'
-            ])
+            ]
+            tushare_cashflow_fields = get_tushare_fields('cashflow', cashflow_fields)
             
             cashflow_df = self.pro.cashflow(
                 ts_code=ts_code,
                 end_date=self._convert_date_format(end_date),
-                fields=cashflow_fields
+                fields=tushare_cashflow_fields
             )
             
             line_items_data = []
@@ -485,20 +487,12 @@ class TushareProvider(AbstractDataProvider):
                     mapped_fields = apply_field_mapping(row_dict, 'cashflow')
                     
                     # 添加映射后的现金流字段，保留所有字段（包括None值）
-                    target_cashflow_fields = [
-                        'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
-                        'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
-                        'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
-                        'net_cash_increase', 'cash_from_investments'
-                    ]
-                    
-                    for field in target_cashflow_fields:
-                        if field in mapped_fields and pd.notna(mapped_fields[field]):
-                            data_by_period[report_period][field] = float(mapped_fields[field])
-                        else:
-                            data_by_period[report_period][field] = None
+                    logger.debug(f"cashflow fields: {cashflow_fields}")
+
+                    for field in cashflow_fields:
+                        data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
                             
-                    logger.debug(f"现金流字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in target_cashflow_fields]}")
+                    logger.debug(f"现金流字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in cashflow_fields]}")
             
             # 将字典转换为LineItem对象
             logger.debug(f"数据按期间分组结果: {list(data_by_period.keys())}")
@@ -512,7 +506,13 @@ class TushareProvider(AbstractDataProvider):
         except Exception as e:
             logger.error(f"搜索财务报表项目失败 {ticker}: {e}")
             return []
-    
+
+    def safe_convert(self, item, data):
+        #如果存在，且不为NAN，则转换为float，否则转换为None
+        if item in data and pd.notna(data[item]):
+            return float(data[item])
+        return None
+
     @with_timeout_retry("get_insider_trades")
     def get_insider_trades(
         self,
