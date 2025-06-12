@@ -326,6 +326,8 @@ class TushareProvider(AbstractDataProvider):
                     eps=safe_get_value(row, 'eps'),
                     pe_ratio=pe_ratio,
                     pb_ratio=pb_ratio,
+                    roic=safe_percentage_to_decimal(row, 'roic'),
+                    depreciation_and_amortization=safe_get_value(row, 'daa'),
                 )
                 logger.debug(f"metric: {metric}")
                 metrics.append(metric)
@@ -374,17 +376,33 @@ class TushareProvider(AbstractDataProvider):
             
             # A股财务数据
             # 获取财务报表数据 - 利润表
+            income_fields = [
+                'revenue', 'operating_profit', 'total_profit', 'net_income',
+                'basic_eps', 'total_cost_of_goods_sold', 'selling_expenses',
+                'administrative_expenses', 'finance_expenses', 'investment_income',
+                'interest_expense', 'operating_expense', 'ebit', 'ebitda'
+            ]
+            tushare_income_fields = get_tushare_fields('income', income_fields)
+            
             income_df = self.pro.income(
                 ts_code=ts_code,
                 end_date=self._convert_date_format(end_date),
-                fields='ts_code,end_date,revenue,operate_profit,total_profit,n_income'
+                fields=tushare_income_fields
             )
             
             # 获取财务报表数据 - 资产负债表
+            balance_fields = [
+                'total_assets', 'total_liabilities', 'total_equity',
+                'current_assets', 'total_current_liabilities', 'accounts_receivable',
+                'inventories', 'accounts_payable', 'fixed_assets', 'long_term_borrowings',
+                'research_and_development', 'goodwill', 'intangible_assets'
+            ]
+            tushare_balance_fields = get_tushare_fields('balance', balance_fields)
+            
             balance_df = self.pro.balancesheet(
                 ts_code=ts_code,
                 end_date=self._convert_date_format(end_date),
-                fields='ts_code,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int'
+                fields=tushare_balance_fields
             )
 
             # 获取财务报表数据 - 现金流量表
@@ -392,7 +410,7 @@ class TushareProvider(AbstractDataProvider):
                 'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
                 'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
                 'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
-                'net_cash_increase', 'cash_from_investments'
+                'net_cash_increase', 'cash_from_investments', 'capital_expenditure'
             ]
             tushare_cashflow_fields = get_tushare_fields('cashflow', cashflow_fields)
             
@@ -412,6 +430,7 @@ class TushareProvider(AbstractDataProvider):
             if income_df is not None and not income_df.empty:
                 logger.debug(f"处理利润表数据，行数: {len(income_df)}")
                 logger.debug(f"利润表可用字段: {list(income_df.columns)}")
+                
                 for _, row in income_df.iterrows():
                     report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
                     if report_period not in data_by_period:
@@ -422,27 +441,25 @@ class TushareProvider(AbstractDataProvider):
                             'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
                         }
                     
-                    # 添加收入数据
-                    if 'revenue' in row and pd.notna(row['revenue']):
-                        data_by_period[report_period]['revenue'] = float(row['revenue'])
+                    logger.debug(f"search_line_items income: {row.to_dict()}")
                     
-                    # 添加净利润数据 
-                    net_income_field = 'net_profit' if self._is_hk_stock(ticker) else 'n_income'
-                    if net_income_field in row and pd.notna(row[net_income_field]):
-                        data_by_period[report_period]['net_income'] = float(row[net_income_field])
+                    # 使用映射表转换字段
+                    row_dict = row.to_dict()
+                    mapped_fields = apply_field_mapping(row_dict, 'income')
                     
-                    # 添加营业利润数据
-                    if 'operate_profit' in row and pd.notna(row['operate_profit']):
-                        data_by_period[report_period]['operating_profit'] = float(row['operate_profit'])
+                    # 添加映射后的利润表字段，保留所有字段（包括None值）
+                    logger.debug(f"income fields: {income_fields}")
                     
-                    # 添加利润总额数据
-                    if 'total_profit' in row and pd.notna(row['total_profit']):
-                        data_by_period[report_period]['total_profit'] = float(row['total_profit'])
+                    for field in income_fields:
+                        data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
+                        
+                    logger.debug(f"利润表字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in income_fields]}")
             
             # 处理资产负债表数据
             if balance_df is not None and not balance_df.empty:
                 logger.debug(f"处理资产负债表数据，行数: {len(balance_df)}")
                 logger.debug(f"资产负债表可用字段: {list(balance_df.columns)}")
+                
                 for _, row in balance_df.iterrows():
                     report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
                     if report_period not in data_by_period:
@@ -453,17 +470,19 @@ class TushareProvider(AbstractDataProvider):
                             'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
                         }
                     
-                    # 添加总资产数据
-                    if 'total_assets' in row and pd.notna(row['total_assets']):
-                        data_by_period[report_period]['total_assets'] = float(row['total_assets'])
+                    logger.debug(f"search_line_items balance: {row.to_dict()}")
                     
-                    # 添加总负债数据
-                    if 'total_liab' in row and pd.notna(row['total_liab']):
-                        data_by_period[report_period]['total_liabilities'] = float(row['total_liab'])
+                    # 使用映射表转换字段
+                    row_dict = row.to_dict()
+                    mapped_fields = apply_field_mapping(row_dict, 'balance')
                     
-                    # 添加股东权益数据 (Tushare字段名: total_hldr_eqy_exc_min_int)
-                    if 'total_hldr_eqy_exc_min_int' in row and pd.notna(row['total_hldr_eqy_exc_min_int']):
-                        data_by_period[report_period]['total_equity'] = float(row['total_hldr_eqy_exc_min_int'])
+                    # 添加映射后的资产负债表字段，保留所有字段（包括None值）
+                    logger.debug(f"balance fields: {balance_fields}")
+                    
+                    for field in balance_fields:
+                        data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
+                        
+                    logger.debug(f"资产负债表字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in balance_fields]}")
             
             # 处理现金流量表数据
             if cashflow_df is not None and not cashflow_df.empty:

@@ -56,7 +56,7 @@ CASHFLOW_FIELD_MAPPING = {
     'eff_fx_flu_cash': 'fx_effects_on_cash',              # 汇率变动对现金的影响
     'n_incr_cash_cash_equ': 'net_cash_increase',          # 现金及现金等价物净增加额
     'c_cash_equ_beg_period': 'cash_beginning_period',     # 期初现金及现金等价物余额
-    'c_cash_equ_end_period': 'cash_ending_period',        # 期末现金及现金等价物余额
+    'c_cash_equ_end_period': 'cash_and_equivalents',      # 期末现金及现金等价物余额
     'c_recp_cap_contrib': 'cash_from_capital_contributions', # 吸收投资收到的现金
     'incl_cash_rec_saims': 'cash_from_subsidiaries',      # 其中:子公司吸收少数股东投资收到的现金
     'uncon_invest_loss': 'unconsolidated_investment_loss', # 对联营企业和合营企业的投资损失
@@ -144,7 +144,7 @@ INCOME_FIELD_MAPPING = {
     'reser_insur_liab': 'insurance_liability_reserves',  # 提取保险责任准备金
     'div_payt': 'dividend_payments',                     # 保户红利支出
     'reins_exp': 'reinsurance_expenses',                 # 分保费用
-    'oper_exp': 'operating_expenses',                    # 营业支出
+    'oper_exp': 'operating_expense',                     # 营业支出
     'compens_payout_refu': 'compensation_payout_refunds', # 摊回赔付支出
     'insur_reser_refu': 'insurance_reserve_refunds',     # 摊回保险责任准备金
     'reins_cost_refund': 'reinsurance_cost_refunds',     # 摊回分保费用
@@ -159,6 +159,8 @@ INCOME_FIELD_MAPPING = {
     'n_income_attr_p': 'net_income_attributable_to_parent', # 归属于母公司所有者的净利润
     'minority_gain': 'minority_interests',               # 少数股东损益
     'oth_compr_income': 'other_comprehensive_income',    # 其他综合收益
+    'ebit': 'ebit',                                      # 息税前利润
+    'ebitda': 'ebitda',                                  # 息税折旧摊销前利润
     'update_flag': 'update_flag',                        # 更新标志
 }
 
@@ -193,7 +195,7 @@ BALANCE_FIELD_MAPPING = {
     'reinsur_res_receiv': 'reinsurance_reserve_receivables', # 应收分保未到期责任准备金
     'pur_resale_fa': 'financial_assets_purchased_for_resale', # 买入返售金融资产
     'oth_cur_assets': 'other_current_assets',            # 其他流动资产
-    'total_cur_assets': 'total_current_assets',          # 流动资产合计
+    'total_cur_assets': 'current_assets',                # 流动资产合计
     'fa_avail_for_sale': 'available_for_sale_financial_assets', # 可供出售金融资产
     'htm_invest': 'held_to_maturity_investments',        # 持有至到期投资
     'lt_eqt_invest': 'long_term_equity_investments',     # 长期股权投资
@@ -255,7 +257,7 @@ BALANCE_FIELD_MAPPING = {
     'acting_uw_sec': 'acting_underwriting_securities',   # 代理承销证券款
     'non_cur_liab_due_1y': 'non_current_liabilities_due_within_1y', # 一年内到期的非流动负债
     'oth_cur_liab': 'other_current_liabilities',         # 其他流动负债
-    'total_cur_liab': 'total_current_liabilities',       # 流动负债合计
+    'total_cur_liab': 'current_liabilities',             # 流动负债合计
     'bond_payable': 'bonds_payable',                     # 应付债券
     'lt_payable': 'long_term_payables',                  # 长期应付款
     'specific_payables': 'specific_payables',            # 专项应付款
