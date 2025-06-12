@@ -276,12 +276,14 @@ class TushareProvider(AbstractDataProvider):
                 pe_ratio = None
                 pb_ratio = None
                 ps_ratio = None
+                float_share = None
                 if valuation_df is not None and not valuation_df.empty:
                     # 使用最近的估值数据
                     val_row = valuation_df.iloc[0]
                     pe_ratio = self._safe_get_float(val_row, 'pe')
                     pb_ratio = self._safe_get_float(val_row, 'pb') 
                     ps_ratio = self._safe_get_float(val_row, 'ps')
+                    float_share = self._safe_get_float(val_row, 'float_share')
                 
                 # 安全地获取并转换数值字段
                 def safe_percentage_to_decimal(row, field_name):
@@ -328,6 +330,8 @@ class TushareProvider(AbstractDataProvider):
                     pb_ratio=pb_ratio,
                     roic=safe_percentage_to_decimal(row, 'roic'),
                     depreciation_and_amortization=safe_get_value(row, 'daa'),
+                    operating_income=safe_get_value(row, 'op_income'),
+                    outstanding_shares=float_share,
                 )
                 logger.debug(f"metric: {metric}")
                 metrics.append(metric)
@@ -395,7 +399,7 @@ class TushareProvider(AbstractDataProvider):
                 'total_assets', 'total_liabilities', 'total_equity',
                 'current_assets', 'total_current_liabilities', 'accounts_receivable',
                 'inventories', 'accounts_payable', 'fixed_assets', 'long_term_borrowings',
-                'research_and_development', 'goodwill', 'intangible_assets'
+                'research_and_development', 'goodwill', 'intangible_assets', 'short_term_borrowings'
             ]
             tushare_balance_fields = get_tushare_fields('balance', balance_fields)
             
@@ -410,7 +414,8 @@ class TushareProvider(AbstractDataProvider):
                 'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
                 'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
                 'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
-                'net_cash_increase', 'cash_from_investments', 'capital_expenditure'
+                'net_cash_increase', 'cash_from_investments', 'capital_expenditure',
+                'dividends_and_other_cash_distributions'
             ]
             tushare_cashflow_fields = get_tushare_fields('cashflow', cashflow_fields)
             

@@ -48,7 +48,7 @@ CASHFLOW_FIELD_MAPPING = {
     'stot_cash_in_fnc_act': 'total_cash_inflows_financing', # 筹资活动现金流入小计
     'free_cashflow': 'free_cash_flow',                    # 企业自由现金流量
     'c_prepay_amt_borr': 'cash_prepaid_borrowing',        # 偿还债务支付的现金
-    'c_pay_dist_dpcp_int_exp': 'cash_paid_for_dividends', # 分配股利、利润或偿付利息支付的现金
+    'c_pay_dist_dpcp_int_exp': 'dividends_and_other_cash_distributions', # 分配股利、利润或偿付利息支付的现金
     'incl_dvd_profit_paid_sc_ms': 'dividends_paid_to_minorities', # 其中:子公司支付给少数股东的股利、利润
     'oth_cashpay_ral_fnc_act': 'other_financing_outflows', # 筹资活动支付的其他现金
     'stot_cashout_fnc_act': 'total_cash_outflows_financing', # 筹资活动现金流出小计
@@ -288,7 +288,7 @@ BALANCE_FIELD_MAPPING = {
     'forex_differ': 'foreign_exchange_differences',      # 外币报表折算差额
     'invest_loss_unconf': 'unconfirmed_investment_losses', # 未确认的投资损失
     'minority_int': 'minority_interests_equity',         # 少数股东权益
-    'total_hldr_eqy_exc_min_int': 'total_equity',        # 股东权益合计(不含少数股东权益)
+    'total_hldr_eqy_exc_min_int': 'shareholders_equity', # 股东权益合计(不含少数股东权益)
     'total_hldr_eqy_inc_min_int': 'total_equity_including_minority', # 股东权益合计(含少数股东权益)
     'total_liab_hldr_eqy': 'total_liabilities_and_equity', # 负债及股东权益总计
     'lt_payroll_payable': 'long_term_payroll_payable',   # 长期应付职工薪酬
