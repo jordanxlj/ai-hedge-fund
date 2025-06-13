@@ -20,7 +20,7 @@ data_providers:
     tushare:
       api_key_env: TUSHARE_API_KEY
       name: Tushare Pro
-  default: financial_datasets
+  default: tushare
 
 interfaces:
   call_llm_deepseek:

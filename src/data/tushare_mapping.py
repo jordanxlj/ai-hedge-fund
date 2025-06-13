@@ -323,12 +323,215 @@ BALANCE_FIELD_MAPPING = {
     'update_flag': 'update_flag',                        # 更新标志
 }
 
+# 财务指标字段映射 (pro.fina_indicator)
+FINANCIAL_METRICS_FIELD_MAPPING = {
+    'ts_code': 'ts_code',
+    'ann_date': 'ann_date',
+    'end_date': 'end_date',
+    'eps': 'earnings_per_share',                         # 基本每股收益
+    'dt_eps': 'diluted_earnings_per_share',              # 稀释每股收益
+    'total_revenue_ps': 'revenue_per_share',             # 每股营业总收入
+    'revenue_ps': 'revenue_per_share_alt',               # 每股营业收入
+    'capital_rese_ps': 'capital_reserve_per_share',      # 每股资本公积
+    'surplus_rese_ps': 'surplus_reserve_per_share',      # 每股盈余公积
+    'undist_profit_ps': 'undistributed_profit_per_share', # 每股未分配利润
+    'extra_item': 'extraordinary_items',                 # 非经常性损益
+    'profit_dedt': 'profit_after_extraordinary_items',   # 扣除非经常性损益后的净利润
+    'gross_margin': 'gross_margin',                      # 毛利
+    'current_ratio': 'current_ratio',                    # 流动比率
+    'quick_ratio': 'quick_ratio',                        # 速动比率
+    'cash_ratio': 'cash_ratio',                          # 保守速动比率
+    'invturn_days': 'inventory_turnover_days',           # 存货周转天数
+    'arturn_days': 'accounts_receivable_turnover_days',  # 应收账款周转天数
+    'inv_turn': 'inventory_turnover',                    # 存货周转率
+    'ar_turn': 'accounts_receivable_turnover',           # 应收账款周转率
+    'ca_turn': 'current_assets_turnover',                # 流动资产周转率
+    'fa_turn': 'fixed_assets_turnover',                  # 固定资产周转率
+    'assets_turn': 'total_assets_turnover',              # 总资产周转率
+    'roe': 'return_on_equity',                           # 净资产收益率
+    'npta': 'net_profit_to_total_assets',                # 总资产报酬率
+    'op_income': 'operating_income',                     # 经营活动净收益
+    'daa': 'depreciation_and_amortization',              # 折旧与摊销
+    'roic': 'roic',                                      # 投入资本回报率
+    'roe_waa': 'roe',                                    # 加权平均净资产收益率
+    'roe_dt': 'return_on_equity_diluted',                # 稀释净资产收益率
+    'roe_yearly': 'return_on_equity_yearly',             # 年化净资产收益率
+    'roa': 'return_on_assets',                           # 总资产净利率
+    'npta_yearly': 'net_profit_to_assets_yearly',        # 年化总资产净利率
+    'roa_yearly': 'roa',                                 # 年化总资产收益率
+    'roa_dp': 'return_on_assets_dp',                     # 总资产收益率(扣除非经常损益)
+    'cf_sales': 'cash_flow_to_sales',                    # 经营现金净流量对销售收入比率
+    'roa_yearly_2': 'return_on_assets_yearly_2',         # 年化总资产收益率(二)
+    'roa_dp_2': 'return_on_assets_dp_2',                 # 总资产收益率(扣除非经常损益)(二)
+    'cf_nm': 'cash_flow_to_net_income',                  # 经营现金净流量与净利润的比率
+    'cf_liabs': 'cash_flow_to_liabilities',              # 经营现金净流量对负债比率
+    'cashflow_m': 'cash_flow_margin',                    # 现金流量比率
+    'op_of_gr': 'operating_margin',                      # 营业利润/营业总收入
+    'debt_to_assets': 'debt_to_assets',                  # 资产负债率
+    'assets_to_eqt': 'assets_to_equity',                 # 权益乘数
+    'dp_assets_to_eqt': 'dp_assets_to_equity',           # 权益乘数(杜邦分析)
+    'ca_to_assets': 'current_assets_to_total_assets',    # 流动资产/总资产
+    'nca_to_assets': 'non_current_assets_to_total_assets', # 非流动资产/总资产
+    'tbassets_to_totalassets': 'tangible_assets_to_total_assets', # 有形资产/总资产
+    'int_to_talcap': 'interest_bearing_debt_to_total_capital', # 带息债务/全部投入资本
+    'eqt_to_talcapital': 'equity_to_total_capital',      # 归属于母公司的股东权益/全部投入资本
+    'currentdebt_to_debt': 'current_debt_to_total_debt', # 流动负债/负债合计
+    'longdeb_to_debt': 'long_term_debt_to_total_debt',   # 非流动负债/负债合计
+    'ocf_to_shortdebt': 'operating_cash_flow_to_short_debt', # 经营活动产生的现金流量净额/流动负债
+    'debt_to_eqt': 'debt_to_equity',                     # 产权比率
+    'eqt_to_debt': 'equity_to_debt',                     # 归属于母公司的股东权益/负债合计
+    'eqt_to_interestdebt': 'equity_to_interest_bearing_debt', # 归属于母公司的股东权益/带息债务
+    'tangibleasset_to_debt': 'tangible_assets_to_debt',  # 有形资产/负债合计
+    'tangasset_to_intdebt': 'tangible_assets_to_interest_debt', # 有形资产/带息债务
+    'tangibleasset_to_netdebt': 'tangible_assets_to_net_debt', # 有形资产/净债务
+    'ocf_to_debt': 'operating_cash_flow_to_debt',        # 经营活动产生的现金流量净额/负债合计
+    'ocf_to_interestdebt': 'operating_cash_flow_to_interest_debt', # 经营活动产生的现金流量净额/带息债务
+    'ocf_to_netdebt': 'operating_cash_flow_to_net_debt', # 经营活动产生的现金流量净额/净债务
+    'ebit_to_interest': 'ebit_to_interest_expense',      # EBIT/利息费用
+    'longdebt_to_workingcapital': 'long_debt_to_working_capital', # 长期债务与营运资金比率
+    'ebitda_to_debt': 'ebitda_to_debt',                  # EBITDA/负债合计
+    'turn_days': 'turnover_days',                        # 营业周期
+    'roa_yearly_3': 'return_on_assets_yearly_3',         # 年化总资产收益率(三)
+    'roa_dp_3': 'return_on_assets_dp_3',                 # 总资产收益率(扣除非经常损益)(三)
+    'fixed_assets': 'fixed_assets_ratio',                # 固定资产合计
+    'profit_prefin_exp': 'profit_before_finance_expense', # 息税前利润/营业总收入
+    'non_op_profit': 'non_operating_profit_ratio',       # 非营业利润比重
+    'op_to_ebt': 'operating_profit_to_ebt',              # 营业利润/利润总额
+    'tax_to_ebt': 'tax_to_ebt',                          # 所得税/利润总额
+    'dtprofit_to_profit': 'deferred_tax_to_profit',      # 扣除非经常损益后的净利润/净利润
+    'salescash_to_or': 'sales_cash_to_operating_revenue', # 销售商品提供劳务收到的现金/营业收入
+    'ocf_to_or': 'operating_cash_flow_to_revenue',       # 经营活动产生的现金流量净额/营业收入
+    'ocf_to_opincome': 'operating_cash_flow_to_operating_income', # 经营活动产生的现金流量净额/经营活动净收益
+    'capitalized_to_da': 'capitalized_to_depreciation',  # 资本化支出/折旧和摊销
+    'debt_to_assets_2': 'debt_to_assets_2',              # 资产负债率(二)
+    'assets_to_eqt_2': 'assets_to_equity_2',             # 权益乘数(二)
+    'dp_assets_to_eqt_2': 'dp_assets_to_equity_2',       # 权益乘数(杜邦分析)(二)
+    'profit_to_op': 'profit_to_operating_revenue',       # 利润总额/营业收入
+    'q_opincome': 'quarterly_operating_income',          # 经营活动净收益
+    'q_investincome': 'quarterly_investment_income',     # 价值变动净收益
+    'q_dtprofit': 'quarterly_deferred_tax_profit',       # 扣除非经常损益后的净利润(单季度)
+    'q_eps': 'quarterly_earnings_per_share',             # 每股收益(单季度)
+    'q_netprofit_margin': 'quarterly_net_profit_margin', # 销售净利率(单季度)
+    'q_gsprofit_margin': 'quarterly_gross_profit_margin', # 销售毛利率(单季度)
+    'q_exp_to_sales': 'quarterly_expense_to_sales',      # 销售期间费用率(单季度)
+    'q_profit_to_gr': 'quarterly_profit_to_revenue',     # 净利润/营业总收入(单季度)
+    'q_saleexp_to_gr': 'quarterly_sales_expense_to_revenue', # 销售费用/营业总收入(单季度)
+    'q_adminexp_to_gr': 'quarterly_admin_expense_to_revenue', # 管理费用/营业总收入(单季度)
+    'q_finaexp_to_gr': 'quarterly_finance_expense_to_revenue', # 财务费用/营业总收入(单季度)
+    'q_impair_to_gr_ttm': 'quarterly_impairment_to_revenue_ttm', # 资产减值损失/营业总收入
+    'q_gc_to_gr': 'quarterly_goods_cost_to_revenue',     # 营业成本/营业总收入(单季度)
+    'q_op_to_gr': 'quarterly_operating_profit_to_revenue', # 营业利润/营业总收入(单季度)
+    'q_roe': 'quarterly_return_on_equity',               # 净资产收益率(单季度)
+    'q_dt_roe': 'quarterly_diluted_roe',                 # 稀释净资产收益率(单季度)
+    'q_npta': 'quarterly_net_profit_to_assets',          # 总资产报酬率(单季度)
+    'q_ocf_to_sales': 'quarterly_ocf_to_sales',          # 经营活动产生的现金流量净额/营业收入(单季度)
+    'basic_eps_yoy': 'basic_eps_growth',                 # 基本每股收益同比增长率(%)
+    'dt_eps_yoy': 'diluted_eps_growth',                  # 稀释每股收益同比增长率(%)
+    'cfps_yoy': 'cash_flow_per_share_growth',            # 每股经营活动产生的现金流量净额同比增长率(%)
+    'op_yoy': 'operating_profit_growth',                 # 营业利润同比增长率(%)
+    'ebt_yoy': 'ebt_growth',                             # 利润总额同比增长率(%)
+    'netprofit_yoy': 'earnings_growth',                  # 归属母公司股东的净利润同比增长率(%)
+    'dt_netprofit_yoy': 'diluted_net_profit_growth',     # 归属母公司股东的净利润(扣除非经常损益)同比增长率(%)
+    'ocf_yoy': 'operating_cash_flow_growth',             # 经营活动产生的现金流量净额同比增长率(%)
+    'roe_yoy': 'roe_growth',                             # 净资产收益率(摊薄)同比增长率(%)
+    'bps_yoy': 'book_value_growth',                      # 每股净资产同比增长率(%)
+    'assets_yoy': 'total_assets_growth',                 # 资产总计同比增长率(%)
+    'eqt_yoy': 'equity_growth',                          # 归属母公司的股东权益同比增长率(%)
+    'tr_yoy': 'total_revenue_growth',                    # 营业总收入同比增长率(%)
+    'or_yoy': 'revenue_growth',                          # 营业收入同比增长率(%)
+    'q_gr_yoy': 'quarterly_revenue_growth',              # 营业总收入(单季度)同比增长率(%)
+    'q_gr_qoq': 'quarterly_revenue_growth_qoq',          # 营业总收入(单季度)环比增长率(%)
+    'q_sales_yoy': 'quarterly_sales_growth',             # 营业收入(单季度)同比增长率(%)
+    'q_sales_qoq': 'quarterly_sales_growth_qoq',         # 营业收入(单季度)环比增长率(%)
+    'q_op_yoy': 'quarterly_operating_profit_growth',     # 营业利润(单季度)同比增长率(%)
+    'q_op_qoq': 'quarterly_operating_profit_growth_qoq', # 营业利润(单季度)环比增长率(%)
+    'q_profit_yoy': 'quarterly_profit_growth',           # 净利润(单季度)同比增长率(%)
+    'q_profit_qoq': 'quarterly_profit_growth_qoq',       # 净利润(单季度)环比增长率(%)
+    'q_netprofit_yoy': 'quarterly_net_profit_growth',    # 归属母公司股东的净利润(单季度)同比增长率(%)
+    'q_netprofit_qoq': 'quarterly_net_profit_growth_qoq', # 归属母公司股东的净利润(单季度)环比增长率(%)
+    'equity_yoy': 'equity_growth_alt',                   # 净资产同比增长率
+    'rd_exp': 'research_and_development_expense',        # 研发费用
+    'update_flag': 'update_flag',                        # 更新标志
+    
+    # 每股指标
+    'bps': 'book_value_per_share',                       # 每股净资产
+    'ocfps': 'operating_cash_flow_per_share',            # 每股经营活动产生的现金流量净额
+    'retainedps': 'retained_earnings_per_share',         # 每股留存收益
+    'cfps': 'cash_flow_per_share',                       # 每股现金流量净额
+    'ebit_ps': 'ebit_per_share',                         # 每股息税前利润
+    'fcff_ps': 'free_cash_flow_per_share',               # 每股企业自由现金流量
+    'fcfe_ps': 'free_cash_flow_to_equity_per_share',     # 每股股东自由现金流量
+    
+    # 盈利能力
+    'netprofit_margin': 'net_margin',                    # 销售净利率(%)
+    'grossprofit_margin': 'gross_margin',                # 销售毛利率(%)
+    'cogs_of_sales': 'cost_of_goods_sold_ratio',         # 销售成本率(%)
+    'expense_of_sales': 'expense_ratio',                 # 销售期间费用率(%)
+    'profit_to_gr': 'profit_to_gross_revenue',           # 净利润/营业总收入(%)
+    'saleexp_to_gr': 'sales_expense_to_revenue',         # 销售费用/营业总收入(%)
+    'adminexp_to_gr': 'admin_expense_to_revenue',        # 管理费用/营业总收入(%)
+    'finaexp_to_gr': 'finance_expense_to_revenue',       # 财务费用/营业总收入(%)
+    'impair_to_gr_ttm': 'impairment_to_revenue_ttm',     # 资产减值损失/营业总收入(%)
+    'gc_of_gr': 'goods_cost_ratio',                      # 营业成本/营业总收入(%)
+    'ebitda': 'ebitda_margin',                           # EBITDA/营业总收入(%)
+    
+    # 资产质量指标
+    'arturnover': 'accounts_receivable_turnover_alt',    # 应收账款周转率(次)
+    'arturndays': 'accounts_receivable_turnover_days_alt', # 应收账款周转天数(天)
+    'inventory_turnover': 'inventory_turnover_alt',      # 存货周转率(次)
+    'inventory_days': 'inventory_turnover_days_alt',     # 存货周转天数(天)
+    'currentasset_turnover': 'current_asset_turnover_alt', # 流动资产周转率(次)
+    'currentasset_days': 'current_asset_turnover_days',  # 流动资产周转天数(天)
+    
+    # 杜邦分析
+    'equity_multiplier': 'equity_multiplier',            # 权益乘数
+    'roe_waa_2': 'roe_weighted_average_2',               # 净资产收益率_加权(%)
+    'roe_avg': 'roe_average',                            # 净资产收益率_平均(%)
+    'roe_waa_2_dedt': 'roe_weighted_average_2_deducted', # 净资产收益率_加权(扣除非经常损益)(%)
+    'roe_avg_dedt': 'roe_average_deducted',              # 净资产收益率_平均(扣除非经常损益)(%)
+    'roe_waa_2_nonr': 'roe_weighted_average_2_non_recurring', # 净资产收益率_加权(扣除非经常损益和股权激励费用)(%)
+    'roe_avg_nonr': 'roe_average_non_recurring',         # 净资产收益率_平均(扣除非经常损益和股权激励费用)(%)
+    'roe_waa_2_dedt_ttm': 'roe_weighted_average_2_deducted_ttm', # 净资产收益率_加权(扣除非经常损益)(TTM)(%)
+    'roe_dt_2': 'roe_diluted_2',                         # 净资产收益率_摊薄(%)
+    
+    # 特殊计算指标
+    'debt_to_equity_1': 'debt_to_equity_alt',            # 产权比率(另一种算法)
+    'equity_ratio': 'equity_ratio',                      # 归属母公司股东权益/全部投入资本(%)
+    'current_exint': 'current_excluding_interest',       # 流动比率(考虑货币时间价值)
+    'non_current_exint': 'non_current_excluding_interest', # 非流动比率(考虑货币时间价值)
+    'intrinsicvalue': 'intrinsic_value',                 # 内在价值
+    'tmv': 'total_market_value',                         # 全部市值
+    'lmv': 'liquid_market_value',                        # 流通市值
+}
+
+# 估值指标字段映射 (pro.daily_basic)
+VALUATION_METRICS_FIELD_MAPPING = {
+    'ts_code': 'ts_code',
+    'trade_date': 'trade_date',
+    'close': 'close_price',                              # 当日收盘价
+    'turnover_rate': 'turnover_rate',                    # 换手率(%)
+    'turnover_rate_f': 'turnover_rate_float',            # 换手率(自由流通股)
+    'volume_ratio': 'volume_ratio',                      # 量比
+    'pe': 'price_to_earnings_ratio',                     # 市盈率
+    'pe_ttm': 'pe_ttm',                                  # 市盈率(TTM)
+    'pb': 'price_to_book_ratio',                         # 市净率
+    'ps': 'price_to_sales_ratio',                        # 市销率
+    'ps_ttm': 'ps_ttm',                                  # 市销率(TTM)
+    'dv_ratio': 'dividend_yield',                        # 股息率(%)
+    'dv_ttm': 'dividend_yield_ttm',                      # 股息率(TTM)(%)
+    'total_share': 'total_shares_outstanding',           # 总股本(万股)
+    'float_share': 'outstanding_shares',                 # 流通股本(万股)
+    'free_share': 'free_float_shares',                   # 自由流通股本(万股)
+    'total_mv': 'total_market_value',                    # 总市值(万元)
+    'circ_mv': 'circulating_market_value',               # 流通市值(万元)
+}
+
 
 def get_field_mapping(table_type: str) -> dict:
     """获取指定表类型的字段映射
     
     Args:
-        table_type: 表类型 ('cashflow', 'income', 'balance')
+        table_type: 表类型 ('cashflow', 'income', 'balance', 'financial_metrics', 'valuation_metrics')
         
     Returns:
         dict: 字段映射字典
@@ -337,6 +540,8 @@ def get_field_mapping(table_type: str) -> dict:
         'cashflow': CASHFLOW_FIELD_MAPPING,
         'income': INCOME_FIELD_MAPPING,
         'balance': BALANCE_FIELD_MAPPING,
+        'financial_metrics': FINANCIAL_METRICS_FIELD_MAPPING,
+        'valuation_metrics': VALUATION_METRICS_FIELD_MAPPING,
     }
     
     return mappings.get(table_type, {})
@@ -346,7 +551,7 @@ def get_tushare_fields(table_type: str, target_fields: list = None) -> str:
     """获取Tushare API需要的字段列表
     
     Args:
-        table_type: 表类型 ('cashflow', 'income', 'balance')
+        table_type: 表类型 ('cashflow', 'income', 'balance', 'financial_metrics', 'valuation_metrics')
         target_fields: 目标字段列表，如果为None则返回所有字段
         
     Returns:
@@ -379,7 +584,7 @@ def apply_field_mapping(data_dict: dict, table_type: str) -> dict:
     
     Args:
         data_dict: 包含Tushare字段的数据字典
-        table_type: 表类型 ('cashflow', 'income', 'balance')
+        table_type: 表类型 ('cashflow', 'income', 'balance', 'financial_metrics', 'valuation_metrics')
         
     Returns:
         dict: 转换后的数据字典

@@ -142,7 +142,10 @@ def get_financial_metrics(
         metrics_data = [m.model_dump() for m in metrics]
         _cache.set_financial_metrics(cache_key, metrics_data)
         _persistent_cache.set_financial_metrics(ticker, period, end_date, limit, metrics_data)
-        return metrics
+
+        # Filter by period and apply limit
+        filtered_metrics = _filter_and_limit_line_items(metrics, period, limit)
+        return filtered_metrics
     except Exception as e:
         logger.error(f"获取财务指标失败 {ticker}: {e}")
         return []

@@ -214,132 +214,41 @@ class TushareProvider(AbstractDataProvider):
             return []
         
         try:
-            tushare_ticker = self._convert_ticker(ticker)
-            original_ticker = ticker  # 保存原始ticker用于返回结果
-            
-            # 如果是H股，尝试获取对应的A股代码
-            if self._is_hk_stock(ticker):
-                corresponding_a_stock = self._get_corresponding_a_stock(tushare_ticker)
-                if corresponding_a_stock != tushare_ticker:
-                    # 找到了对应的A股代码，使用A股接口查询
-                    print(f"H股 {ticker} 使用对应A股代码 {corresponding_a_stock} 查询基本面信息")
-                    tushare_ticker = corresponding_a_stock
-                else:
-                    # 没有找到对应的A股代码，H股暂不支持财务指标数据
-                    print(f"H股 {ticker} 未找到对应A股代码，Tushare暂不支持纯港股财务指标数据")
-                    return []
-            
-            # A股使用fina_indicator获取主要财务指标
-            df = self.pro.fina_indicator(
-                ts_code=tushare_ticker, 
-                end_date=end_date.replace('-', '') if end_date else None
-            )
-            
-            # 获取PE、PB等估值指标（从daily_basic表）
-            valuation_df = None
-            try:
-                # 尝试获取最近交易日的估值数据
-                trade_date = end_date.replace('-', '')
-                valuation_df = self.pro.daily_basic(
-                    ts_code=tushare_ticker,
-                    trade_date=trade_date,
-                    fields='ts_code,trade_date,pe,pb,ps'
-                )
-                if valuation_df.empty:
-                    # 如果当日没有数据，尝试获取最近一个月的数据
-                    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-                    start_dt = end_dt - timedelta(days=30)
-                    start_date_str = start_dt.strftime('%Y%m%d')
-                    
-                    valuation_df = self.pro.daily_basic(
-                        ts_code=tushare_ticker,
-                        start_date=start_date_str,
-                        end_date=trade_date,
-                        fields='ts_code,trade_date,pe,pb,ps'
-                    )
-                    if not valuation_df.empty:
-                        valuation_df = valuation_df.sort_values('trade_date', ascending=False)
-            except Exception as e:
-                print(f"获取估值指标失败 {ticker}: {e}")
-                valuation_df = None
-            
-            if df.empty:
-                print(f"财务指标数据为空 {ticker}")
+            effective_ticker = self._get_effective_ticker(ticker)
+            if effective_ticker is None:
                 return []
             
-            print(f"获取财务指标 {ticker}: {len(df)} 条记录，字段: {list(df.columns)}")
+            end_date_ts = self._convert_date_format(end_date)
+            currency = "HKD" if self._is_hk_stock(ticker) else "CNY"
             
-            metrics = []
-            for _, row in df.iterrows():
-                # 获取对应期间的估值指标
-                pe_ratio = None
-                pb_ratio = None
-                ps_ratio = None
-                float_share = None
-                if valuation_df is not None and not valuation_df.empty:
-                    # 使用最近的估值数据
-                    val_row = valuation_df.iloc[0]
-                    pe_ratio = self._safe_get_float(val_row, 'pe')
-                    pb_ratio = self._safe_get_float(val_row, 'pb') 
-                    ps_ratio = self._safe_get_float(val_row, 'ps')
-                    float_share = self._safe_get_float(val_row, 'float_share')
-                
-                # 安全地获取并转换数值字段
-                def safe_percentage_to_decimal(row, field_name):
-                    """安全地将百分比数值转换为小数"""
-                    value = self._safe_get_float(row, field_name)
-                    return value / 100 if value is not None else None
-                
-                def safe_get_value(row, field_name):
-                    """安全地获取数值"""
-                    return self._safe_get_float(row, field_name)
-
-                report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
-                metric = FinancialMetrics(
-                    ticker=original_ticker,
-                    report_period=report_period,
-                    period=self._get_period_type(report_period),
-                    # 基础字段映射
-                    return_on_equity=safe_percentage_to_decimal(row, 'roe_waa'),  # ROE使用加权平均值转换为小数
-                    return_on_assets=safe_percentage_to_decimal(row, 'roa_yearly'),  # ROA转换为小数
-                    current_ratio=safe_get_value(row, 'current_ratio'),
-                    quick_ratio=safe_get_value(row, 'quick_ratio'),
-                    debt_to_assets=safe_percentage_to_decimal(row, 'debt_to_assets'),  # 负债率转换为小数
-                    debt_to_equity=safe_get_value(row, 'debt_to_eqt'),
-                    # 盈利能力指标
-                    gross_margin=safe_percentage_to_decimal(row, 'grossprofit_margin'),  # 毛利率
-                    operating_margin=safe_percentage_to_decimal(row, 'op_of_gr'),  # 营业利润率
-                    net_margin=safe_percentage_to_decimal(row, 'netprofit_margin'),  # 净利率
-                    # 每股指标
-                    earnings_per_share=safe_get_value(row, 'eps'),
-                    book_value_per_share=safe_get_value(row, 'bps'),
-                    free_cash_flow_per_share=safe_get_value(row, 'fcff_ps'),
-                    # 增长率指标
-                    revenue_growth=safe_percentage_to_decimal(row, 'or_yoy'),  # 营收增长率
-                    earnings_growth=safe_percentage_to_decimal(row, 'netprofit_yoy'),  # 净利润增长率
-                    book_value_growth=safe_percentage_to_decimal(row, 'bps_yoy'),  # 每股净资产增长率
-                    # 估值指标 (从daily_basic获取)
-                    price_to_earnings_ratio=pe_ratio,
-                    price_to_book_ratio=pb_ratio,
-                    price_to_sales_ratio=ps_ratio,
-                    # Tushare兼容字段  
-                    roe=safe_get_value(row, 'roe_waa'),
-                    roa=safe_get_value(row, 'roa_yearly'),
-                    eps=safe_get_value(row, 'eps'),
-                    pe_ratio=pe_ratio,
-                    pb_ratio=pb_ratio,
-                    roic=safe_percentage_to_decimal(row, 'roic'),
-                    depreciation_and_amortization=safe_get_value(row, 'daa'),
-                    operating_income=safe_get_value(row, 'op_income'),
-                    outstanding_shares=float_share,
-                )
-                logger.debug(f"metric: {metric}")
-                metrics.append(metric)
+            # 获取财务指标数据
+            financial_metrics_df = self._fetch_financial_metrics_data(effective_ticker, end_date_ts)
             
-            return metrics[:limit]
+            # 获取估值指标数据
+            valuation_metrics_df = self._fetch_valuation_metrics_data(effective_ticker, end_date_ts)
+            
+            if financial_metrics_df is None or financial_metrics_df.empty:
+                logger.warning(f"财务指标数据为空 {ticker}")
+                return []
+            
+            logger.debug(f"获取财务指标 {ticker}: {len(financial_metrics_df)} 条记录")
+            
+            # 处理财务指标数据
+            financial_data = self._process_financial_metrics_dataframe(financial_metrics_df)
+            
+            # 处理估值指标数据
+            valuation_data = {}
+            if valuation_metrics_df is not None and not valuation_metrics_df.empty:
+                valuation_data = self._process_valuation_metrics_dataframe(valuation_metrics_df)
+            
+            # 合并数据并创建FinancialMetrics对象
+            metrics = self._create_financial_metrics(financial_data, valuation_data, ticker, currency)
+            
+            # 放在上层接口做limit过滤
+            return metrics
             
         except Exception as e:
-            print(f"获取财务指标失败 {ticker}: {e}")
+            logger.error(f"获取财务指标失败 {ticker}: {e}")
             return []
     
     def _safe_get_float(self, row, field: str) -> Optional[float]:
@@ -350,6 +259,175 @@ class TushareProvider(AbstractDataProvider):
         except (KeyError, ValueError, TypeError):
             pass
         return None
+    
+    def _fetch_financial_metrics_data(self, ts_code: str, end_date: str) -> Optional[pd.DataFrame]:
+        """获取财务指标数据"""
+        try:
+            # 使用映射表获取所有财务指标字段
+            fields = get_tushare_fields('financial_metrics')
+            df = self.pro.fina_indicator(
+                ts_code=ts_code,
+                end_date=end_date,
+                fields=fields
+            )
+            return df
+        except Exception as e:
+            logger.error(f"获取财务指标数据失败 {ts_code}: {e}")
+            return None
+    
+    def _fetch_valuation_metrics_data(self, ts_code: str, end_date: str) -> Optional[pd.DataFrame]:
+        """获取估值指标数据"""
+        try:
+            from datetime import datetime, timedelta
+            
+            # 使用映射表获取估值指标字段
+            fields = get_tushare_fields('valuation_metrics')
+            
+            # 尝试获取最近交易日的估值数据
+            trade_date = end_date
+            df = self.pro.daily_basic(
+                ts_code=ts_code,
+                trade_date=trade_date,
+                fields=fields
+            )
+            
+            if df.empty:
+                # 如果当日没有数据，尝试获取最近一个月的数据
+                end_dt = datetime.strptime(end_date, '%Y%m%d')
+                start_dt = end_dt - timedelta(days=30)
+                start_date_str = start_dt.strftime('%Y%m%d')
+                
+                df = self.pro.daily_basic(
+                    ts_code=ts_code,
+                    start_date=start_date_str,
+                    end_date=trade_date,
+                    fields=fields
+                )
+                if not df.empty:
+                    df = df.sort_values('trade_date', ascending=False)
+            
+            return df
+        except Exception as e:
+            logger.error(f"获取估值指标数据失败 {ts_code}: {e}")
+            return None
+    
+    def _process_financial_metrics_dataframe(self, df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
+        """处理财务指标DataFrame，返回按期间组织的数据"""
+        data_by_period = {}
+        
+        for _, row in df.iterrows():
+            # 转换日期格式
+            end_date = row['end_date']
+            report_period = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:8]}"
+            
+            if report_period not in data_by_period:
+                data_by_period[report_period] = {}
+            
+            # 应用字段映射
+            row_dict = row.to_dict()
+            mapped_fields = apply_field_mapping(row_dict, 'financial_metrics')
+            
+            # 转换数据并存储
+            for standard_field, value in mapped_fields.items():
+                converted_value = self._convert_financial_metric_value(standard_field, value)
+                data_by_period[report_period][standard_field] = converted_value
+            
+            logger.debug(f"财务指标数据处理完成: {report_period}")
+        
+        return data_by_period
+    
+    def _process_valuation_metrics_dataframe(self, df: pd.DataFrame) -> Dict[str, float]:
+        """处理估值指标DataFrame，返回最新的估值数据"""
+        if df.empty:
+            return {}
+        
+        # 使用最新的数据
+        row = df.iloc[0]
+        row_dict = row.to_dict()
+        mapped_fields = apply_field_mapping(row_dict, 'valuation_metrics')
+        
+        # 转换数据
+        result = {}
+        for standard_field, value in mapped_fields.items():
+            converted_value = self._convert_financial_metric_value(standard_field, value)
+            result[standard_field] = converted_value
+        
+        logger.debug(f"估值指标数据处理完成")
+        return result
+    
+    def _convert_financial_metric_value(self, field_name: str, value) -> Optional[float]:
+        """转换财务指标数值，处理百分比等特殊格式"""
+        if pd.isna(value):
+            return None
+        
+        try:
+            float_value = float(value)
+            
+            # 百分比字段需要转换为小数（除以100）
+            percentage_fields = {
+                'return_on_equity', 'return_on_assets', 'debt_to_assets', 'gross_margin',
+                'operating_margin', 'net_margin', 'revenue_growth', 'earnings_growth',
+                'book_value_growth', 'return_on_invested_capital', 'gross_profit_margin',
+                'net_profit_margin', 'operating_profit_to_revenue', 'current_assets_to_total_assets',
+                'non_current_assets_to_total_assets', 'current_debt_to_total_debt', 
+                'long_term_debt_to_total_debt', 'cash_flow_to_sales', 'cash_flow_to_net_income',
+                'cash_flow_to_liabilities', 'cash_flow_margin', 'profit_to_gross_revenue',
+                'sales_expense_to_revenue', 'admin_expense_to_revenue', 'finance_expense_to_revenue',
+                'impairment_to_revenue_ttm', 'goods_cost_ratio', 'ebitda_margin',
+                'basic_eps_growth', 'diluted_eps_growth', 'cash_flow_per_share_growth',
+                'operating_profit_growth', 'ebt_growth', 'net_profit_growth',
+                'diluted_net_profit_growth', 'operating_cash_flow_growth', 'roe_growth',
+                'book_value_per_share_growth', 'total_assets_growth', 'equity_growth',
+                'total_revenue_growth', 'revenue_growth', 'quarterly_revenue_growth',
+                'quarterly_revenue_growth_qoq', 'quarterly_sales_growth', 'quarterly_sales_growth_qoq',
+                'quarterly_operating_profit_growth', 'quarterly_operating_profit_growth_qoq',
+                'quarterly_profit_growth', 'quarterly_profit_growth_qoq', 'quarterly_net_profit_growth',
+                'quarterly_net_profit_growth_qoq', 'equity_growth_alt', 'turnover_rate',
+                'turnover_rate_float', 'dividend_yield', 'dividend_yield_ttm'
+            }
+            
+            if field_name in percentage_fields:
+                return float_value / 100.0
+            else:
+                return float_value
+                
+        except (ValueError, TypeError):
+            return None
+    
+    def _create_financial_metrics(self, financial_data: Dict[str, Dict[str, float]], 
+                                valuation_data: Dict[str, float], 
+                                ticker: str, currency: str) -> List[FinancialMetrics]:
+        """创建FinancialMetrics对象列表"""
+        metrics = []
+        
+        # 按时间顺序排序
+        sorted_periods = sorted(financial_data.keys())
+        
+        for report_period in sorted_periods:
+            period_data = financial_data[report_period]
+            
+            # 确定期间类型
+            actual_period = "annual" if report_period.endswith("-12-31") else "quarter"
+            
+            # 合并财务指标和估值指标数据
+            combined_data = {
+                'ticker': ticker,
+                'report_period': report_period,
+                'period': actual_period,
+                'currency': currency,
+                **period_data,
+                **valuation_data
+            }
+            
+            # 创建FinancialMetrics对象
+            try:
+                metric = FinancialMetrics(**combined_data)
+                metrics.append(metric)
+                logger.debug(f"创建FinancialMetrics: {ticker} - {report_period}")
+            except Exception as e:
+                logger.warning(f"创建FinancialMetrics失败 {ticker} - {report_period}: {e}")
+        
+        return metrics
     
     @with_timeout_retry("search_line_items")
     def search_line_items(
