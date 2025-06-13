@@ -293,11 +293,12 @@ class TushareProvider(AbstractDataProvider):
                 def safe_get_value(row, field_name):
                     """安全地获取数值"""
                     return self._safe_get_float(row, field_name)
-                
+
+                report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
                 metric = FinancialMetrics(
                     ticker=original_ticker,
-                    report_period=row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8],
-                    period=period,
+                    report_period=report_period,
+                    period=self._get_period_type(report_period),
                     # 基础字段映射
                     return_on_equity=safe_percentage_to_decimal(row, 'roe_waa'),  # ROE使用加权平均值转换为小数
                     return_on_assets=safe_percentage_to_decimal(row, 'roa_yearly'),  # ROA转换为小数
@@ -529,13 +530,10 @@ class TushareProvider(AbstractDataProvider):
         logger.debug(f"Aggregating data for periods: {sorted_periods}")
         
         for report_period in sorted_periods:
-            # 根据报告期间判断期间类型：12-31为年报，其他为季报
-            actual_period = "annual" if report_period.endswith("-12-31") else "quarter"
-            
             aggregated_data[report_period] = {
                 'ticker': ticker,
                 'report_period': report_period,
-                'period': actual_period,
+                'period': self._get_period_type(report_period),
                 'currency': currency,
                 **income_data.get(report_period, {}),
                 **balance_data.get(report_period, {}),
@@ -566,6 +564,10 @@ class TushareProvider(AbstractDataProvider):
         if item in data and pd.notna(data[item]):
             return float(data[item])
         return None
+
+    def _get_period_type(self, report_period):
+        # 根据报告期间判断期间类型：12-31为年报，其他为季报
+        return "annual" if report_period.endswith("-12-31") else "quarter"
 
     @with_timeout_retry("get_insider_trades")
     def get_insider_trades(
