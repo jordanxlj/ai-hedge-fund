@@ -529,10 +529,13 @@ class TushareProvider(AbstractDataProvider):
         logger.debug(f"Aggregating data for periods: {sorted_periods}")
         
         for report_period in sorted_periods:
+            # 根据报告期间判断期间类型：12-31为年报，其他为季报
+            actual_period = "annual" if report_period.endswith("-12-31") else "quarter"
+            
             aggregated_data[report_period] = {
                 'ticker': ticker,
                 'report_period': report_period,
-                'period': period,
+                'period': actual_period,
                 'currency': currency,
                 **income_data.get(report_period, {}),
                 **balance_data.get(report_period, {}),
