@@ -148,6 +148,27 @@ def get_financial_metrics(
         return []
 
 
+def _filter_and_limit_line_items(items: List[LineItem], period: str, limit: int) -> List[LineItem]:
+    """Filter line items by period and return the latest N items.
+    
+    Args:
+        items: List of LineItem objects
+        period: Period type to filter by ("annual", "quarter", etc.)
+        limit: Maximum number of items to return
+    
+    Returns:
+        Filtered and limited list of LineItem objects, sorted by report_period (latest first)
+    """
+    # Filter by period type
+    filtered_items = [item for item in items if item.period == period]
+    
+    # Sort by report_period in descending order (latest first)
+    filtered_items.sort(key=lambda x: x.report_period, reverse=True)
+    
+    # Apply limit to get the latest N items
+    return filtered_items[:limit]
+
+
 def search_line_items(
     ticker: str,
     line_items: List[str],
@@ -156,45 +177,55 @@ def search_line_items(
     limit: int = 10,
 ) -> List[LineItem]:
     """搜索财务报表项目（支持缓存）"""
-    # Create a cache key that includes all parameters
+    # Create a cache key without limit - cache complete data
     line_items_str = "_".join(sorted(line_items))  # Sort for consistent cache key
-    cache_key = f"{ticker}_{period}_{end_date}_{limit}_{line_items_str}"
+    cache_key = f"{ticker}_{period}_{end_date}_{line_items_str}"
     
     # Check memory cache first - fastest
     if cached_data := _cache.get_line_items(cache_key):
         try:
-            return [LineItem(**item) for item in cached_data]
+            all_items = [LineItem(**item) for item in cached_data]
+            # Filter by period and apply limit
+            filtered_items = _filter_and_limit_line_items(all_items, period, limit)
+            return filtered_items
         except Exception as e:
             # If cached data format is invalid, clear it and fetch fresh
             logger.warning(f"Invalid cached data format for line_items {ticker}, clearing cache: {e}")
             _cache._line_items_cache.pop(cache_key, None)
     
     # Check persistent cache - second fastest
-    if persistent_data := _persistent_cache.get_line_items(ticker, line_items, period, end_date, limit):
+    # Use a large limit (1000) to get complete data from persistent cache
+    if persistent_data := _persistent_cache.get_line_items(ticker, line_items, period, end_date, 1000):
         try:
-            line_items_objs = [LineItem(**item) for item in persistent_data]
-            logger.debug(f"persistent_data: {line_items_objs}")
+            all_items = [LineItem(**item) for item in persistent_data]
+            logger.debug(f"persistent_data: {len(all_items)} items loaded")
             # Load into memory cache for faster future access
             _cache.set_line_items(cache_key, persistent_data)
-            return line_items_objs
+            # Filter by period and apply limit
+            filtered_items = _filter_and_limit_line_items(all_items, period, limit)
+            return filtered_items
         except Exception as e:
             # If persistent data format is invalid, ignore and fetch fresh
             logger.warning(f"Invalid persistent data format for line_items {ticker}: {e}")
 
-    # If not in cache, fetch from data provider
+    # If not in cache, fetch from data provider with large limit to get complete data
     try:
         provider = _get_data_provider()
-        search_results = provider.search_line_items(ticker, line_items, end_date, period, limit)
-        logger.debug(f"search_results: {search_results}")
+        # Fetch complete data (use 1000 as a large limit to get all available data)
+        search_results = provider.search_line_items(ticker, line_items, end_date, period, 1000)
+        logger.debug(f"search_results: {len(search_results)} items fetched")
 
         if not search_results:
             return []
 
-        # Cache the results in both memory and persistent cache
+        # Cache the complete results in both memory and persistent cache
         line_items_data = [item.model_dump() for item in search_results]
         _cache.set_line_items(cache_key, line_items_data)
-        _persistent_cache.set_line_items(ticker, line_items, period, end_date, limit, line_items_data)
-        return search_results[:limit]
+        _persistent_cache.set_line_items(ticker, line_items, period, end_date, 1000, line_items_data)
+        
+        # Filter by period and apply limit
+        filtered_items = _filter_and_limit_line_items(search_results, period, limit)
+        return filtered_items
     except Exception as e:
         logger.error(f"搜索财务报表项目失败 {ticker}: {e}")
         return []
