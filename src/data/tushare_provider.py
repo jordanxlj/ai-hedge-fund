@@ -389,7 +389,7 @@ class TushareProvider(AbstractDataProvider):
             ]
             balance_fields = [
                 'total_assets', 'total_liabilities', 'total_equity',
-                'current_assets', 'total_current_liabilities', 'accounts_receivable',
+                'current_assets', 'current_liabilities', 'accounts_receivable',
                 'inventories', 'accounts_payable', 'fixed_assets', 'long_term_borrowings',
                 'research_and_development', 'goodwill', 'intangible_assets', 'short_term_borrowings'
             ]
@@ -413,7 +413,8 @@ class TushareProvider(AbstractDataProvider):
             
             # Aggregate data
             aggregated_data = self._aggregate_data(income_data, balance_data, cashflow_data, ticker, period, currency)
-            
+            logger.debug(f"aggregated_data: {aggregated_data}")
+
             # Create LineItem objects
             line_items_result = self._create_line_items(aggregated_data)
             
@@ -521,21 +522,24 @@ class TushareProvider(AbstractDataProvider):
             A dictionary mapping report periods to their aggregated data.
         """
         all_periods = set(income_data.keys()) | set(balance_data.keys()) | set(cashflow_data.keys())
+        # 按时间顺序排序（从小到大）
+        sorted_periods = sorted(all_periods)
         aggregated_data = {}
         
-        logger.debug(f"Aggregating data for periods: {list(all_periods)}")
+        logger.debug(f"Aggregating data for periods: {sorted_periods}")
         
-        for report_period in all_periods:
+        for report_period in sorted_periods:
             aggregated_data[report_period] = {
                 'ticker': ticker,
                 'report_period': report_period,
                 'period': period,
-                'currency': currency
+                'currency': currency,
+                **income_data.get(report_period, {}),
+                **balance_data.get(report_period, {}),
+                **cashflow_data.get(report_period, {})
             }
-            aggregated_data[report_period].update(income_data.get(report_period, {}))
-            aggregated_data[report_period].update(balance_data.get(report_period, {}))
-            aggregated_data[report_period].update(cashflow_data.get(report_period, {}))
-        
+            logger.debug(f"Aggregated data for {report_period}: {aggregated_data[report_period]}")
+
         return aggregated_data
 
     def _create_line_items(self, aggregated_data: Dict[str, Dict[str, float]]) -> List[LineItem]:
