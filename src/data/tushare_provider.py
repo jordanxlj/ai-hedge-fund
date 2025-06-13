@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 import logging
 from datetime import datetime, timedelta
 import tushare as ts
@@ -247,7 +247,6 @@ class TushareProvider(AbstractDataProvider):
                 )
                 if valuation_df.empty:
                     # 如果当日没有数据，尝试获取最近一个月的数据
-                    from datetime import datetime, timedelta
                     end_dt = datetime.strptime(end_date, '%Y-%m-%d')
                     start_dt = end_dt - timedelta(days=30)
                     start_date_str = start_dt.strftime('%Y%m%d')
@@ -361,55 +360,39 @@ class TushareProvider(AbstractDataProvider):
         limit: int = 10,
     ) -> List[LineItem]:
         """搜索财务报表项目，支持A股和港股
-        对于H股，如果有对应的A股代码，则使用A股接口查询财务报表数据"""
+        对于H股，如果有对应的A股代码，则使用A股接口查询财务报表数据
+        
+        Args:
+            ticker: The stock ticker.
+            line_items: List of financial line items to retrieve.
+            end_date: The end date for the data.
+            period: The period type, defaults to 'ttm'.
+            limit: Maximum number of results to return, defaults to 10.
+        
+        Returns:
+            A list of LineItem objects containing the financial data.
+        """
         try:
-            ts_code = self._convert_ticker(ticker)
-            original_ticker = ticker  # 保存原始ticker用于返回结果
+            effective_ticker = self._get_effective_ticker(ticker)
+            if effective_ticker is None:
+                return []
             
-            # 如果是H股，尝试获取对应的A股代码
-            if self._is_hk_stock(ticker):
-                corresponding_a_stock = self._get_corresponding_a_stock(ts_code)
-                if corresponding_a_stock != ts_code:
-                    # 找到了对应的A股代码，使用A股接口查询
-                    print(f"H股 {ticker} 使用对应A股代码 {corresponding_a_stock} 查询财务报表数据")
-                    ts_code = corresponding_a_stock
-                else:
-                    # 没有找到对应的A股代码，H股暂不支持财务报表数据
-                    print(f"H股 {ticker} 未找到对应A股代码，Tushare暂不支持纯港股财务报表数据")
-                    return []
+            end_date_ts = self._convert_date_format(end_date)
+            currency = "HKD" if self._is_hk_stock(ticker) else "CNY"
             
-            # A股财务数据
-            # 获取财务报表数据 - 利润表
+            # Define fields for each statement
             income_fields = [
                 'revenue', 'operating_profit', 'total_profit', 'net_income',
                 'basic_eps', 'total_cost_of_goods_sold', 'selling_expenses',
                 'administrative_expenses', 'finance_expenses', 'investment_income',
                 'interest_expense', 'operating_expense', 'ebit', 'ebitda'
             ]
-            tushare_income_fields = get_tushare_fields('income', income_fields)
-            
-            income_df = self.pro.income(
-                ts_code=ts_code,
-                end_date=self._convert_date_format(end_date),
-                fields=tushare_income_fields
-            )
-            
-            # 获取财务报表数据 - 资产负债表
             balance_fields = [
                 'total_assets', 'total_liabilities', 'total_equity',
                 'current_assets', 'total_current_liabilities', 'accounts_receivable',
                 'inventories', 'accounts_payable', 'fixed_assets', 'long_term_borrowings',
                 'research_and_development', 'goodwill', 'intangible_assets', 'short_term_borrowings'
             ]
-            tushare_balance_fields = get_tushare_fields('balance', balance_fields)
-            
-            balance_df = self.pro.balancesheet(
-                ts_code=ts_code,
-                end_date=self._convert_date_format(end_date),
-                fields=tushare_balance_fields
-            )
-
-            # 获取财务报表数据 - 现金流量表
             cashflow_fields = [
                 'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
                 'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
@@ -417,119 +400,159 @@ class TushareProvider(AbstractDataProvider):
                 'net_cash_increase', 'cash_from_investments', 'capital_expenditure',
                 'dividends_and_other_cash_distributions'
             ]
-            tushare_cashflow_fields = get_tushare_fields('cashflow', cashflow_fields)
             
-            cashflow_df = self.pro.cashflow(
-                ts_code=ts_code,
-                end_date=self._convert_date_format(end_date),
-                fields=tushare_cashflow_fields
-            )
+            # Fetch data
+            income_df = self._fetch_data('income', effective_ticker, end_date_ts, get_tushare_fields('income', income_fields))
+            balance_df = self._fetch_data('balancesheet', effective_ticker, end_date_ts, get_tushare_fields('balance', balance_fields))
+            cashflow_df = self._fetch_data('cashflow', effective_ticker, end_date_ts, get_tushare_fields('cashflow', cashflow_fields))
             
-            line_items_data = []
+            # Process data
+            income_data = self._process_dataframe(income_df, income_fields, 'income') if income_df is not None else {}
+            balance_data = self._process_dataframe(balance_df, balance_fields, 'balance') if balance_df is not None else {}
+            cashflow_data = self._process_dataframe(cashflow_df, cashflow_fields, 'cashflow') if cashflow_df is not None else {}
             
-            # 处理利润表数据和资产负债表数据，合并到同一个字典中
-            # 组织数据：按report_period分组
-            data_by_period = {}
+            # Aggregate data
+            aggregated_data = self._aggregate_data(income_data, balance_data, cashflow_data, ticker, period, currency)
             
-            # 处理利润表数据
-            if income_df is not None and not income_df.empty:
-                logger.debug(f"处理利润表数据，行数: {len(income_df)}")
-                logger.debug(f"利润表可用字段: {list(income_df.columns)}")
-                
-                for _, row in income_df.iterrows():
-                    report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
-                    if report_period not in data_by_period:
-                        data_by_period[report_period] = {
-                            'ticker': ticker,
-                            'report_period': report_period,
-                            'period': period,
-                            'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
-                        }
-                    
-                    logger.debug(f"search_line_items income: {row.to_dict()}")
-                    
-                    # 使用映射表转换字段
-                    row_dict = row.to_dict()
-                    mapped_fields = apply_field_mapping(row_dict, 'income')
-                    
-                    # 添加映射后的利润表字段，保留所有字段（包括None值）
-                    logger.debug(f"income fields: {income_fields}")
-                    
-                    for field in income_fields:
-                        data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
-                        
-                    logger.debug(f"利润表字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in income_fields]}")
+            # Create LineItem objects
+            line_items_result = self._create_line_items(aggregated_data)
             
-            # 处理资产负债表数据
-            if balance_df is not None and not balance_df.empty:
-                logger.debug(f"处理资产负债表数据，行数: {len(balance_df)}")
-                logger.debug(f"资产负债表可用字段: {list(balance_df.columns)}")
-                
-                for _, row in balance_df.iterrows():
-                    report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
-                    if report_period not in data_by_period:
-                        data_by_period[report_period] = {
-                            'ticker': ticker,
-                            'report_period': report_period,
-                            'period': period,
-                            'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
-                        }
-                    
-                    logger.debug(f"search_line_items balance: {row.to_dict()}")
-                    
-                    # 使用映射表转换字段
-                    row_dict = row.to_dict()
-                    mapped_fields = apply_field_mapping(row_dict, 'balance')
-                    
-                    # 添加映射后的资产负债表字段，保留所有字段（包括None值）
-                    logger.debug(f"balance fields: {balance_fields}")
-                    
-                    for field in balance_fields:
-                        data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
-                        
-                    logger.debug(f"资产负债表字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in balance_fields]}")
-            
-            # 处理现金流量表数据
-            if cashflow_df is not None and not cashflow_df.empty:
-                logger.debug(f"处理现金流量表数据，行数: {len(cashflow_df)}")
-                logger.debug(f"现金流量表可用字段: {list(cashflow_df.columns)}")
-                
-                for _, row in cashflow_df.iterrows():
-                    report_period = row['end_date'][:4] + '-' + row['end_date'][4:6] + '-' + row['end_date'][6:8]
-                    if report_period not in data_by_period:
-                        data_by_period[report_period] = {
-                            'ticker': ticker,
-                            'report_period': report_period,
-                            'period': period,
-                            'currency': "HKD" if self._is_hk_stock(ticker) else "CNY"
-                        }
-                    
-                    logger.debug(f"search_line_items cashflow: {row.to_dict()}")
-                    
-                    # 使用映射表转换字段
-                    row_dict = row.to_dict()
-                    mapped_fields = apply_field_mapping(row_dict, 'cashflow')
-                    
-                    # 添加映射后的现金流字段，保留所有字段（包括None值）
-                    logger.debug(f"cashflow fields: {cashflow_fields}")
-
-                    for field in cashflow_fields:
-                        data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
-                            
-                    logger.debug(f"现金流字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in cashflow_fields]}")
-            
-            # 将字典转换为LineItem对象
-            logger.debug(f"数据按期间分组结果: {list(data_by_period.keys())}")
-            for period_data in data_by_period.values():
-                logger.debug(f"创建LineItem: {period_data['ticker']} - {period_data['report_period']}")
-                line_item = LineItem(**period_data)
-                line_items_data.append(line_item)
-            
-            return line_items_data[:limit]
-            
+            return line_items_result[:limit]
+        
         except Exception as e:
             logger.error(f"搜索财务报表项目失败 {ticker}: {e}")
             return []
+
+    def _get_effective_ticker(self, ticker: str) -> Optional[str]:
+        """Get the effective ticker to use for data fetching.
+        
+        For H-shares, attempt to map to the corresponding A-share if available.
+        
+        Args:
+            ticker: The stock ticker.
+        
+        Returns:
+            The effective ticker code or None if not supported.
+        """
+        ts_code = self._convert_ticker(ticker)
+        if self._is_hk_stock(ticker):
+            corresponding_a_stock = self._get_corresponding_a_stock(ts_code)
+            if corresponding_a_stock != ts_code:
+                logger.info(f"H股 {ticker} 使用对应A股代码 {corresponding_a_stock} 查询财务报表数据")
+                return corresponding_a_stock
+            else:
+                logger.info(f"H股 {ticker} 未找到对应A股代码，Tushare暂不支持纯港股财务报表数据")
+                return None
+        return ts_code
+
+    def _fetch_data(self, api_method: str, ts_code: str, end_date: str, fields: str) -> Optional[pd.DataFrame]:
+        """Fetch data from Tushare API.
+        
+        Args:
+            api_method: The Tushare API method to call ('income', 'balancesheet', 'cashflow').
+            ts_code: The ticker code.
+            end_date: The end date in 'YYYYMMDD' format.
+            fields: Comma-separated string of fields to fetch.
+        
+        Returns:
+            DataFrame containing the fetched data, or None if fetching fails.
+        """
+        try:
+            df = getattr(self.pro, api_method)(
+                ts_code=ts_code,
+                end_date=end_date,
+                fields=fields
+            )
+            if df is None or df.empty:
+                logger.debug(f"No data found for {api_method} of {ts_code}")
+                return None
+            logger.debug(f"Fetched {api_method} data: {len(df)} rows, fields: {list(df.columns)}")
+            return df
+        except Exception as e:
+            logger.error(f"Failed to fetch {api_method} data for {ts_code}: {e}")
+            return None
+
+    def _process_dataframe(self, df: pd.DataFrame, target_fields: List[str], statement_type: str) -> Dict[str, Dict[str, float]]:
+        """Process a dataframe to extract and map fields for each report period.
+        
+        Args:
+            df: The dataframe to process.
+            target_fields: List of target fields to extract.
+            statement_type: The type of statement ('income', 'balance', 'cashflow').
+        
+        Returns:
+            A dictionary mapping report periods to their corresponding data.
+        """
+        data_by_period = {}
+        logger.debug(f"Processing {statement_type} dataframe with {len(df)} rows")
+        
+        for _, row in df.iterrows():
+            report_period = f"{row['end_date'][:4]}-{row['end_date'][4:6]}-{row['end_date'][6:8]}"
+            if report_period not in data_by_period:
+                data_by_period[report_period] = {}
+            
+            logger.debug(f"Processing {statement_type} data for {report_period}: {row.to_dict()}")
+            
+            row_dict = row.to_dict()
+            mapped_fields = apply_field_mapping(row_dict, statement_type)
+            
+            for field in target_fields:
+                data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
+            
+            logger.debug(f"{statement_type}字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in target_fields]}")
+        
+        return data_by_period
+
+    def _aggregate_data(self, income_data: Dict[str, Dict[str, float]], 
+                        balance_data: Dict[str, Dict[str, float]], 
+                        cashflow_data: Dict[str, Dict[str, float]], 
+                        ticker: str, period: str, currency: str) -> Dict[str, Dict[str, float]]:
+        """Aggregate data from income, balance, and cashflow statements.
+        
+        Args:
+            income_data: Processed income statement data.
+            balance_data: Processed balance sheet data.
+            cashflow_data: Processed cash flow statement data.
+            ticker: The stock ticker.
+            period: The period type (e.g., 'ttm').
+            currency: The currency of the data.
+        
+        Returns:
+            A dictionary mapping report periods to their aggregated data.
+        """
+        all_periods = set(income_data.keys()) | set(balance_data.keys()) | set(cashflow_data.keys())
+        aggregated_data = {}
+        
+        logger.debug(f"Aggregating data for periods: {list(all_periods)}")
+        
+        for report_period in all_periods:
+            aggregated_data[report_period] = {
+                'ticker': ticker,
+                'report_period': report_period,
+                'period': period,
+                'currency': currency
+            }
+            aggregated_data[report_period].update(income_data.get(report_period, {}))
+            aggregated_data[report_period].update(balance_data.get(report_period, {}))
+            aggregated_data[report_period].update(cashflow_data.get(report_period, {}))
+        
+        return aggregated_data
+
+    def _create_line_items(self, aggregated_data: Dict[str, Dict[str, float]]) -> List[LineItem]:
+        """Create LineItem objects from aggregated data.
+        
+        Args:
+            aggregated_data: The aggregated data for each report period.
+        
+        Returns:
+            A list of LineItem objects.
+        """
+        line_items = []
+        for period_data in aggregated_data.values():
+            logger.debug(f"创建LineItem: {period_data['ticker']} - {period_data['report_period']}")
+            line_item = LineItem(**period_data)
+            line_items.append(line_item)
+        return line_items
 
     def safe_convert(self, item, data):
         #如果存在，且不为NAN，则转换为float，否则转换为None
