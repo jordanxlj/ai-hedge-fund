@@ -150,6 +150,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                 "period": period,
                 "limit": limit,
             }
+            logger.debug(f"url={url}, body={body}")
             response = self._make_request("POST", url, json=body)
             data = response.json()
             logger.debug(f"search_line_items result: search {url}, body {body}, result {data}")

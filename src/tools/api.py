@@ -212,7 +212,7 @@ def search_line_items(
     try:
         provider = _get_data_provider()
         # Fetch complete data (use 1000 as a large limit to get all available data)
-        search_results = provider.search_line_items(ticker, line_items, end_date, period, 1000)
+        search_results = provider.search_line_items(ticker, line_items, end_date, period, limit)
         logger.debug(f"search_results: {len(search_results)} items fetched")
 
         if not search_results:

@@ -418,8 +418,9 @@ class TushareProvider(AbstractDataProvider):
 
             # Create LineItem objects
             line_items_result = self._create_line_items(aggregated_data)
-            
-            return line_items_result[:limit]
+
+            #for tushare query, without limit
+            return line_items_result
         
         except Exception as e:
             logger.error(f"搜索财务报表项目失败 {ticker}: {e}")
