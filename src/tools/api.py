@@ -438,9 +438,20 @@ def merge_financial_data(financial_metrics: list, financial_line_items: list) ->
         else:
             # 不存在对应的财务指标数据，记录日志并跳过
             logger.info(f"跳过财务报表项目数据，期间 {period_key} 没有对应的财务指标数据")
-    
+
+    # 更新组合指标
+    update_composite_indicates(aggregated_objects)
+
     # 按时间排序（最新的在前）并返回列表
     merged_data = [aggregated_objects[period] for period in sorted(aggregated_objects.keys(), reverse=True)]
     
     logger.info(f"合并完成，共 {len(merged_data)} 个期间的数据")
-    return merged_data 
+    return merged_data
+
+def update_composite_indicates(objects: dict[AggregatedFinancialInfo]):
+    """更新组合指标"""
+    for obj in objects.items():
+        # 更新“商誉和无形资产”
+        logger.debug(f"obj: {obj}")
+        if getattr(obj, 'goodwill', None) and getattr(obj, 'intangible_assets', None):
+            obj.goodwill_and_intangible_assets = obj.goodwill + obj.intangible_assets

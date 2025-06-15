@@ -226,6 +226,9 @@ class AggregatedFinancialInfo(FinancialMetrics):
     cash_and_equivalents: float | None = None
     total_debt: float | None = None
     shareholders_equity: float | None = None
+    goodwill: float | None = None
+    intangible_assets: float | None = None
+    goodwill_and_intangible_assets: float | None = None
     
     # 股份相关
     outstanding_shares: float | None = None

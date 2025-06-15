@@ -259,8 +259,8 @@ def _analyze_balance_sheet(financial_data):
 
     # Quick liquidity sanity check (cash vs total debt)
     if latest_item is not None:
-            cash = latest_item.cash_and_equivalents if latest_item else None
-    total_debt = latest_item.total_debt if latest_item else None
+        cash = latest_item.cash_and_equivalents if latest_item else None
+        total_debt = latest_item.total_debt if latest_item else None
         if cash is not None and total_debt is not None:
             if cash > total_debt:
                 score += 1
