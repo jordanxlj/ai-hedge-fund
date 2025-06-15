@@ -437,7 +437,7 @@ def merge_financial_data(financial_metrics: list, financial_line_items: list) ->
                 logger.warning(f"更新AggregatedFinancialInfo失败，期间 {period_key}: {e}")
         else:
             # 不存在对应的财务指标数据，记录日志并跳过
-            logger.info(f"跳过财务报表项目数据，期间 {period_key} 没有对应的财务指标数据")
+            logger.info(f"跳过财务报表项目数据，期间 {period_key} 没有对应的财务指标数据, 有效的: {aggregated_objects.keys()}")
 
     # 更新组合指标
     update_composite_indicates(aggregated_objects)

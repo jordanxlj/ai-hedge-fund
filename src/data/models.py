@@ -210,6 +210,7 @@ class AggregatedFinancialInfo(FinancialMetrics):
     operating_income: float | None = None
     ebit: float | None = None  # 息税前利润
     ebitda: float | None = None  # 息税折旧摊销前利润
+    ev_to_ebit: float | None = None # 企业价值对息税前利润的比率
     
     # 现金流相关
     free_cash_flow: float | None = None

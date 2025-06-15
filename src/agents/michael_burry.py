@@ -214,7 +214,7 @@ def _analyze_value(financial_data, market_cap):
         details.append("FCF data unavailable")
 
     # EV/EBIT (from financial metrics)
-    if metrics:
+    if financial_data:
         ev_ebit = latest_item.ev_to_ebit if latest_item else None
         if ev_ebit is not None:
             if ev_ebit < 6:
