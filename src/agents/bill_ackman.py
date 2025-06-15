@@ -1,6 +1,6 @@
 from langchain_openai import ChatOpenAI
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, merge_financial_data
 from langchain_core.messages import HumanMessage
 from src.prompts import get_bill_ackman_prompt_template
 from pydantic import BaseModel
@@ -54,20 +54,23 @@ def bill_ackman_agent(state: AgentState):
             limit=5
         )
         
+        progress.update_status("bill_ackman_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, financial_line_items)
+        
         progress.update_status("bill_ackman_agent", ticker, "Getting market cap")
         market_cap = get_market_cap(ticker, end_date)
         
         progress.update_status("bill_ackman_agent", ticker, "Analyzing business quality")
-        quality_analysis = analyze_business_quality(metrics, financial_line_items)
+        quality_analysis = analyze_business_quality(financial_data)
         
         progress.update_status("bill_ackman_agent", ticker, "Analyzing balance sheet and capital structure")
-        balance_sheet_analysis = analyze_financial_discipline(metrics, financial_line_items)
+        balance_sheet_analysis = analyze_financial_discipline(financial_data)
         
         progress.update_status("bill_ackman_agent", ticker, "Analyzing activism potential")
-        activism_analysis = analyze_activism_potential(financial_line_items)
+        activism_analysis = analyze_activism_potential(financial_data)
         
         progress.update_status("bill_ackman_agent", ticker, "Calculating intrinsic value & margin of safety")
-        valuation_analysis = analyze_valuation(financial_line_items, market_cap)
+        valuation_analysis = analyze_valuation(financial_data, market_cap)
         
         # Combine partial scores or signals
         total_score = (
@@ -132,7 +135,7 @@ def bill_ackman_agent(state: AgentState):
     }
 
 
-def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
+def analyze_business_quality(financial_data: list) -> dict:
     """
     Analyze whether the company has a high-quality business with stable or growing cash flows,
     durable competitive advantages (moats), and potential for long-term growth.
@@ -141,14 +144,14 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
     score = 0
     details = []
     
-    if not metrics or not financial_line_items:
+    if not financial_data:
         return {
             "score": 0,
             "details": "Insufficient data to analyze business quality"
         }
     
     # 1. Multi-period revenue growth analysis
-    revenues = [item.revenue for item in financial_line_items if item.revenue is not None]
+    revenues = [item.revenue for item in financial_data if item.revenue is not None]
     if len(revenues) >= 2:
         initial, final = revenues[-1], revenues[0]
         if initial and final and final > initial:
@@ -165,8 +168,8 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
         details.append("Not enough revenue data for multi-period trend.")
     
     # 2. Operating margin and free cash flow consistency
-    fcf_vals = [item.free_cash_flow for item in financial_line_items if item.free_cash_flow is not None]
-    op_margin_vals = [item.operating_margin for item in financial_line_items if item.operating_margin is not None]
+    fcf_vals = [item.free_cash_flow for item in financial_data if item.free_cash_flow is not None]
+    op_margin_vals = [item.operating_margin for item in financial_data if item.operating_margin is not None]
     
     if op_margin_vals:
         above_15 = sum(1 for m in op_margin_vals if m > 0.15)
@@ -188,13 +191,12 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
     else:
         details.append("No free cash flow data across periods.")
     
-    # 3. Return on Equity (ROE) check from the latest metrics
-    latest_metrics = metrics[0]
-    if latest_metrics.return_on_equity and latest_metrics.return_on_equity > 0.15:
+    # 3. Return on Equity (ROE) check from the latest financial data
+    if financial_data and financial_data[0].return_on_equity and financial_data[0].return_on_equity > 0.15:
         score += 2
-        details.append(f"High ROE of {latest_metrics.return_on_equity:.1%}, indicating a competitive advantage.")
-    elif latest_metrics.return_on_equity:
-        details.append(f"ROE of {latest_metrics.return_on_equity:.1%} is moderate.")
+        details.append(f"High ROE of {financial_data[0].return_on_equity:.1%}, indicating a competitive advantage.")
+    elif financial_data and financial_data[0].return_on_equity:
+        details.append(f"ROE of {financial_data[0].return_on_equity:.1%} is moderate.")
     else:
         details.append("ROE data not available.")
     
@@ -210,7 +212,7 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
     }
 
 
-def analyze_financial_discipline(metrics: list, financial_line_items: list) -> dict:
+def analyze_financial_discipline(financial_data: list) -> dict:
     """
     Evaluate the company's balance sheet over multiple periods:
     - Debt ratio trends
@@ -219,14 +221,14 @@ def analyze_financial_discipline(metrics: list, financial_line_items: list) -> d
     score = 0
     details = []
     
-    if not metrics or not financial_line_items:
+    if not financial_data:
         return {
             "score": 0,
             "details": "Insufficient data to analyze financial discipline"
         }
     
     # 1. Multi-period debt ratio or debt_to_equity
-    debt_to_equity_vals = [item.debt_to_equity for item in financial_line_items if item.debt_to_equity is not None]
+    debt_to_equity_vals = [item.debt_to_equity for item in financial_data if item.debt_to_equity is not None]
     if debt_to_equity_vals:
         below_one_count = sum(1 for d in debt_to_equity_vals if d < 1.0)
         if below_one_count >= (len(debt_to_equity_vals) // 2 + 1):
@@ -237,7 +239,7 @@ def analyze_financial_discipline(metrics: list, financial_line_items: list) -> d
     else:
         # Fallback to total_liabilities / total_assets
         liab_to_assets = []
-        for item in financial_line_items:
+        for item in financial_data:
             if item.total_liabilities and item.total_assets and item.total_assets > 0:
                 liab_to_assets.append(item.total_liabilities / item.total_assets)
         
@@ -254,7 +256,7 @@ def analyze_financial_discipline(metrics: list, financial_line_items: list) -> d
     # 2. Capital allocation approach (dividends + share counts)
     dividends_list = [
         item.dividends_and_other_cash_distributions
-        for item in financial_line_items
+        for item in financial_data
         if item.dividends_and_other_cash_distributions is not None
     ]
     if dividends_list:
@@ -268,7 +270,7 @@ def analyze_financial_discipline(metrics: list, financial_line_items: list) -> d
         details.append("No dividend data found across periods.")
     
     # Check for decreasing share count (simple approach)
-    shares = [item.outstanding_shares for item in financial_line_items if item.outstanding_shares is not None]
+    shares = [item.outstanding_shares for item in financial_data if item.outstanding_shares is not None]
     if len(shares) >= 2:
         # For buybacks, the newest count should be less than the oldest count
         if shares[0] < shares[-1]:
@@ -285,7 +287,7 @@ def analyze_financial_discipline(metrics: list, financial_line_items: list) -> d
     }
 
 
-def analyze_activism_potential(financial_line_items: list) -> dict:
+def analyze_activism_potential(financial_data: list) -> dict:
     """
     Bill Ackman often engages in activism if a company has a decent brand or moat
     but is underperforming operationally.
@@ -294,15 +296,15 @@ def analyze_activism_potential(financial_line_items: list) -> dict:
     - Look for positive revenue trends but subpar margins
     - That may indicate 'activism upside' if operational improvements could unlock value.
     """
-    if not financial_line_items:
+    if not financial_data:
         return {
             "score": 0,
             "details": "Insufficient data for activism potential"
         }
     
     # Check revenue growth vs. operating margin
-    revenues = [item.revenue for item in financial_line_items if item.revenue is not None]
-    op_margins = [item.operating_margin for item in financial_line_items if item.operating_margin is not None]
+    revenues = [item.revenue for item in financial_data if item.revenue is not None]
+    op_margins = [item.operating_margin for item in financial_data if item.operating_margin is not None]
     
     if len(revenues) < 2 or not op_margins:
         return {
@@ -330,20 +332,20 @@ def analyze_activism_potential(financial_line_items: list) -> dict:
     return {"score": score, "details": "; ".join(details)}
 
 
-def analyze_valuation(financial_line_items: list, market_cap: float) -> dict:
+def analyze_valuation(financial_data: list, market_cap: float) -> dict:
     """
     Ackman invests in companies trading at a discount to intrinsic value.
     Uses a simplified DCF with FCF as a proxy, plus margin of safety analysis.
     """
-    if not financial_line_items or market_cap is None:
+    if not financial_data or market_cap is None:
         return {
             "score": 0,
             "details": "Insufficient data to perform valuation"
         }
     
-    # Since financial_line_items are in descending order (newest first),
+    # Since financial_data are in descending order (newest first),
     # the most recent period is the first element
-    latest = financial_line_items[0]
+    latest = financial_data[0]
     fcf = latest.free_cash_flow if latest.free_cash_flow else 0
     
     if fcf <= 0:

@@ -3,6 +3,7 @@ from src.tools.api import (
     get_financial_metrics,
     get_market_cap,
     search_line_items,
+    merge_financial_data,
     get_insider_trades,
     get_company_news,
     get_prices,
@@ -86,8 +87,12 @@ def stanley_druckenmiller_agent(state: AgentState):
         progress.update_status("stanley_druckenmiller_agent", ticker, "Fetching recent price data for momentum")
         prices = get_prices(ticker, start_date=start_date, end_date=end_date)
 
+        # Merge financial data
+        progress.update_status("stanley_druckenmiller_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, financial_line_items)
+
         progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing growth & momentum")
-        growth_momentum_analysis = analyze_growth_and_momentum(financial_line_items, prices)
+        growth_momentum_analysis = analyze_growth_and_momentum(financial_data, prices)
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing sentiment")
         sentiment_analysis = analyze_sentiment(company_news)
@@ -96,10 +101,10 @@ def stanley_druckenmiller_agent(state: AgentState):
         insider_activity = analyze_insider_activity(insider_trades)
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing risk-reward")
-        risk_reward_analysis = analyze_risk_reward(financial_line_items, prices)
+        risk_reward_analysis = analyze_risk_reward(financial_data, prices)
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Performing Druckenmiller-style valuation")
-        valuation_analysis = analyze_druckenmiller_valuation(financial_line_items, market_cap)
+        valuation_analysis = analyze_druckenmiller_valuation(financial_data, market_cap)
 
         # Combine partial scores with weights typical for Druckenmiller:
         #   35% Growth/Momentum, 20% Risk/Reward, 20% Valuation,
@@ -161,14 +166,14 @@ def stanley_druckenmiller_agent(state: AgentState):
     return {"messages": [message], "data": state["data"]}
 
 
-def analyze_growth_and_momentum(financial_line_items: list, prices: list) -> dict:
+def analyze_growth_and_momentum(financial_data: list, prices: list) -> dict:
     """
     Evaluate:
       - Revenue Growth (YoY)
       - EPS Growth (YoY)
       - Price Momentum
     """
-    if not financial_line_items or len(financial_line_items) < 2:
+    if not financial_data or len(financial_data) < 2:
         return {"score": 0, "details": "Insufficient financial data for growth analysis"}
 
     details = []
@@ -177,7 +182,7 @@ def analyze_growth_and_momentum(financial_line_items: list, prices: list) -> dic
     #
     # 1. Revenue Growth
     #
-    revenues = [fi.revenue for fi in financial_line_items if fi.revenue is not None]
+    revenues = [fi.revenue for fi in financial_data if fi.revenue is not None]
     if len(revenues) >= 2:
         latest_rev = revenues[0]
         older_rev = revenues[-1]
@@ -202,7 +207,7 @@ def analyze_growth_and_momentum(financial_line_items: list, prices: list) -> dic
     #
     # 2. EPS Growth
     #
-    eps_values = [fi.earnings_per_share for fi in financial_line_items if fi.earnings_per_share is not None]
+    eps_values = [fi.earnings_per_share for fi in financial_data if fi.earnings_per_share is not None]
     if len(eps_values) >= 2:
         latest_eps = eps_values[0]
         older_eps = eps_values[-1]
@@ -342,14 +347,14 @@ def analyze_sentiment(news_items: list) -> dict:
     return {"score": score, "details": "; ".join(details)}
 
 
-def analyze_risk_reward(financial_line_items: list, prices: list) -> dict:
+def analyze_risk_reward(financial_data: list, prices: list) -> dict:
     """
     Assesses risk via:
       - Debt-to-Equity
       - Price Volatility
     Aims for strong upside with contained downside.
     """
-    if not financial_line_items or not prices:
+    if not financial_data or not prices:
         return {"score": 0, "details": "Insufficient data for risk-reward analysis"}
 
     details = []
@@ -358,8 +363,8 @@ def analyze_risk_reward(financial_line_items: list, prices: list) -> dict:
     #
     # 1. Debt-to-Equity
     #
-    debt_values = [fi.total_debt for fi in financial_line_items if fi.total_debt is not None]
-    equity_values = [fi.shareholders_equity for fi in financial_line_items if fi.shareholders_equity is not None]
+    debt_values = [fi.total_debt for fi in financial_data if fi.total_debt is not None]
+    equity_values = [fi.shareholders_equity for fi in financial_data if fi.shareholders_equity is not None]
 
     if debt_values and equity_values and len(debt_values) == len(equity_values) and len(debt_values) > 0:
         recent_debt = debt_values[0]
@@ -416,7 +421,7 @@ def analyze_risk_reward(financial_line_items: list, prices: list) -> dict:
     return {"score": final_score, "details": "; ".join(details)}
 
 
-def analyze_druckenmiller_valuation(financial_line_items: list, market_cap: float | None) -> dict:
+def analyze_druckenmiller_valuation(financial_data: list, market_cap: float | None) -> dict:
     """
     Druckenmiller is willing to pay up for growth, but still checks:
       - P/E
@@ -425,21 +430,21 @@ def analyze_druckenmiller_valuation(financial_line_items: list, market_cap: floa
       - EV/EBITDA
     Each can yield up to 2 points => max 8 raw points => scale to 0–10.
     """
-    if not financial_line_items or market_cap is None:
+    if not financial_data or market_cap is None:
         return {"score": 0, "details": "Insufficient data to perform valuation"}
 
     details = []
     raw_score = 0
 
     # Gather needed data
-    net_incomes = [fi.net_income for fi in financial_line_items if fi.net_income is not None]
-    fcf_values = [fi.free_cash_flow for fi in financial_line_items if fi.free_cash_flow is not None]
-    ebit_values = [fi.ebit for fi in financial_line_items if fi.ebit is not None]
-    ebitda_values = [fi.ebitda for fi in financial_line_items if fi.ebitda is not None]
+    net_incomes = [fi.net_income for fi in financial_data if fi.net_income is not None]
+    fcf_values = [fi.free_cash_flow for fi in financial_data if fi.free_cash_flow is not None]
+    ebit_values = [fi.ebit for fi in financial_data if fi.ebit is not None]
+    ebitda_values = [fi.ebitda for fi in financial_data if fi.ebitda is not None]
 
     # For EV calculation, let's get the most recent total_debt & cash
-    debt_values = [fi.total_debt for fi in financial_line_items if fi.total_debt is not None]
-    cash_values = [fi.cash_and_equivalents for fi in financial_line_items if fi.cash_and_equivalents is not None]
+    debt_values = [fi.total_debt for fi in financial_data if fi.total_debt is not None]
+    cash_values = [fi.cash_and_equivalents for fi in financial_data if fi.cash_and_equivalents is not None]
     recent_debt = debt_values[0] if debt_values else 0
     recent_cash = cash_values[0] if cash_values else 0
 

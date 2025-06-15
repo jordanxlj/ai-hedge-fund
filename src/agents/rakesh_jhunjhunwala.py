@@ -4,7 +4,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 import json
 from typing_extensions import Literal
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, merge_financial_data
 from src.utils.llm import call_llm
 from src.utils.progress import progress
 from src.prompts import get_rakesh_jhunjhunwala_prompt_template
@@ -54,25 +54,29 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Getting market cap")
         market_cap = get_market_cap(ticker, end_date)
 
+        # Merge financial data
+        progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, financial_line_items)
+
         # ─── Analyses ───────────────────────────────────────────────────────────
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing growth")
-        growth_analysis = analyze_growth(financial_line_items)
+        growth_analysis = analyze_growth(financial_data)
 
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing profitability")
-        profitability_analysis = analyze_profitability(financial_line_items)
+        profitability_analysis = analyze_profitability(financial_data)
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing balance sheet")
-        balancesheet_analysis = analyze_balance_sheet(financial_line_items)
+        balancesheet_analysis = analyze_balance_sheet(financial_data)
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing cash flow")
-        cashflow_analysis = analyze_cash_flow(financial_line_items)
+        cashflow_analysis = analyze_cash_flow(financial_data)
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing management actions")
-        management_analysis = analyze_management_actions(financial_line_items)
+        management_analysis = analyze_management_actions(financial_data)
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Calculating intrinsic value")
         # Calculate intrinsic value once
-        intrinsic_value = calculate_intrinsic_value(financial_line_items, market_cap)
+        intrinsic_value = calculate_intrinsic_value(financial_data, market_cap)
 
         # ─── Score & margin of safety ──────────────────────────────────────────
         total_score = (
@@ -97,7 +101,7 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
             signal = "bearish"
         else:
             # Use quality score as tie-breaker for neutral cases
-            quality_score = assess_quality_metrics(financial_line_items)
+            quality_score = assess_quality_metrics(financial_data)
             if quality_score >= 0.7 and total_score >= max_score * 0.6:
                 signal = "bullish"  # High quality company at fair price
             elif quality_score <= 0.4 or total_score <= max_score * 0.3:
@@ -113,7 +117,7 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
 
         # Create comprehensive analysis summary
         intrinsic_value_analysis = analyze_rakesh_jhunjhunwala_style(
-            financial_line_items, 
+            financial_data, 
             intrinsic_value=intrinsic_value,
             current_price=market_cap
         )
@@ -157,21 +161,21 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
     return {"messages": [message], "data": state["data"]}
 
 
-def analyze_profitability(financial_line_items: list) -> dict[str, any]:
+def analyze_profitability(financial_data: list) -> dict[str, any]:
     """
     Analyze profitability metrics like net income, EBIT, EPS, operating income.
     Focus on strong, consistent earnings growth and operating efficiency.
     """
-    if not financial_line_items:
+    if not financial_data:
         return {"score": 0, "details": "No profitability data available"}
 
-    latest = financial_line_items[0]
+    latest = financial_data[0]
     score = 0
     reasoning = []
 
     # Calculate ROE (Return on Equity) - Jhunjhunwala's key metric
-    if (getattr(latest, 'net_income', None) and latest.net_income > 0 and
-        getattr(latest, 'total_assets', None) and getattr(latest, 'total_liabilities', None) and 
+    if (latest.net_income and latest.net_income > 0 and
+        latest.total_assets and latest.total_liabilities and 
         latest.total_assets and latest.total_liabilities):
         
         shareholders_equity = latest.total_assets - latest.total_liabilities
@@ -194,8 +198,8 @@ def analyze_profitability(financial_line_items: list) -> dict[str, any]:
         reasoning.append("Unable to calculate ROE - missing data")
 
     # Operating Margin Analysis
-    if (getattr(latest, "operating_income", None) and latest.operating_income and 
-        getattr(latest, "revenue", None) and latest.revenue and latest.revenue > 0):
+    if (latest.operating_income and latest.operating_income and 
+        latest.revenue and latest.revenue and latest.revenue > 0):
         operating_margin = (latest.operating_income / latest.revenue) * 100
         if operating_margin > 20:  # Excellent margin
             score += 2
@@ -211,8 +215,8 @@ def analyze_profitability(financial_line_items: list) -> dict[str, any]:
         reasoning.append("Unable to calculate operating margin")
 
     # EPS Growth Consistency (3-year trend)
-    eps_values = [getattr(item, "earnings_per_share", None) for item in financial_line_items 
-                  if getattr(item, "earnings_per_share", None) is not None and getattr(item, "earnings_per_share", None) > 0]
+    eps_values = [item.earnings_per_share for item in financial_data 
+                  if item.earnings_per_share is not None and item.earnings_per_share > 0]
     
     if len(eps_values) >= 3:
         # Calculate CAGR for EPS
@@ -241,20 +245,20 @@ def analyze_profitability(financial_line_items: list) -> dict[str, any]:
     return {"score": score, "details": "; ".join(reasoning)}
 
 
-def analyze_growth(financial_line_items: list) -> dict[str, any]:
+def analyze_growth(financial_data: list) -> dict[str, any]:
     """
     Analyze revenue and net income growth trends using CAGR.
     Jhunjhunwala favored companies with strong, consistent compound growth.
     """
-    if len(financial_line_items) < 3:
+    if len(financial_data) < 3:
         return {"score": 0, "details": "Insufficient data for growth analysis"}
 
     score = 0
     reasoning = []
 
     # Revenue CAGR Analysis
-    revenues = [getattr(item, "revenue", None) for item in financial_line_items 
-                if getattr(item, "revenue", None) is not None and getattr(item, "revenue", None) > 0]
+    revenues = [item.revenue for item in financial_data 
+                if item.revenue is not None and item.revenue > 0]
     
     if len(revenues) >= 3:
         initial_revenue = revenues[-1]  # Oldest
@@ -281,8 +285,8 @@ def analyze_growth(financial_line_items: list) -> dict[str, any]:
         reasoning.append("Insufficient revenue data for CAGR calculation")
 
     # Net Income CAGR Analysis
-    net_incomes = [getattr(item, "net_income", None) for item in financial_line_items 
-                   if getattr(item, "net_income", None) is not None and getattr(item, "net_income", None) > 0]
+    net_incomes = [item.net_income for item in financial_data 
+                   if item.net_income is not None and item.net_income > 0]
     
     if len(net_incomes) >= 3:
         initial_income = net_incomes[-1]  # Oldest
@@ -322,20 +326,20 @@ def analyze_growth(financial_line_items: list) -> dict[str, any]:
     return {"score": score, "details": "; ".join(reasoning)}
 
 
-def analyze_balance_sheet(financial_line_items: list) -> dict[str, any]:
+def analyze_balance_sheet(financial_data: list) -> dict[str, any]:
     """
     Check financial strength - healthy asset/liability structure, liquidity.
     Jhunjhunwala favored companies with clean balance sheets and manageable debt.
     """
-    if not financial_line_items:
+    if not financial_data:
         return {"score": 0, "details": "No balance sheet data"}
 
-    latest = financial_line_items[0]
+    latest = financial_data[0]
     score = 0
     reasoning = []
 
     # Debt to asset ratio
-    if (getattr(latest, "total_assets", None) and getattr(latest, "total_liabilities", None) 
+    if (latest.total_assets and latest.total_liabilities 
         and latest.total_assets and latest.total_liabilities 
         and latest.total_assets > 0):
         debt_ratio = latest.total_liabilities / latest.total_assets
@@ -351,7 +355,7 @@ def analyze_balance_sheet(financial_line_items: list) -> dict[str, any]:
         reasoning.append("Insufficient data to calculate debt ratio")
 
     # Current ratio (liquidity)
-    if (getattr(latest, "current_assets", None) and getattr(latest, "current_liabilities", None) 
+    if (latest.current_assets and latest.current_liabilities 
         and latest.current_assets and latest.current_liabilities 
         and latest.current_liabilities > 0):
         current_ratio = latest.current_assets / latest.current_liabilities
@@ -369,20 +373,20 @@ def analyze_balance_sheet(financial_line_items: list) -> dict[str, any]:
     return {"score": score, "details": "; ".join(reasoning)}
 
 
-def analyze_cash_flow(financial_line_items: list) -> dict[str, any]:
+def analyze_cash_flow(financial_data: list) -> dict[str, any]:
     """
     Evaluate free cash flow and dividend behavior.
     Jhunjhunwala appreciated companies generating strong free cash flow and rewarding shareholders.
     """
-    if not financial_line_items:
+    if not financial_data:
         return {"score": 0, "details": "No cash flow data"}
 
-    latest = financial_line_items[0]
+    latest = financial_data[0]
     score = 0
     reasoning = []
 
     # Free cash flow analysis
-    if getattr(latest, "free_cash_flow", None) and latest.free_cash_flow:
+    if latest.free_cash_flow and latest.free_cash_flow:
         if latest.free_cash_flow > 0:
             score += 2
             reasoning.append(f"Positive free cash flow: {latest.free_cash_flow}")
@@ -392,7 +396,7 @@ def analyze_cash_flow(financial_line_items: list) -> dict[str, any]:
         reasoning.append("Free cash flow data not available")
 
     # Dividend analysis
-    if getattr(latest, "dividends_and_other_cash_distributions", None) and latest.dividends_and_other_cash_distributions:
+    if latest.dividends_and_other_cash_distributions and latest.dividends_and_other_cash_distributions:
         if latest.dividends_and_other_cash_distributions < 0:  # Negative indicates cash outflow for dividends
             score += 1
             reasoning.append("Company pays dividends to shareholders")
@@ -404,19 +408,19 @@ def analyze_cash_flow(financial_line_items: list) -> dict[str, any]:
     return {"score": score, "details": "; ".join(reasoning)}
 
 
-def analyze_management_actions(financial_line_items: list) -> dict[str, any]:
+def analyze_management_actions(financial_data: list) -> dict[str, any]:
     """
     Look at share issuance or buybacks to assess shareholder friendliness.
     Jhunjhunwala liked managements who buy back shares or avoid dilution.
     """
-    if not financial_line_items:
+    if not financial_data:
         return {"score": 0, "details": "No management action data"}
 
-    latest = financial_line_items[0]
+    latest = financial_data[0]
     score = 0
     reasoning = []
 
-    issuance = getattr(latest, "issuance_or_purchase_of_equity_shares", None)
+    issuance = latest.issuance_or_purchase_of_equity_shares
     if issuance is not None:
         if issuance < 0:  # Negative indicates share buybacks
             score += 2
@@ -432,20 +436,20 @@ def analyze_management_actions(financial_line_items: list) -> dict[str, any]:
     return {"score": score, "details": "; ".join(reasoning)}
 
 
-def assess_quality_metrics(financial_line_items: list) -> float:
+def assess_quality_metrics(financial_data: list) -> float:
     """
     Assess company quality based on Jhunjhunwala's criteria.
     Returns a score between 0 and 1.
     """
-    if not financial_line_items:
+    if not financial_data:
         return 0.5  # Neutral score
     
-    latest = financial_line_items[0]
+    latest = financial_data[0]
     quality_factors = []
     
     # ROE consistency and level
-    if (getattr(latest, 'net_income', None) and getattr(latest, 'total_assets', None) and 
-        getattr(latest, 'total_liabilities', None) and latest.total_assets and latest.total_liabilities):
+    if (latest.net_income and latest.total_assets and 
+        latest.total_liabilities and latest.total_assets and latest.total_liabilities):
         
         shareholders_equity = latest.total_assets - latest.total_liabilities
         if shareholders_equity > 0 and latest.net_income:
@@ -464,7 +468,7 @@ def assess_quality_metrics(financial_line_items: list) -> float:
         quality_factors.append(0.5)
     
     # Debt levels (lower is better)
-    if (getattr(latest, 'total_assets', None) and getattr(latest, 'total_liabilities', None) and 
+    if (latest.total_assets and latest.total_liabilities and 
         latest.total_assets and latest.total_liabilities):
         debt_ratio = latest.total_liabilities / latest.total_assets
         if debt_ratio < 0.3:  # Low debt
@@ -479,8 +483,8 @@ def assess_quality_metrics(financial_line_items: list) -> float:
         quality_factors.append(0.5)
     
     # Growth consistency
-    net_incomes = [getattr(item, "net_income", None) for item in financial_line_items[:4] 
-                   if getattr(item, "net_income", None) is not None and getattr(item, "net_income", None) > 0]
+    net_incomes = [item.net_income for item in financial_data[:4] 
+                   if item.net_income is not None and item.net_income > 0]
     
     if len(net_incomes) >= 3:
         declining_years = sum(1 for i in range(1, len(net_incomes)) if net_incomes[i-1] > net_incomes[i])
@@ -493,26 +497,26 @@ def assess_quality_metrics(financial_line_items: list) -> float:
     return sum(quality_factors) / len(quality_factors) if quality_factors else 0.5
 
 
-def calculate_intrinsic_value(financial_line_items: list, market_cap: float) -> float:
+def calculate_intrinsic_value(financial_data: list, market_cap: float) -> float:
     """
     Calculate intrinsic value using Rakesh Jhunjhunwala's approach:
     - Focus on earnings power and growth
     - Conservative discount rates
     - Quality premium for consistent performers
     """
-    if not financial_line_items or not market_cap:
+    if not financial_data or not market_cap:
         return None
     
     try:
-        latest = financial_line_items[0]
+        latest = financial_data[0]
         
         # Need positive earnings as base
-        if not getattr(latest, 'net_income', None) or latest.net_income <= 0:
+        if not latest.net_income or latest.net_income <= 0:
             return None
         
         # Get historical earnings for growth calculation
-        net_incomes = [getattr(item, "net_income", None) for item in financial_line_items[:5] 
-                       if getattr(item, "net_income", None) is not None and getattr(item, "net_income", None) > 0]
+        net_incomes = [item.net_income for item in financial_data[:5] 
+                       if item.net_income is not None and item.net_income > 0]
         
         if len(net_incomes) < 2:
             # Use current earnings with conservative multiple for stable companies
@@ -540,7 +544,7 @@ def calculate_intrinsic_value(financial_line_items: list, market_cap: float) -> 
             sustainable_growth = 0.05  # Minimum 5% for inflation
         
         # Quality assessment affects discount rate
-        quality_score = assess_quality_metrics(financial_line_items)
+        quality_score = assess_quality_metrics(financial_data)
         
         # Discount rate based on quality (Jhunjhunwala preferred quality)
         if quality_score >= 0.8:  # High quality
@@ -574,13 +578,13 @@ def calculate_intrinsic_value(financial_line_items: list, market_cap: float) -> 
         
     except Exception:
         # Fallback to simple earnings multiple
-        if getattr(latest, 'net_income', None) and latest.net_income > 0:
+        if latest.net_income and latest.net_income > 0:
             return latest.net_income * 15
         return None
 
 
 def analyze_rakesh_jhunjhunwala_style(
-    financial_line_items: list,
+    financial_data: list,
     owner_earnings: float = None,
     intrinsic_value: float = None,
     current_price: float = None,
@@ -589,11 +593,11 @@ def analyze_rakesh_jhunjhunwala_style(
     Comprehensive analysis in Rakesh Jhunjhunwala's investment style.
     """
     # Run sub-analyses
-    profitability = analyze_profitability(financial_line_items)
-    growth = analyze_growth(financial_line_items)
-    balance_sheet = analyze_balance_sheet(financial_line_items)
-    cash_flow = analyze_cash_flow(financial_line_items)
-    management = analyze_management_actions(financial_line_items)
+    profitability = analyze_profitability(financial_data)
+    growth = analyze_growth(financial_data)
+    balance_sheet = analyze_balance_sheet(financial_data)
+    cash_flow = analyze_cash_flow(financial_data)
+    management = analyze_management_actions(financial_data)
 
     total_score = (
         profitability["score"]
@@ -613,7 +617,7 @@ def analyze_rakesh_jhunjhunwala_style(
 
     # Use provided intrinsic value or calculate if not provided
     if not intrinsic_value:
-        intrinsic_value = calculate_intrinsic_value(financial_line_items, current_price)
+        intrinsic_value = calculate_intrinsic_value(financial_data, current_price)
 
     valuation_gap = None
     if intrinsic_value and current_price:

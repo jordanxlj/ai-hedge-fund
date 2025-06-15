@@ -15,6 +15,7 @@ from src.tools.api import (
     get_insider_trades,
     get_market_cap,
     search_line_items,
+    merge_financial_data,
 )
 from src.utils.llm import call_llm
 from src.utils.progress import progress
@@ -88,14 +89,18 @@ def michael_burry_agent(state: AgentState):  # noqa: C901  (complexity is fine h
         progress.update_status("michael_burry_agent", ticker, "Fetching market cap")
         market_cap = get_market_cap(ticker, end_date)
 
+        # Merge financial data
+        progress.update_status("michael_burry_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, line_items)
+
         # ------------------------------------------------------------------
         # Run sub‑analyses
         # ------------------------------------------------------------------
         progress.update_status("michael_burry_agent", ticker, "Analyzing value")
-        value_analysis = _analyze_value(metrics, line_items, market_cap)
+        value_analysis = _analyze_value(financial_data, market_cap)
 
         progress.update_status("michael_burry_agent", ticker, "Analyzing balance sheet")
-        balance_sheet_analysis = _analyze_balance_sheet(metrics, line_items)
+        balance_sheet_analysis = _analyze_balance_sheet(financial_data)
 
         progress.update_status("michael_burry_agent", ticker, "Analyzing insider activity")
         insider_analysis = _analyze_insider_activity(insider_trades)
@@ -175,14 +180,14 @@ def michael_burry_agent(state: AgentState):  # noqa: C901  (complexity is fine h
 ###############################################################################
 
 
-def _latest_line_item(line_items: list):
-    """Return the most recent line‑item object or *None*."""
-    return line_items[0] if line_items else None
+def _latest_financial_data(financial_data: list):
+    """Return the most recent financial data object or *None*."""
+    return financial_data[0] if financial_data else None
 
 
 # ----- Value ----------------------------------------------------------------
 
-def _analyze_value(metrics, line_items, market_cap):
+def _analyze_value(financial_data, market_cap):
     """Free cash‑flow yield, EV/EBIT, other classic deep‑value metrics."""
 
     max_score = 6  # 4 pts for FCF‑yield, 2 pts for EV/EBIT
@@ -190,8 +195,8 @@ def _analyze_value(metrics, line_items, market_cap):
     details: list[str] = []
 
     # Free‑cash‑flow yield
-    latest_item = _latest_line_item(line_items)
-    fcf = getattr(latest_item, "free_cash_flow", None) if latest_item else None
+    latest_item = _latest_financial_data(financial_data)
+    fcf = latest_item.free_cash_flow if latest_item else None
     if fcf is not None and market_cap:
         fcf_yield = fcf / market_cap
         if fcf_yield >= 0.15:
@@ -210,7 +215,7 @@ def _analyze_value(metrics, line_items, market_cap):
 
     # EV/EBIT (from financial metrics)
     if metrics:
-        ev_ebit = getattr(metrics[0], "ev_to_ebit", None)
+        ev_ebit = latest_item.ev_to_ebit if latest_item else None
         if ev_ebit is not None:
             if ev_ebit < 6:
                 score += 2
@@ -230,17 +235,16 @@ def _analyze_value(metrics, line_items, market_cap):
 
 # ----- Balance sheet --------------------------------------------------------
 
-def _analyze_balance_sheet(metrics, line_items):
+def _analyze_balance_sheet(financial_data):
     """Leverage and liquidity checks."""
 
     max_score = 3
     score = 0
     details: list[str] = []
 
-    latest_metrics = metrics[0] if metrics else None
-    latest_item = _latest_line_item(line_items)
+    latest_item = _latest_financial_data(financial_data)
 
-    debt_to_equity = getattr(latest_metrics, "debt_to_equity", None) if latest_metrics else None
+    debt_to_equity = latest_item.debt_to_equity if latest_item else None
     if debt_to_equity is not None:
         if debt_to_equity < 0.5:
             score += 2
@@ -255,8 +259,8 @@ def _analyze_balance_sheet(metrics, line_items):
 
     # Quick liquidity sanity check (cash vs total debt)
     if latest_item is not None:
-        cash = getattr(latest_item, "cash_and_equivalents", None)
-        total_debt = getattr(latest_item, "total_debt", None)
+            cash = latest_item.cash_and_equivalents if latest_item else None
+    total_debt = latest_item.total_debt if latest_item else None
         if cash is not None and total_debt is not None:
             if cash > total_debt:
                 score += 1

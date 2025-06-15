@@ -5,6 +5,7 @@ from src.tools.api import (
     search_line_items,
     get_insider_trades,
     get_company_news,
+    merge_financial_data,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
@@ -83,17 +84,21 @@ def phil_fisher_agent(state: AgentState):
         progress.update_status("phil_fisher_agent", ticker, "Fetching company news")
         company_news = get_company_news(ticker, end_date, start_date=None, limit=50)
 
+        # Merge financial data
+        progress.update_status("phil_fisher_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, financial_line_items)
+
         progress.update_status("phil_fisher_agent", ticker, "Analyzing growth & quality")
-        growth_quality = analyze_fisher_growth_quality(financial_line_items)
+        growth_quality = analyze_fisher_growth_quality(financial_data)
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing margins & stability")
-        margins_stability = analyze_margins_stability(financial_line_items)
+        margins_stability = analyze_margins_stability(financial_data)
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing management efficiency & leverage")
-        mgmt_efficiency = analyze_management_efficiency_leverage(financial_line_items)
+        mgmt_efficiency = analyze_management_efficiency_leverage(financial_data)
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing valuation (Fisher style)")
-        fisher_valuation = analyze_fisher_valuation(financial_line_items, market_cap)
+        fisher_valuation = analyze_fisher_valuation(financial_data, market_cap)
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing insider activity")
         insider_activity = analyze_insider_activity(insider_trades)
@@ -167,14 +172,14 @@ def phil_fisher_agent(state: AgentState):
     return {"messages": [message], "data": state["data"]}
 
 
-def analyze_fisher_growth_quality(financial_line_items: list) -> dict:
+def analyze_fisher_growth_quality(financial_data: list) -> dict:
     """
     Evaluate growth & quality:
       - Consistent Revenue Growth
       - Consistent EPS Growth
       - R&D as a % of Revenue (if relevant, indicative of future-oriented spending)
     """
-    if not financial_line_items or len(financial_line_items) < 2:
+    if not financial_data or len(financial_data) < 2:
         return {
             "score": 0,
             "details": "Insufficient financial data for growth/quality analysis",
@@ -184,7 +189,7 @@ def analyze_fisher_growth_quality(financial_line_items: list) -> dict:
     raw_score = 0  # up to 9 raw points => scale to 0–10
 
     # 1. Revenue Growth (YoY)
-    revenues = [fi.revenue for fi in financial_line_items if fi.revenue is not None]
+    revenues = [fi.revenue for fi in financial_data if fi.revenue is not None]
     if len(revenues) >= 2:
         # We'll look at the earliest vs. latest to gauge multi-year growth if possible
         latest_rev = revenues[0]
@@ -208,7 +213,7 @@ def analyze_fisher_growth_quality(financial_line_items: list) -> dict:
         details.append("Not enough revenue data points for growth calculation.")
 
     # 2. EPS Growth (YoY)
-    eps_values = [fi.earnings_per_share for fi in financial_line_items if fi.earnings_per_share is not None]
+    eps_values = [fi.earnings_per_share for fi in financial_data if fi.earnings_per_share is not None]
     if len(eps_values) >= 2:
         latest_eps = eps_values[0]
         oldest_eps = eps_values[-1]
@@ -231,7 +236,7 @@ def analyze_fisher_growth_quality(financial_line_items: list) -> dict:
         details.append("Not enough EPS data points for growth calculation.")
 
     # 3. R&D as % of Revenue (if we have R&D data)
-    rnd_values = [fi.research_and_development for fi in financial_line_items if fi.research_and_development is not None]
+    rnd_values = [fi.research_and_development for fi in financial_data if fi.research_and_development is not None]
     if rnd_values and revenues and len(rnd_values) == len(revenues):
         # We'll just look at the most recent for a simple measure
         recent_rnd = rnd_values[0]
@@ -258,11 +263,11 @@ def analyze_fisher_growth_quality(financial_line_items: list) -> dict:
     return {"score": final_score, "details": "; ".join(details)}
 
 
-def analyze_margins_stability(financial_line_items: list) -> dict:
+def analyze_margins_stability(financial_data: list) -> dict:
     """
     Looks at margin consistency (gross/operating margin) and general stability over time.
     """
-    if not financial_line_items or len(financial_line_items) < 2:
+    if not financial_data or len(financial_data) < 2:
         return {
             "score": 0,
             "details": "Insufficient data for margin stability analysis",
@@ -272,7 +277,7 @@ def analyze_margins_stability(financial_line_items: list) -> dict:
     raw_score = 0  # up to 6 => scale to 0-10
 
     # 1. Operating Margin Consistency
-    op_margins = [fi.operating_margin for fi in financial_line_items if fi.operating_margin is not None]
+    op_margins = [fi.operating_margin for fi in financial_data if fi.operating_margin is not None]
     if len(op_margins) >= 2:
         # Check if margins are stable or improving (comparing oldest to newest)
         oldest_op_margin = op_margins[-1]
@@ -289,7 +294,7 @@ def analyze_margins_stability(financial_line_items: list) -> dict:
         details.append("Not enough operating margin data points")
 
     # 2. Gross Margin Level
-    gm_values = [fi.gross_margin for fi in financial_line_items if fi.gross_margin is not None]
+    gm_values = [fi.gross_margin for fi in financial_data if fi.gross_margin is not None]
     if gm_values:
         # We'll just take the most recent
         recent_gm = gm_values[0]
@@ -324,14 +329,14 @@ def analyze_margins_stability(financial_line_items: list) -> dict:
     return {"score": final_score, "details": "; ".join(details)}
 
 
-def analyze_management_efficiency_leverage(financial_line_items: list) -> dict:
+def analyze_management_efficiency_leverage(financial_data: list) -> dict:
     """
     Evaluate management efficiency & leverage:
       - Return on Equity (ROE)
       - Debt-to-Equity ratio
       - Possibly check if free cash flow is consistently positive
     """
-    if not financial_line_items:
+    if not financial_data:
         return {
             "score": 0,
             "details": "No financial data for management efficiency analysis",
@@ -341,8 +346,8 @@ def analyze_management_efficiency_leverage(financial_line_items: list) -> dict:
     raw_score = 0  # up to 6 => scale to 0–10
 
     # 1. Return on Equity (ROE)
-    ni_values = [fi.net_income for fi in financial_line_items if fi.net_income is not None]
-    eq_values = [fi.shareholders_equity for fi in financial_line_items if fi.shareholders_equity is not None]
+    ni_values = [fi.net_income for fi in financial_data if fi.net_income is not None]
+    eq_values = [fi.shareholders_equity for fi in financial_data if fi.shareholders_equity is not None]
     if ni_values and eq_values and len(ni_values) == len(eq_values):
         recent_ni = ni_values[0]
         recent_eq = eq_values[0] if eq_values[0] else 1e-9
@@ -365,7 +370,7 @@ def analyze_management_efficiency_leverage(financial_line_items: list) -> dict:
         details.append("Insufficient data for ROE calculation")
 
     # 2. Debt-to-Equity
-    debt_values = [fi.total_debt for fi in financial_line_items if fi.total_debt is not None]
+    debt_values = [fi.total_debt for fi in financial_data if fi.total_debt is not None]
     if debt_values and eq_values and len(debt_values) == len(eq_values):
         recent_debt = debt_values[0]
         recent_equity = eq_values[0] if eq_values[0] else 1e-9
@@ -382,7 +387,7 @@ def analyze_management_efficiency_leverage(financial_line_items: list) -> dict:
         details.append("Insufficient data for debt/equity analysis")
 
     # 3. FCF Consistency
-    fcf_values = [fi.free_cash_flow for fi in financial_line_items if fi.free_cash_flow is not None]
+    fcf_values = [fi.free_cash_flow for fi in financial_data if fi.free_cash_flow is not None]
     if fcf_values and len(fcf_values) >= 2:
         # Check if FCF is positive in recent years
         positive_fcf_count = sum(1 for x in fcf_values if x and x > 0)
@@ -400,7 +405,7 @@ def analyze_management_efficiency_leverage(financial_line_items: list) -> dict:
     return {"score": final_score, "details": "; ".join(details)}
 
 
-def analyze_fisher_valuation(financial_line_items: list, market_cap: float | None) -> dict:
+def analyze_fisher_valuation(financial_data: list, market_cap: float | None) -> dict:
     """
     Phil Fisher is willing to pay for quality and growth, but still checks:
       - P/E
@@ -408,15 +413,15 @@ def analyze_fisher_valuation(financial_line_items: list, market_cap: float | Non
       - (Optionally) Enterprise Value metrics, but simpler approach is typical
     We will grant up to 2 points for each of two metrics => max 4 raw => scale to 0–10.
     """
-    if not financial_line_items or market_cap is None:
+    if not financial_data or market_cap is None:
         return {"score": 0, "details": "Insufficient data to perform valuation"}
 
     details = []
     raw_score = 0
 
     # Gather needed data
-    net_incomes = [fi.net_income for fi in financial_line_items if fi.net_income is not None]
-    fcf_values = [fi.free_cash_flow for fi in financial_line_items if fi.free_cash_flow is not None]
+    net_incomes = [fi.net_income for fi in financial_data if fi.net_income is not None]
+    fcf_values = [fi.free_cash_flow for fi in financial_data if fi.free_cash_flow is not None]
 
     # 1) P/E
     recent_net_income = net_incomes[0] if net_incomes else None

@@ -1,5 +1,5 @@
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, get_insider_trades, get_company_news
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, get_insider_trades, get_company_news, merge_financial_data
 from src.prompts import get_charlie_munger_prompt_template
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
@@ -77,17 +77,21 @@ def charlie_munger_agent(state: AgentState):
             limit=100
         )
         
+        # Merge financial data
+        progress.update_status("charlie_munger_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, financial_line_items)
+
         progress.update_status("charlie_munger_agent", ticker, "Analyzing moat strength")
-        moat_analysis = analyze_moat_strength(metrics, financial_line_items)
+        moat_analysis = analyze_moat_strength(financial_data)
         
         progress.update_status("charlie_munger_agent", ticker, "Analyzing management quality")
-        management_analysis = analyze_management_quality(financial_line_items, insider_trades)
+        management_analysis = analyze_management_quality(financial_data, insider_trades)
         
         progress.update_status("charlie_munger_agent", ticker, "Analyzing business predictability")
-        predictability_analysis = analyze_predictability(financial_line_items)
+        predictability_analysis = analyze_predictability(financial_data)
         
         progress.update_status("charlie_munger_agent", ticker, "Calculating Munger-style valuation")
-        valuation_analysis = calculate_munger_valuation(financial_line_items, market_cap)
+        valuation_analysis = calculate_munger_valuation(financial_data, market_cap)
         
         # Combine partial scores with Munger's weighting preferences
         # Munger weights quality and predictability higher than current valuation
@@ -156,7 +160,7 @@ def charlie_munger_agent(state: AgentState):
     }
 
 
-def analyze_moat_strength(metrics: list, financial_line_items: list) -> dict:
+def analyze_moat_strength(financial_data: list) -> dict:
     """
     Analyze the business's competitive advantage using Munger's approach:
     - Consistent high returns on capital (ROIC)
@@ -167,15 +171,15 @@ def analyze_moat_strength(metrics: list, financial_line_items: list) -> dict:
     score = 0
     details = []
     
-    if not metrics or not financial_line_items:
+    if not financial_data:
         return {
             "score": 0,
             "details": "Insufficient data to analyze moat strength"
         }
     
     # 1. Return on Invested Capital (ROIC) analysis - Munger's favorite metric
-    roic_values = [item.return_on_invested_capital for item in financial_line_items 
-                   if hasattr(item, 'return_on_invested_capital') and item.return_on_invested_capital is not None]
+    roic_values = [item.return_on_invested_capital for item in financial_data 
+                   if item.return_on_invested_capital is not None]
     
     if roic_values:
         # Check if ROIC consistently above 15% (Munger's threshold)
@@ -195,8 +199,8 @@ def analyze_moat_strength(metrics: list, financial_line_items: list) -> dict:
         details.append("No ROIC data available")
     
     # 2. Pricing power - check gross margin stability and trends
-    gross_margins = [item.gross_margin for item in financial_line_items 
-                    if hasattr(item, 'gross_margin') and item.gross_margin is not None]
+    gross_margins = [item.gross_margin for item in financial_data 
+                    if item.gross_margin is not None]
     
     if gross_margins and len(gross_margins) >= 3:
         # Munger likes stable or improving gross margins
@@ -213,11 +217,11 @@ def analyze_moat_strength(metrics: list, financial_line_items: list) -> dict:
         details.append("Insufficient gross margin data")
     
     # 3. Capital intensity - Munger prefers low capex businesses
-    if len(financial_line_items) >= 3:
+    if len(financial_data) >= 3:
         capex_to_revenue = []
-        for item in financial_line_items:
-            if (hasattr(item, 'capital_expenditure') and item.capital_expenditure is not None and 
-                hasattr(item, 'revenue') and item.revenue is not None and item.revenue > 0):
+        for item in financial_data:
+            if (item.capital_expenditure is not None and 
+                item.revenue is not None and item.revenue > 0):
                 # Note: capital_expenditure is typically negative in financial statements
                 capex_ratio = abs(item.capital_expenditure) / item.revenue
                 capex_to_revenue.append(capex_ratio)
@@ -238,11 +242,11 @@ def analyze_moat_strength(metrics: list, financial_line_items: list) -> dict:
         details.append("Insufficient data for capital intensity analysis")
     
     # 4. Intangible assets - Munger values R&D and intellectual property
-    r_and_d = [item.research_and_development for item in financial_line_items
-              if hasattr(item, 'research_and_development') and item.research_and_development is not None]
+    r_and_d = [item.research_and_development for item in financial_data
+              if item.research_and_development is not None]
     
-    goodwill_and_intangible_assets = [item.goodwill_and_intangible_assets for item in financial_line_items
-               if hasattr(item, 'goodwill_and_intangible_assets') and item.goodwill_and_intangible_assets is not None]
+    goodwill_and_intangible_assets = [item.goodwill_and_intangible_assets for item in financial_data
+               if item.goodwill_and_intangible_assets is not None]
 
     if r_and_d and len(r_and_d) > 0:
         if sum(r_and_d) > 0:  # If company is investing in R&D
@@ -262,7 +266,7 @@ def analyze_moat_strength(metrics: list, financial_line_items: list) -> dict:
     }
 
 
-def analyze_management_quality(financial_line_items: list, insider_trades: list) -> dict:
+def analyze_management_quality(financial_data: list, insider_trades: list) -> dict:
     """
     Evaluate management quality using Munger's criteria:
     - Capital allocation wisdom
@@ -274,7 +278,7 @@ def analyze_management_quality(financial_line_items: list, insider_trades: list)
     score = 0
     details = []
     
-    if not financial_line_items:
+    if not financial_data:
         return {
             "score": 0,
             "details": "Insufficient data to analyze management quality"
@@ -282,11 +286,11 @@ def analyze_management_quality(financial_line_items: list, insider_trades: list)
     
     # 1. Capital allocation - Check FCF to net income ratio
     # Munger values companies that convert earnings to cash
-    fcf_values = [item.free_cash_flow for item in financial_line_items 
-                 if hasattr(item, 'free_cash_flow') and item.free_cash_flow is not None]
+    fcf_values = [item.free_cash_flow for item in financial_data 
+                 if item.free_cash_flow is not None]
     
-    net_income_values = [item.net_income for item in financial_line_items 
-                        if hasattr(item, 'net_income') and item.net_income is not None]
+    net_income_values = [item.net_income for item in financial_data 
+                        if item.net_income is not None]
     
     if fcf_values and net_income_values and len(fcf_values) == len(net_income_values):
         # Calculate FCF to Net Income ratio for each period
@@ -422,7 +426,7 @@ def analyze_management_quality(financial_line_items: list, insider_trades: list)
     }
 
 
-def analyze_predictability(financial_line_items: list) -> dict:
+def analyze_predictability(financial_data: list) -> dict:
     """
     Assess the predictability of the business - Munger strongly prefers businesses
     whose future operations and cashflows are relatively easy to predict.
@@ -430,14 +434,14 @@ def analyze_predictability(financial_line_items: list) -> dict:
     score = 0
     details = []
     
-    if not financial_line_items or len(financial_line_items) < 5:
+    if not financial_data or len(financial_data) < 5:
         return {
             "score": 0,
             "details": "Insufficient data to analyze business predictability (need 5+ years)"
         }
     
     # 1. Revenue stability and growth
-    revenues = [item.revenue for item in financial_line_items 
+    revenues = [item.revenue for item in financial_data 
                if hasattr(item, 'revenue') and item.revenue is not None]
     
     if revenues and len(revenues) >= 5:
@@ -540,7 +544,7 @@ def analyze_predictability(financial_line_items: list) -> dict:
     }
 
 
-def calculate_munger_valuation(financial_line_items: list, market_cap: float) -> dict:
+def calculate_munger_valuation(financial_data: list, market_cap: float) -> dict:
     """
     Calculate intrinsic value using Munger's approach:
     - Focus on owner earnings (approximated by FCF)
@@ -550,7 +554,7 @@ def calculate_munger_valuation(financial_line_items: list, market_cap: float) ->
     score = 0
     details = []
     
-    if not financial_line_items or market_cap is None:
+    if not financial_data or market_cap is None:
         return {
             "score": 0,
             "details": "Insufficient data to perform valuation"

@@ -1,5 +1,5 @@
 from src.graph.state import AgentState, show_agent_reasoning
-from src.tools.api import get_financial_metrics, get_market_cap, search_line_items
+from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, merge_financial_data
 from langchain_core.messages import HumanMessage
 from src.prompts import get_ben_graham_prompt_template
 from pydantic import BaseModel
@@ -39,18 +39,21 @@ def ben_graham_agent(state: AgentState):
         progress.update_status("ben_graham_agent", ticker, "Gathering financial line items")
         financial_line_items = search_line_items(ticker, ["earnings_per_share", "revenue", "net_income", "book_value_per_share", "total_assets", "total_liabilities", "current_assets", "current_liabilities", "dividends_and_other_cash_distributions", "outstanding_shares"], end_date, period="annual", limit=10)
 
+        progress.update_status("ben_graham_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, financial_line_items)
+        
         progress.update_status("ben_graham_agent", ticker, "Getting market cap")
         market_cap = get_market_cap(ticker, end_date)
 
         # Perform sub-analyses
         progress.update_status("ben_graham_agent", ticker, "Analyzing earnings stability")
-        earnings_analysis = analyze_earnings_stability(metrics, financial_line_items)
+        earnings_analysis = analyze_earnings_stability(financial_data)
 
         progress.update_status("ben_graham_agent", ticker, "Analyzing financial strength")
-        strength_analysis = analyze_financial_strength(financial_line_items)
+        strength_analysis = analyze_financial_strength(financial_data)
 
         progress.update_status("ben_graham_agent", ticker, "Analyzing Graham valuation")
-        valuation_analysis = analyze_valuation_graham(financial_line_items, market_cap)
+        valuation_analysis = analyze_valuation_graham(financial_data, market_cap)
 
         # Aggregate scoring
         total_score = earnings_analysis["score"] + strength_analysis["score"] + valuation_analysis["score"]
@@ -92,7 +95,7 @@ def ben_graham_agent(state: AgentState):
     return {"messages": [message], "data": state["data"]}
 
 
-def analyze_earnings_stability(metrics: list, financial_line_items: list) -> dict:
+def analyze_earnings_stability(financial_data: list) -> dict:
     """
     Graham wants at least several years of consistently positive earnings (ideally 5+).
     We'll check:
@@ -102,14 +105,10 @@ def analyze_earnings_stability(metrics: list, financial_line_items: list) -> dic
     score = 0
     details = []
 
-    if not metrics or not financial_line_items:
+    if not financial_data:
         return {"score": score, "details": "Insufficient data for earnings stability analysis"}
 
-    eps_vals = []
-    for item in financial_line_items:
-        eps_value = get_line_item_value(financial_line_items, "earnings_per_share", item.report_period)
-        if eps_value is not None:
-            eps_vals.append(eps_value)
+    eps_vals = [item.earnings_per_share for item in financial_data if item.earnings_per_share is not None]
 
     if len(eps_vals) < 2:
         details.append("Not enough multi-year EPS data.")
@@ -137,7 +136,7 @@ def analyze_earnings_stability(metrics: list, financial_line_items: list) -> dic
     return {"score": score, "details": "; ".join(details)}
 
 
-def analyze_financial_strength(financial_line_items: list) -> dict:
+def analyze_financial_strength(financial_data: list) -> dict:
     """
     Graham checks liquidity (current ratio >= 2), manageable debt,
     and dividend record (preferably some history of dividends).
@@ -145,15 +144,15 @@ def analyze_financial_strength(financial_line_items: list) -> dict:
     score = 0
     details = []
 
-    if not financial_line_items:
+    if not financial_data:
         return {"score": score, "details": "No data for financial strength analysis"}
 
     # Get the latest period's data
-    latest_period = financial_line_items[0].report_period
-    total_assets = get_line_item_value(financial_line_items, "total_assets", latest_period) or 0
-    total_liabilities = get_line_item_value(financial_line_items, "total_liabilities", latest_period) or 0
-    current_assets = get_line_item_value(financial_line_items, "current_assets", latest_period) or 0
-    current_liabilities = get_line_item_value(financial_line_items, "current_liabilities", latest_period) or 0
+    latest_data = financial_data[0]
+    total_assets = latest_data.total_assets or 0
+    total_liabilities = latest_data.total_liabilities or 0
+    current_assets = latest_data.current_assets or 0
+    current_liabilities = latest_data.current_liabilities or 0
 
     # 1. Current ratio
     if current_liabilities > 0:
@@ -184,11 +183,7 @@ def analyze_financial_strength(financial_line_items: list) -> dict:
         details.append("Cannot compute debt ratio (missing total_assets).")
 
     # 3. Dividend track record
-    div_periods = []
-    for item in financial_line_items:
-        div_value = get_line_item_value(financial_line_items, "dividends_and_other_cash_distributions", item.report_period)
-        if div_value is not None:
-            div_periods.append(div_value)
+    div_periods = [item.dividends_and_other_cash_distributions for item in financial_data if item.dividends_and_other_cash_distributions is not None]
     if div_periods:
         # In many data feeds, dividend outflow is shown as a negative number
         # (money going out to shareholders). We'll consider any negative as 'paid a dividend'.
@@ -208,23 +203,23 @@ def analyze_financial_strength(financial_line_items: list) -> dict:
     return {"score": score, "details": "; ".join(details)}
 
 
-def analyze_valuation_graham(financial_line_items: list, market_cap: float) -> dict:
+def analyze_valuation_graham(financial_data: list, market_cap: float) -> dict:
     """
     Core Graham approach to valuation:
     1. Net-Net Check: (Current Assets - Total Liabilities) vs. Market Cap
     2. Graham Number: sqrt(22.5 * EPS * Book Value per Share)
     3. Compare per-share price to Graham Number => margin of safety
     """
-    if not financial_line_items or not market_cap or market_cap <= 0:
+    if not financial_data or not market_cap or market_cap <= 0:
         return {"score": 0, "details": "Insufficient data to perform valuation"}
 
     # Get the latest period's data
-    latest_period = financial_line_items[0].report_period
-    current_assets = get_line_item_value(financial_line_items, "current_assets", latest_period) or 0
-    total_liabilities = get_line_item_value(financial_line_items, "total_liabilities", latest_period) or 0
-    book_value_ps = get_line_item_value(financial_line_items, "book_value_per_share", latest_period) or 0
-    eps = get_line_item_value(financial_line_items, "earnings_per_share", latest_period) or 0
-    shares_outstanding = get_line_item_value(financial_line_items, "outstanding_shares", latest_period) or 0
+    latest_data = financial_data[0]
+    current_assets = latest_data.current_assets or 0
+    total_liabilities = latest_data.total_liabilities or 0
+    book_value_ps = latest_data.book_value_per_share or 0
+    eps = latest_data.earnings_per_share or 0
+    shares_outstanding = latest_data.outstanding_shares or 0
 
     details = []
     score = 0
