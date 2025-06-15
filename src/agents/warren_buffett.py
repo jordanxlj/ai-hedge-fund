@@ -619,7 +619,7 @@ def analyze_book_value_growth(financial_data: list) -> dict[str, any]:
     Analyze book value per share growth - a key Buffett metric for long-term value creation.
     Buffett often talks about companies that compound book value over decades.
     """
-    if len(financial_line_items) < 3:
+    if len(financial_data) < 3:
         return {"score": 0, "details": "Insufficient data for book value analysis"}
     
     score = 0
@@ -627,8 +627,8 @@ def analyze_book_value_growth(financial_data: list) -> dict[str, any]:
     
     # Calculate book value growth (shareholders equity / shares outstanding)
     book_values = []
-    for item in financial_line_items:
-        if hasattr(item, 'shareholders_equity') and hasattr(item, 'outstanding_shares'):
+    for item in financial_data:
+        if item.shareholders_equity and item.outstanding_shares:
             if item.shareholders_equity and item.outstanding_shares:
                 book_value_per_share = item.shareholders_equity / item.outstanding_shares
                 book_values.append(book_value_per_share)
@@ -681,7 +681,7 @@ def analyze_pricing_power(financial_data: list) -> dict[str, any]:
     Analyze pricing power - Buffett's key indicator of a business moat.
     Looks at ability to raise prices without losing customers (margin expansion during inflation).
     """
-    if not financial_line_items or not metrics:
+    if not financial_data:
         return {"score": 0, "details": "Insufficient data for pricing power analysis"}
     
     score = 0
@@ -689,8 +689,8 @@ def analyze_pricing_power(financial_data: list) -> dict[str, any]:
     
     # Check gross margin trends (ability to maintain/expand margins)
     gross_margins = []
-    for item in financial_line_items:
-        if hasattr(item, 'gross_margin') and item.gross_margin is not None:
+    for item in financial_data:
+        if item.gross_margin and item.gross_margin is not None:
             gross_margins.append(item.gross_margin)
     
     if len(gross_margins) >= 3:
