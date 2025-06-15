@@ -12,6 +12,7 @@ from src.data.models import (
     LineItem,
     InsiderTrade,
     CompanyNews,
+    AggregatedFinancialInfo,
 )
 
 logger = logging.getLogger(__name__)
@@ -385,4 +386,61 @@ def force_refresh_ticker(ticker: str):
 
 def get_provider_status() -> dict:
     """获取所有数据提供商的状态"""
-    return DataProviderFactory.get_available_providers() 
+    return DataProviderFactory.get_available_providers()
+
+
+def merge_financial_data(financial_metrics: list, financial_line_items: list) -> List[AggregatedFinancialInfo]:
+    """
+    合并财务指标和财务报表项目数据，按时间进行对齐
+    
+    Args:
+        financial_metrics: 财务指标数据列表
+        financial_line_items: 财务报表项目数据列表
+        
+    Returns:
+        List[AggregatedFinancialInfo]: 合并后的财务数据，每个对象包含该期间的所有可用数据
+    """
+    
+    logger.info(f"开始合并财务数据: {len(financial_metrics)} 条财务指标, {len(financial_line_items)} 条财务报表数据")
+    
+    # 直接构建AggregatedFinancialInfo对象字典，按报告期间分组
+    aggregated_objects = {}
+    
+    # 处理财务指标数据 - 直接创建AggregatedFinancialInfo对象
+    for metric in financial_metrics:
+        period_key = metric.report_period
+        try:
+            # 使用财务指标数据创建AggregatedFinancialInfo对象
+            aggregated_objects[period_key] = AggregatedFinancialInfo(**metric.model_dump())
+        except Exception as e:
+            logger.warning(f"从财务指标创建AggregatedFinancialInfo失败，期间 {period_key}: {e}")
+            continue
+    
+    # 处理财务报表项目数据 - 仅更新现有对象
+    for line_item in financial_line_items:
+        period_key = line_item.report_period
+        
+        if period_key in aggregated_objects:
+            # 更新现有对象 - 只添加不存在的字段，保持财务指标优先
+            existing_obj = aggregated_objects[period_key]
+            existing_data = existing_obj.model_dump()
+            line_item_data = line_item.model_dump()
+            
+            # 合并数据，财务指标优先
+            for k, v in line_item_data.items():
+                if k not in existing_data or existing_data[k] is None:
+                    existing_data[k] = v
+            
+            try:
+                aggregated_objects[period_key] = AggregatedFinancialInfo(**existing_data)
+            except Exception as e:
+                logger.warning(f"更新AggregatedFinancialInfo失败，期间 {period_key}: {e}")
+        else:
+            # 不存在对应的财务指标数据，记录日志并跳过
+            logger.info(f"跳过财务报表项目数据，期间 {period_key} 没有对应的财务指标数据")
+    
+    # 按时间排序（最新的在前）并返回列表
+    merged_data = [aggregated_objects[period] for period in sorted(aggregated_objects.keys(), reverse=True)]
+    
+    logger.info(f"合并完成，共 {len(merged_data)} 个期间的数据")
+    return merged_data 

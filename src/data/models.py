@@ -192,3 +192,52 @@ class AgentStateData(BaseModel):
 class AgentStateMetadata(BaseModel):
     show_reasoning: bool = False
     model_config = {"extra": "allow"}
+
+
+class AggregatedFinancialInfo(FinancialMetrics):
+    """
+    聚合财务信息模型，继承自FinancialMetrics，
+    并添加各个Agent查询的LineItem属性
+    """
+    
+    # 收入相关
+    revenue: float | None = None
+    gross_profit: float | None = None
+    operating_expense: float | None = None
+    
+    # 利润相关
+    net_income: float | None = None
+    operating_income: float | None = None
+    ebit: float | None = None  # 息税前利润
+    ebitda: float | None = None  # 息税折旧摊销前利润
+    
+    # 现金流相关
+    free_cash_flow: float | None = None
+    operating_cash_flow: float | None = None
+    capital_expenditure: float | None = None
+    depreciation_and_amortization: float | None = None
+    
+    # 资产负债相关
+    total_assets: float | None = None
+    total_liabilities: float | None = None
+    current_assets: float | None = None
+    current_liabilities: float | None = None
+    working_capital: float | None = None
+    cash_and_equivalents: float | None = None
+    total_debt: float | None = None
+    shareholders_equity: float | None = None
+    
+    # 股份相关
+    outstanding_shares: float | None = None
+    earnings_per_share: float | None = None
+    
+    # 研发和其他
+    research_and_development: float | None = None
+    dividends_and_other_cash_distributions: float | None = None
+    issuance_or_purchase_of_equity_shares: float | None = None
+    
+    # 比率和百分比（已在FinancialMetrics中定义的不重复）
+    debt_to_equity_ratio: float | None = None
+    
+    # 允许动态添加字段
+    model_config = {"extra": "allow"}
