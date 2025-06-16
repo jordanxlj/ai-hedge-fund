@@ -701,12 +701,13 @@ def analyze_pricing_power(financial_data: list) -> dict[str, any]:
     for item in financial_data:
         if item.gross_margin and item.gross_margin is not None:
             gross_margins.append(item.gross_margin)
-    
+
+    logger.debug(f"gross margins : {gross_margins}")
     if len(gross_margins) >= 3:
         # Check margin stability/improvement
         recent_avg = sum(gross_margins[:2]) / 2 if len(gross_margins) >= 2 else gross_margins[0]
         older_avg = sum(gross_margins[-2:]) / 2 if len(gross_margins) >= 2 else gross_margins[-1]
-        
+        logger.debug(f"recent avg : {recent_avg}, older avg : {older_avg}")
         if recent_avg > older_avg + 0.02:  # 2%+ improvement
             score += 3
             reasoning.append("Expanding gross margins indicate strong pricing power")
@@ -722,6 +723,7 @@ def analyze_pricing_power(financial_data: list) -> dict[str, any]:
     # Check if company has been able to maintain high margins consistently
     if gross_margins:
         avg_margin = sum(gross_margins) / len(gross_margins)
+        logger.debug(f"avg margins : {avg_margin}")
         if avg_margin > 0.5:  # 50%+ gross margins
             score += 2
             reasoning.append(f"Consistently high gross margins ({avg_margin:.1%}) indicate strong pricing power")
