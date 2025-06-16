@@ -12,10 +12,13 @@ from src.tools.api import (
     get_financial_metrics,
     get_market_cap,
     search_line_items,
+    merge_financial_data,
 )
 from src.utils.llm import call_llm
 from src.utils.progress import progress
+import logging
 
+logger = logging.getLogger(__name__)
 
 class AswathDamodaranSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -59,22 +62,28 @@ def aswath_damodaran_agent(state: AgentState):
             ],
             end_date,
         )
+        progress.update_status("aswath_damodaran_agent", ticker, "Merging financial data")
+        financial_data = merge_financial_data(metrics, line_items)
 
         progress.update_status("aswath_damodaran_agent", ticker, "Getting market cap")
         market_cap = get_market_cap(ticker, end_date)
 
         # ─── Analyses ───────────────────────────────────────────────────────────
         progress.update_status("aswath_damodaran_agent", ticker, "Analyzing growth and reinvestment")
-        growth_analysis = analyze_growth_and_reinvestment(metrics, line_items)
+        growth_analysis = analyze_growth_and_reinvestment(financial_data)
+        logger.debug(f"growth_analysis: {growth_analysis}")
 
         progress.update_status("aswath_damodaran_agent", ticker, "Analyzing risk profile")
-        risk_analysis = analyze_risk_profile(metrics, line_items)
+        risk_analysis = analyze_risk_profile(financial_data)
+        logger.debug(f"risk_analysis: {risk_analysis}")
 
         progress.update_status("aswath_damodaran_agent", ticker, "Calculating intrinsic value (DCF)")
-        intrinsic_val_analysis = calculate_intrinsic_value_dcf(metrics, line_items, risk_analysis)
+        intrinsic_val_analysis = calculate_intrinsic_value_dcf(financial_data, risk_analysis)
+        logger.debug(f"intrinsic_val_analysis: {intrinsic_val_analysis}")
 
         progress.update_status("aswath_damodaran_agent", ticker, "Assessing relative valuation")
         relative_val_analysis = analyze_relative_valuation(metrics)
+        logger.debug(f"relative_val_analysis: {relative_val_analysis}")
 
         # ─── Score & margin of safety ──────────────────────────────────────────
         total_score = (
@@ -83,6 +92,7 @@ def aswath_damodaran_agent(state: AgentState):
             + relative_val_analysis["score"]
         )
         max_score = growth_analysis["max_score"] + risk_analysis["max_score"] + relative_val_analysis["max_score"]
+        logger.debug(f"total_score: {total_score}, max_score: {max_score}")
 
         intrinsic_value = intrinsic_val_analysis["intrinsic_value"]
         margin_of_safety = (
@@ -138,7 +148,7 @@ def aswath_damodaran_agent(state: AgentState):
 # ────────────────────────────────────────────────────────────────────────────────
 # Helper analyses
 # ────────────────────────────────────────────────────────────────────────────────
-def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str, any]:
+def analyze_growth_and_reinvestment(financial_data: list) -> dict[str, any]:
     """
     Growth score (0-4):
       +2  5-yr CAGR of revenue > 8 %
@@ -147,11 +157,11 @@ def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str
     Reinvestment efficiency (ROIC > WACC) adds +1
     """
     max_score = 4
-    if len(metrics) < 2:
+    if len(financial_data) < 2:
         return {"score": 0, "max_score": max_score, "details": "Insufficient history"}
 
     # Revenue CAGR (oldest to latest)
-    revs = [m.revenue for m in reversed(metrics) if hasattr(m, "revenue") and m.revenue]
+    revs = [m.revenue for m in reversed(financial_data) if m.revenue]
     if len(revs) >= 2 and revs[0] > 0:
         cagr = (revs[-1] / revs[0]) ** (1 / (len(revs) - 1)) - 1
     else:
@@ -172,10 +182,10 @@ def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str
         details.append("Revenue data incomplete")
 
     # FCFF growth (proxy: free_cash_flow trend from line_items)
-    fcfs = [item.free_cash_flow for item in line_items if hasattr(item, 'free_cash_flow') and item.free_cash_flow]
+    fcfs = [item.free_cash_flow for item in financial_data if item.free_cash_flow]
     if len(fcfs) >= 2:
         # Sort by report_period to ensure chronological order
-        sorted_items = sorted([item for item in line_items if hasattr(item, 'free_cash_flow') and item.free_cash_flow], 
+        sorted_items = sorted([item for item in financial_data if item.free_cash_flow],
                               key=lambda x: x.report_period)
         if len(sorted_items) >= 2 and sorted_items[-1].free_cash_flow > sorted_items[0].free_cash_flow:
             score += 1
@@ -186,7 +196,7 @@ def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str
         details.append("Insufficient FCFF data")
 
     # Reinvestment efficiency (ROIC vs. 10 % hurdle)
-    latest = metrics[0]
+    latest = financial_data[0]
     if latest.return_on_invested_capital and latest.return_on_invested_capital > 0.10:
         score += 1
         details.append(f"ROIC {latest.return_on_invested_capital:.1%} (> 10 %)")
@@ -194,7 +204,7 @@ def analyze_growth_and_reinvestment(metrics: list, line_items: list) -> dict[str
     return {"score": score, "max_score": max_score, "details": "; ".join(details), "metrics": latest.model_dump()}
 
 
-def analyze_risk_profile(metrics: list, line_items: list) -> dict[str, any]:
+def analyze_risk_profile(financial_data: list) -> dict[str, any]:
     """
     Risk score (0-3):
       +1  Beta < 1.3
@@ -202,10 +212,10 @@ def analyze_risk_profile(metrics: list, line_items: list) -> dict[str, any]:
       +1  Interest Coverage > 3×
     """
     max_score = 3
-    if not metrics:
+    if not financial_data:
         return {"score": 0, "max_score": max_score, "details": "No metrics"}
 
-    latest = metrics[0]
+    latest = financial_data[0]
     score, details = 0, []
 
     # Beta
@@ -220,7 +230,7 @@ def analyze_risk_profile(metrics: list, line_items: list) -> dict[str, any]:
         details.append("Beta NA")
 
     # Debt / Equity
-    dte = getattr(latest, "debt_to_equity", None)
+    dte = latest.debt_to_equity
     if dte is not None:
         if dte < 1:
             score += 1
@@ -231,7 +241,7 @@ def analyze_risk_profile(metrics: list, line_items: list) -> dict[str, any]:
         details.append("D/E NA")
 
     # Interest coverage
-    ebit = getattr(latest, "ebit", None)
+    ebit = latest.ebit
     interest = getattr(latest, "interest_expense", None)
     if ebit and interest and interest != 0:
         coverage = ebit / abs(interest)
@@ -255,7 +265,7 @@ def analyze_risk_profile(metrics: list, line_items: list) -> dict[str, any]:
     }
 
 
-def analyze_relative_valuation(metrics: list) -> dict[str, any]:
+def analyze_relative_valuation(financial_data: list) -> dict[str, any]:
     """
     Simple PE check vs. historical median (proxy since sector comps unavailable):
       +1 if TTM P/E < 70 % of 5-yr median
@@ -263,10 +273,10 @@ def analyze_relative_valuation(metrics: list) -> dict[str, any]:
       ‑1 if >130 %
     """
     max_score = 1
-    if not metrics or len(metrics) < 5:
+    if not financial_data or len(financial_data) < 5:
         return {"score": 0, "max_score": max_score, "details": "Insufficient P/E history"}
 
-    pes = [m.price_to_earnings_ratio for m in metrics if m.price_to_earnings_ratio]
+    pes = [m.price_to_earnings_ratio for m in financial_data if m.price_to_earnings_ratio]
     if len(pes) < 5:
         return {"score": 0, "max_score": max_score, "details": "P/E data sparse"}
 
@@ -286,7 +296,7 @@ def analyze_relative_valuation(metrics: list) -> dict[str, any]:
 # ────────────────────────────────────────────────────────────────────────────────
 # Intrinsic value via FCFF DCF (Damodaran style)
 # ────────────────────────────────────────────────────────────────────────────────
-def calculate_intrinsic_value_dcf(metrics: list, line_items: list, risk_analysis: dict) -> dict[str, any]:
+def calculate_intrinsic_value_dcf(financial_data: list, risk_analysis: dict) -> dict[str, any]:
     """
     FCFF DCF with:
       • Base FCFF = latest free cash flow
@@ -294,13 +304,13 @@ def calculate_intrinsic_value_dcf(metrics: list, line_items: list, risk_analysis
       • Fade linearly to terminal growth 2.5 % by year 10
       • Discount @ cost of equity (no debt split given data limitations)
     """
-    if not metrics or len(metrics) < 2 or not line_items:
+    if not financial_data or len(financial_data) < 2:
         return {"intrinsic_value": None, "details": ["Insufficient data"]}
 
-    latest_m = metrics[0]
+    latest_m = financial_data[0]
     
     # Get free cash flow from line_items (latest period)
-    fcff_items = [item for item in line_items if hasattr(item, 'free_cash_flow') and item.free_cash_flow]
+    fcff_items = [item for item in financial_data if item.free_cash_flow]
     if fcff_items:
         # Get the most recent free cash flow
         latest_fcff_item = max(fcff_items, key=lambda x: x.report_period)
@@ -308,12 +318,12 @@ def calculate_intrinsic_value_dcf(metrics: list, line_items: list, risk_analysis
     else:
         fcff0 = None
     
-    shares = getattr(latest_m, "outstanding_shares", None)
+    shares = latest_m.outstanding_shares
     if not fcff0 or not shares:
         return {"intrinsic_value": None, "details": ["Missing FCFF or share count"]}
 
     # Growth assumptions
-    revs = [m.revenue for m in reversed(metrics) if m.revenue]
+    revs = [m.revenue for m in reversed(financial_data) if m.revenue]
     if len(revs) >= 2 and revs[0] > 0:
         base_growth = min((revs[-1] / revs[0]) ** (1 / (len(revs) - 1)) - 1, 0.12)
     else:
