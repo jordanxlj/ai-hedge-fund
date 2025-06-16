@@ -121,19 +121,27 @@ def get_financial_metrics(
     # Create a cache key that includes all parameters to ensure exact matches
     cache_key = f"{ticker}_{period}_{end_date}_{limit}"
     
+    provider = _get_data_provider()
+    filtering_period = provider.convert_period(period)
+
     # Check memory cache first - fastest
     if cached_data := _cache.get_financial_metrics(cache_key):
-        return [FinancialMetrics(**metric) for metric in cached_data]
+        all_metrics = [FinancialMetrics(**metric) for metric in cached_data]
+        # Apply filter and limit to cached data
+        filtered_metrics = _filter_period_and_limit_number(all_metrics, filtering_period, limit)
+        return filtered_metrics
     
     # Check persistent cache - second fastest
     if persistent_data := _persistent_cache.get_financial_metrics(ticker, period, end_date, limit):
+        all_metrics = [FinancialMetrics(**metric) for metric in persistent_data]
         # Load into memory cache for faster future access
         _cache.set_financial_metrics(cache_key, persistent_data)
-        return [FinancialMetrics(**metric) for metric in persistent_data]
+        # Apply filter and limit to cached data
+        filtered_metrics = _filter_period_and_limit_number(all_metrics, filtering_period, limit)
+        return filtered_metrics
 
     # If not in cache, fetch from data provider
     try:
-        provider = _get_data_provider()
         metrics = provider.get_financial_metrics(ticker, end_date, period, limit)
         
         if not metrics:
@@ -145,14 +153,13 @@ def get_financial_metrics(
         _persistent_cache.set_financial_metrics(ticker, period, end_date, limit, metrics_data)
 
         # Filter by period and apply limit
-        converted_period = provider.convert_period(period)
-        filtered_metrics = _filter_and_limit_number(metrics, converted_period, limit)
+        filtered_metrics = _filter_period_and_limit_number(metrics, filtering_period, limit)
         return filtered_metrics
     except Exception as e:
         logger.error(f"获取财务指标失败 {ticker}: {e}")
         return []
 
-def _filter_and_limit_number(items: List[LineItem], period: str, limit: int) -> List[LineItem]:
+def _filter_period_and_limit_number(items: List[LineItem], period: str, limit: int) -> List[LineItem]:
     """Filter line items by period and return the latest N items.
     
     Args:
@@ -183,6 +190,9 @@ def search_line_items(
     period: str = "ttm",
     limit: int = 10,
 ) -> List[LineItem]:
+    provider = _get_data_provider()
+    filtering_period = provider.convert_period(period)
+
     """搜索财务报表项目（支持缓存）"""
     # Create a cache key without limit - cache complete data
     line_items_str = "_".join(sorted(line_items))  # Sort for consistent cache key
@@ -193,7 +203,7 @@ def search_line_items(
         try:
             all_items = [LineItem(**item) for item in cached_data]
             # Filter by period and apply limit
-            filtered_items = _filter_and_limit_number(all_items, period, limit)
+            filtered_items = _filter_period_and_limit_number(all_items, filtering_period, limit)
             return filtered_items
         except Exception as e:
             # If cached data format is invalid, clear it and fetch fresh
@@ -209,7 +219,7 @@ def search_line_items(
             # Load into memory cache for faster future access
             _cache.set_line_items(cache_key, persistent_data)
             # Filter by period and apply limit
-            filtered_items = _filter_and_limit_number(all_items, period, limit)
+            filtered_items = _filter_period_and_limit_number(all_items, filtering_period, limit)
             return filtered_items
         except Exception as e:
             # If persistent data format is invalid, ignore and fetch fresh
@@ -217,7 +227,6 @@ def search_line_items(
 
     # If not in cache, fetch from data provider with large limit to get complete data
     try:
-        provider = _get_data_provider()
         # Fetch complete data (use 1000 as a large limit to get all available data)
         search_results = provider.search_line_items(ticker, line_items, end_date, period, limit)
         logger.debug(f"search_results: {len(search_results)} items fetched")
@@ -231,8 +240,7 @@ def search_line_items(
         _persistent_cache.set_line_items(ticker, line_items, period, end_date, 1000, line_items_data)
         
         # Filter by period and apply limit
-        converted_period = provider.convert_period(period)
-        filtered_items = _filter_and_limit_number(search_results, converted_period, limit)
+        filtered_items = _filter_period_and_limit_number(search_results, filtering_period, limit)
         return filtered_items
     except Exception as e:
         logger.error(f"搜索财务报表项目失败 {ticker}: {e}")

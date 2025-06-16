@@ -7,7 +7,9 @@ from typing_extensions import Literal
 from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, merge_financial_data
 from src.utils.llm import call_llm
 from src.utils.progress import progress
+import logging
 
+logger = logging.getLogger(__name__)
 
 class WarrenBuffettSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -65,21 +67,27 @@ def warren_buffett_agent(state: AgentState):
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing consistency")
         consistency_analysis = analyze_consistency(financial_data)
+        logger.debug(f"consitency analysis result: {consistency_analysis}")
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing competitive moat")
         moat_analysis = analyze_moat(financial_data)
+        logger.debug(f"moat analysis result: {moat_analysis}")
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing pricing power")
         pricing_power_analysis = analyze_pricing_power(financial_data)
+        logger.debug(f"pricing power analysis result: {pricing_power_analysis}")
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing book value growth")
         book_value_analysis = analyze_book_value_growth(financial_data)
+        logger.debug(f"book value analysis result: {book_value_analysis}")
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing management quality")
         mgmt_analysis = analyze_management_quality(financial_data)
+        logger.debug(f"management quality analysis result: {mgmt_analysis}")
 
         progress.update_status("warren_buffett_agent", ticker, "Calculating intrinsic value")
         intrinsic_value_analysis = calculate_intrinsic_value(financial_data)
+        logger.debug(f"intrinsic value analysis result: {intrinsic_value_analysis}")
 
         # Calculate total score without circle of competence (LLM will handle that)
         total_score = (
@@ -99,6 +107,7 @@ def warren_buffett_agent(state: AgentState):
             5 +   # pricing_power (0-5)
             5     # book_value_growth (0-5)
         )
+        logger.debug(f"total score: {total_score}, max_possible_score: {max_possible_score}")
 
         # Add margin of safety analysis if we have both intrinsic value and current price
         margin_of_safety = None
