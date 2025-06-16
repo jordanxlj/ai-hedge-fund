@@ -70,16 +70,20 @@ def cathie_wood_agent(state: AgentState):
 
         progress.update_status("cathie_wood_agent", ticker, "Analyzing disruptive potential")
         disruptive_analysis = analyze_disruptive_potential(financial_data)
+        logger.debug(f"disruptive analysis: {disruptive_analysis}")
 
         progress.update_status("cathie_wood_agent", ticker, "Analyzing innovation-driven growth")
         innovation_analysis = analyze_innovation_growth(financial_data)
+        logger.debug(f"innovation analysis: {innovation_analysis}")
 
         progress.update_status("cathie_wood_agent", ticker, "Calculating valuation & high-growth scenario")
         valuation_analysis = analyze_cathie_wood_valuation(financial_data, market_cap)
+        logger.debug(f"valuation analysis: {valuation_analysis}")
 
         # Combine partial scores or signals
         total_score = disruptive_analysis["score"] + innovation_analysis["score"] + valuation_analysis["score"]
         max_possible_score = 15  # Adjust weighting as desired
+        logger.debug(f"total score = {total_score}")
 
         if total_score >= 0.7 * max_possible_score:
             signal = "bullish"

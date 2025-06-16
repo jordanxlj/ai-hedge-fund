@@ -9,6 +9,9 @@ from typing_extensions import Literal
 from src.utils.progress import progress
 from src.utils.llm import call_llm
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BillAckmanSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -62,15 +65,19 @@ def bill_ackman_agent(state: AgentState):
         
         progress.update_status("bill_ackman_agent", ticker, "Analyzing business quality")
         quality_analysis = analyze_business_quality(financial_data)
+        logger.debug(f"quality_analysis : {quality_analysis}")
         
         progress.update_status("bill_ackman_agent", ticker, "Analyzing balance sheet and capital structure")
         balance_sheet_analysis = analyze_financial_discipline(financial_data)
+        logger.debug(f"balance_sheet_analysis : {balance_sheet_analysis}")
         
         progress.update_status("bill_ackman_agent", ticker, "Analyzing activism potential")
         activism_analysis = analyze_activism_potential(financial_data)
+        logger.debug(f"activism_analysis : {activism_analysis}")
         
         progress.update_status("bill_ackman_agent", ticker, "Calculating intrinsic value & margin of safety")
         valuation_analysis = analyze_valuation(financial_data, market_cap)
+        logger.debug(f"valuation_analysis : {valuation_analysis}")
         
         # Combine partial scores or signals
         total_score = (
@@ -80,7 +87,8 @@ def bill_ackman_agent(state: AgentState):
             + valuation_analysis["score"]
         )
         max_possible_score = 20  # Adjust weighting as desired (5 from each sub-analysis, for instance)
-        
+        logger.debug(f"total_score : {total_score}, max_possible_score : {max_possible_score}")
+
         # Generate a simple buy/hold/sell (bullish/neutral/bearish) signal
         if total_score >= 0.7 * max_possible_score:
             signal = "bullish"

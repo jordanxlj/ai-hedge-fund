@@ -7,6 +7,9 @@ import json
 from typing_extensions import Literal
 from src.utils.progress import progress
 from src.utils.llm import call_llm
+import logging
+
+logger = logging.getLogger(__name__)
 
 class CharlieMungerSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -83,15 +86,19 @@ def charlie_munger_agent(state: AgentState):
 
         progress.update_status("charlie_munger_agent", ticker, "Analyzing moat strength")
         moat_analysis = analyze_moat_strength(financial_data)
+        logger.debug(f"moat_analysis = {moat_analysis}")
         
         progress.update_status("charlie_munger_agent", ticker, "Analyzing management quality")
         management_analysis = analyze_management_quality(financial_data, insider_trades)
+        logger.debug(f"management_analysis = {management_analysis}")
         
         progress.update_status("charlie_munger_agent", ticker, "Analyzing business predictability")
         predictability_analysis = analyze_predictability(financial_data)
+        logger.debug(f"predictability_analysis = {predictability_analysis}")
         
         progress.update_status("charlie_munger_agent", ticker, "Calculating Munger-style valuation")
         valuation_analysis = calculate_munger_valuation(financial_data, market_cap)
+        logger.debug(f"valuation_analysis = {valuation_analysis}")
         
         # Combine partial scores with Munger's weighting preferences
         # Munger weights quality and predictability higher than current valuation
@@ -101,6 +108,7 @@ def charlie_munger_agent(state: AgentState):
             predictability_analysis["score"] * 0.25 +
             valuation_analysis["score"] * 0.15
         )
+        logger.debug(f"total_score = {total_score}")
         
         max_possible_score = 10  # Scale to 0-10
         
