@@ -86,6 +86,11 @@ class AbstractDataProvider(ABC):
     def is_available(self) -> bool:
         """检查数据提供商是否可用"""
         pass
-    
+
+    @abstractmethod
+    def convert_period(self, period: str) -> str:
+        """转换period, for ttm"""
+        pass
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})" 

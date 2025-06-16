@@ -303,4 +303,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
             return response.status_code == 200
         except Exception as e:
             logger.error(f"FinancialDatasets可用性检查失败: {e}")
-            return False 
+            return False
+
+    def convert_period(self, period: str) -> str:
+        return period

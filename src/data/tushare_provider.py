@@ -775,4 +775,7 @@ class TushareProvider(AbstractDataProvider):
             
         except Exception as e:
             logger.error(f"Tushare可用性检查失败: {e}")
-            return False 
+            return False
+
+    def convert_period(self, period: str) -> str:
+        return "annual" if period == 'ttm' else period
