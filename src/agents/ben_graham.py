@@ -9,7 +9,9 @@ from src.utils.progress import progress
 from src.utils.llm import call_llm
 from src.utils.line_item_helpers import get_line_item_value
 import math
+import logging
 
+logger = logging.getLogger(__name__)
 
 class BenGrahamSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -48,16 +50,20 @@ def ben_graham_agent(state: AgentState):
         # Perform sub-analyses
         progress.update_status("ben_graham_agent", ticker, "Analyzing earnings stability")
         earnings_analysis = analyze_earnings_stability(financial_data)
+        logger.debug(f"earnings_analysis: {earnings_analysis}")
 
         progress.update_status("ben_graham_agent", ticker, "Analyzing financial strength")
         strength_analysis = analyze_financial_strength(financial_data)
+        logger.debug(f"strength_analysis: {strength_analysis}")
 
         progress.update_status("ben_graham_agent", ticker, "Analyzing Graham valuation")
         valuation_analysis = analyze_valuation_graham(financial_data, market_cap)
+        logger.debug(f"valuation_analysis: {valuation_analysis}")
 
         # Aggregate scoring
         total_score = earnings_analysis["score"] + strength_analysis["score"] + valuation_analysis["score"]
         max_possible_score = 15  # total possible from the three analysis functions
+        logger.debug(f"total_score: {total_score}, max_possible_score: {max_possible_score}")
 
         # Map total_score to signal
         if total_score >= 0.7 * max_possible_score:
@@ -214,12 +220,13 @@ def analyze_valuation_graham(financial_data: list, market_cap: float) -> dict:
         return {"score": 0, "details": "Insufficient data to perform valuation"}
 
     # Get the latest period's data
-    latest_data = financial_data[0]
-    current_assets = latest_data.current_assets or 0
-    total_liabilities = latest_data.total_liabilities or 0
-    book_value_ps = latest_data.book_value_per_share or 0
-    eps = latest_data.earnings_per_share or 0
-    shares_outstanding = latest_data.outstanding_shares or 0
+    latest = financial_data[0]
+    logger.debug(f"latest financial line item = {latest}")
+    current_assets = latest.current_assets or 0
+    total_liabilities = latest.total_liabilities or 0
+    book_value_ps = latest.book_value_per_share or 0
+    eps = latest.earnings_per_share or 0
+    shares_outstanding = latest.outstanding_shares or 0
 
     details = []
     score = 0
@@ -254,6 +261,7 @@ def analyze_valuation_graham(financial_data: list, market_cap: float) -> dict:
     graham_number = None
     if eps > 0 and book_value_ps > 0:
         graham_number = math.sqrt(22.5 * eps * book_value_ps)
+        logger.debug(f"eps = {eps}, book_value_ps = {book_value_ps}, graham_number = {graham_number}")
         details.append(f"Graham Number = {graham_number:.2f}")
     else:
         details.append("Unable to compute Graham Number (EPS or Book Value missing/<=0).")

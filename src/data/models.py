@@ -233,7 +233,7 @@ class AggregatedFinancialInfo(FinancialMetrics):
     
     # 股份相关
     outstanding_shares: float | None = None
-    earnings_per_share: float | None = None
+    #earnings_per_share: float | None = None  # already in the FinancialMetrics
     
     # 研发和其他
     research_and_development: float | None = None
