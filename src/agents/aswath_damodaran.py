@@ -181,19 +181,13 @@ def analyze_growth_and_reinvestment(financial_data: list) -> dict[str, any]:
     else:
         details.append("Revenue data incomplete")
 
-    # FCFF growth (proxy: free_cash_flow trend from line_items)
-    fcfs = [item.free_cash_flow for item in financial_data if item.free_cash_flow]
-    if len(fcfs) >= 2:
-        # Sort by report_period to ensure chronological order
-        sorted_items = sorted([item for item in financial_data if item.free_cash_flow],
-                              key=lambda x: x.report_period)
-        if len(sorted_items) >= 2 and sorted_items[-1].free_cash_flow > sorted_items[0].free_cash_flow:
-            score += 1
-            details.append("Positive FCFF growth")
-        else:
-            details.append("Flat or declining FCFF")
+    # FCFF growth (proxy: free_cash_flow trend)
+    fcfs = [li.free_cash_flow for li in reversed(financial_data) if li.free_cash_flow]
+    if len(fcfs) >= 2 and fcfs[-1] > fcfs[0]:
+        score += 1
+        details.append("Positive FCFF growth")
     else:
-        details.append("Insufficient FCFF data")
+        details.append("Flat or declining FCFF")
 
     # Reinvestment efficiency (ROIC vs. 10 % hurdle)
     latest = financial_data[0]
@@ -308,16 +302,7 @@ def calculate_intrinsic_value_dcf(financial_data: list, risk_analysis: dict) -> 
         return {"intrinsic_value": None, "details": ["Insufficient data"]}
 
     latest_m = financial_data[0]
-    
-    # Get free cash flow from line_items (latest period)
-    fcff_items = [item for item in financial_data if item.free_cash_flow]
-    if fcff_items:
-        # Get the most recent free cash flow
-        latest_fcff_item = max(fcff_items, key=lambda x: x.report_period)
-        fcff0 = latest_fcff_item.free_cash_flow
-    else:
-        fcff0 = None
-    
+    fcff0 = latest_m.free_cash_flow
     shares = latest_m.outstanding_shares
     if not fcff0 or not shares:
         return {"intrinsic_value": None, "details": ["Missing FCFF or share count"]}

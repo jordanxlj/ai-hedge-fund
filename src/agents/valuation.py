@@ -69,20 +69,20 @@ def valuation_analyst_agent(state: AgentState):
         # ------------------------------------------------------------------
         # Valuation models
         # ------------------------------------------------------------------
-        wc_change = (li_curr.get('working_capital', 0) or 0) - (li_prev.get('working_capital', 0) or 0)
+        wc_change = li_curr.working_capital - li_prev.working_capital
 
         # Owner Earnings
         owner_val = calculate_owner_earnings_value(
-            net_income=li_curr.get('net_income', 0) or 0,
-            depreciation=li_curr.get('depreciation_and_amortization', 0) or 0,
-            capex=li_curr.get('capital_expenditure', 0) or 0,
+            net_income=li_curr.net_income,
+            depreciation=li_curr.depreciation_and_amortization,
+            capex=li_curr.capital_expenditure,
             working_capital_change=wc_change,
             growth_rate=most_recent_metrics.earnings_growth or 0.05,
         )
 
         # Discounted Cash Flow
         dcf_val = calculate_intrinsic_value(
-            free_cash_flow=li_curr.get('free_cash_flow', 0) or 0,
+            free_cash_flow=li_curr.free_cash_flow,
             growth_rate=most_recent_metrics.earnings_growth or 0.05,
             discount_rate=0.10,
             terminal_growth_rate=0.03,
@@ -95,7 +95,7 @@ def valuation_analyst_agent(state: AgentState):
         # Residual Income Model
         rim_val = calculate_residual_income_value(
             market_cap=most_recent_metrics.market_cap,
-            net_income=li_curr.get('net_income', 0) or 0,
+            net_income=li_curr.net_income,
             price_to_book_ratio=most_recent_metrics.price_to_book_ratio,
             book_value_growth=most_recent_metrics.book_value_growth or 0.03,
         )
