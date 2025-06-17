@@ -16,7 +16,9 @@ from src.utils.progress import progress
 from src.utils.llm import call_llm
 from src.prompts import get_phil_fisher_prompt_template
 import statistics
+import logging
 
+logger = logging.getLogger(__name__)
 
 class PhilFisherSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -90,15 +92,19 @@ def phil_fisher_agent(state: AgentState):
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing growth & quality")
         growth_quality = analyze_fisher_growth_quality(financial_data)
+        logger.debug(f"growth_quality: {growth_quality}")
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing margins & stability")
         margins_stability = analyze_margins_stability(financial_data)
+        logger.debug(f"margins_stability: {margins_stability}")
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing management efficiency & leverage")
         mgmt_efficiency = analyze_management_efficiency_leverage(financial_data)
+        logger.debug(f"mgmt_efficiency: {mgmt_efficiency}")
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing valuation (Fisher style)")
         fisher_valuation = analyze_fisher_valuation(financial_data, market_cap)
+        logger.debug(f"fisher_valuation: {fisher_valuation}")
 
         progress.update_status("phil_fisher_agent", ticker, "Analyzing insider activity")
         insider_activity = analyze_insider_activity(insider_trades)
@@ -121,6 +127,7 @@ def phil_fisher_agent(state: AgentState):
             + insider_activity["score"] * 0.05
             + sentiment_analysis["score"] * 0.05
         )
+        logger.debug(f"total_score: {total_score}")
 
         max_possible_score = 10
 

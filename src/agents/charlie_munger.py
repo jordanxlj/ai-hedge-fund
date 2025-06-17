@@ -109,7 +109,7 @@ def charlie_munger_agent(state: AgentState):
             valuation_analysis["score"] * 0.15
         )
         logger.debug(f"total_score = {total_score}")
-        
+
         max_possible_score = 10  # Scale to 0-10
         
         # Generate a simple buy/hold/sell signal

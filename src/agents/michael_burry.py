@@ -20,6 +20,9 @@ from src.tools.api import (
 from src.utils.llm import call_llm
 from src.utils.progress import progress
 from src.prompts import get_michael_burry_prompt_template
+import logging
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "MichaelBurrySignal",
@@ -98,15 +101,19 @@ def michael_burry_agent(state: AgentState):  # noqa: C901  (complexity is fine h
         # ------------------------------------------------------------------
         progress.update_status("michael_burry_agent", ticker, "Analyzing value")
         value_analysis = _analyze_value(financial_data, market_cap)
+        logger.debug(f"value_analysis = {value_analysis}")
 
         progress.update_status("michael_burry_agent", ticker, "Analyzing balance sheet")
         balance_sheet_analysis = _analyze_balance_sheet(financial_data)
+        logger.debug(f"balance_sheet_analysis = {balance_sheet_analysis}")
 
         progress.update_status("michael_burry_agent", ticker, "Analyzing insider activity")
         insider_analysis = _analyze_insider_activity(insider_trades)
+        logger.debug(f"insider_analysis = {insider_analysis}")
 
         progress.update_status("michael_burry_agent", ticker, "Analyzing contrarian sentiment")
         contrarian_analysis = _analyze_contrarian_sentiment(news)
+        logger.debug(f"contrarian_analysis = {contrarian_analysis}")
 
         # ------------------------------------------------------------------
         # Aggregate score & derive preliminary signal
@@ -123,6 +130,7 @@ def michael_burry_agent(state: AgentState):  # noqa: C901  (complexity is fine h
             + insider_analysis["max_score"]
             + contrarian_analysis["max_score"]
         )
+        logger.debug(f"total_score = {total_score}, max_score = {max_score}")
 
         if total_score >= 0.7 * max_score:
             signal = "bullish"

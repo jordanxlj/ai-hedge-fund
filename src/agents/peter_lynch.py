@@ -15,7 +15,9 @@ import json
 from typing_extensions import Literal
 from src.utils.progress import progress
 from src.utils.llm import call_llm
+import logging
 
+logger = logging.getLogger(__name__)
 
 class PeterLynchSignal(BaseModel):
     """
@@ -94,12 +96,15 @@ def peter_lynch_agent(state: AgentState):
         # Perform sub-analyses:
         progress.update_status("peter_lynch_agent", ticker, "Analyzing growth")
         growth_analysis = analyze_lynch_growth(financial_data)
+        logger.debug(f"growth_analysis = {growth_analysis}")
 
         progress.update_status("peter_lynch_agent", ticker, "Analyzing fundamentals")
         fundamentals_analysis = analyze_lynch_fundamentals(financial_data)
+        logger.debug(f"fundamentals_analysis = {fundamentals_analysis}")
 
         progress.update_status("peter_lynch_agent", ticker, "Analyzing valuation (focus on PEG)")
         valuation_analysis = analyze_lynch_valuation(financial_data, market_cap)
+        logger.debug(f"valuation_analysis = {valuation_analysis}")
 
         progress.update_status("peter_lynch_agent", ticker, "Analyzing sentiment")
         sentiment_analysis = analyze_sentiment(company_news)
@@ -117,6 +122,7 @@ def peter_lynch_agent(state: AgentState):
             + sentiment_analysis["score"] * 0.15
             + insider_activity["score"] * 0.10
         )
+        logger.debug(f"total_score = {total_score}")
 
         max_possible_score = 10.0
 

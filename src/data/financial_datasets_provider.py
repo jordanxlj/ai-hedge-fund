@@ -186,6 +186,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                 if start_date:
                     url += f"&filing_date_gte={start_date}"
                 url += f"&limit={limit}"
+                logger.debug(f"get_insider_trades url={url}")
 
                 response = self._make_request("GET", url)
                 data = response.json()
@@ -198,14 +199,14 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                 all_trades.extend(insider_response.insider_trades)
                 
                 # 检查是否有更多数据
-                if len(insider_response.insider_trades) < limit:
+                if not start_date or len(insider_response.insider_trades) < limit:
                     break
                 
                 # 更新日期范围以获取下一页
                 last_filing_date = insider_response.insider_trades[-1].filing_date
                 # Extract only the date part (YYYY-MM-DD) from the datetime string
                 current_end_date = last_filing_date.split("T")[0] if "T" in last_filing_date else last_filing_date
-                if current_end_date == end_date:
+                if current_end_date <= start_date:
                     break
 
             return all_trades
@@ -232,6 +233,7 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                 if start_date:
                     url += f"&start_date={start_date}"
                 url += f"&limit={limit}"
+                logger.debug(f"get_company_news url={url}")
 
                 response = self._make_request("GET", url)
                 data = response.json()
@@ -249,14 +251,14 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                 all_news.extend(news_response.company_news)
                 
                 # 检查是否有更多数据
-                if len(news_response.company_news) < limit:
+                if not start_date or len(news_response.company_news) < limit:
                     break
                 
                 # 更新日期范围以获取下一页
                 last_news_date = news_response.company_news[-1].date
                 # Extract only the date part (YYYY-MM-DD) from the datetime string
                 current_end_date = last_news_date.split("T")[0] if "T" in last_news_date else last_news_date
-                if current_end_date == end_date:
+                if current_end_date <= start_date:
                     break
 
             return all_news
