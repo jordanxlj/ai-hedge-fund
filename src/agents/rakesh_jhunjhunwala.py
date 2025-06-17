@@ -8,6 +8,9 @@ from src.tools.api import get_financial_metrics, get_market_cap, search_line_ite
 from src.utils.llm import call_llm
 from src.utils.progress import progress
 from src.prompts import get_rakesh_jhunjhunwala_prompt_template
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RakeshJhunjhunwalaSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -61,22 +64,28 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
         # ─── Analyses ───────────────────────────────────────────────────────────
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing growth")
         growth_analysis = analyze_growth(financial_data)
+        logger.debug(f"growth_analysis: {growth_analysis}")
 
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing profitability")
         profitability_analysis = analyze_profitability(financial_data)
+        logger.debug(f"profitability_analysis: {profitability_analysis}")
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing balance sheet")
         balancesheet_analysis = analyze_balance_sheet(financial_data)
+        logger.debug(f"balancesheet_analysis: {balancesheet_analysis}")
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing cash flow")
         cashflow_analysis = analyze_cash_flow(financial_data)
+        logger.debug(f"cashflow_analysis: {cashflow_analysis}")
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Analyzing management actions")
         management_analysis = analyze_management_actions(financial_data)
+        logger.debug(f"management_analysis: {management_analysis}")
         
         progress.update_status("rakesh_jhunjhunwala_agent", ticker, "Calculating intrinsic value")
         # Calculate intrinsic value once
         intrinsic_value = calculate_intrinsic_value(financial_data, market_cap)
+        logger.debug(f"intrinsic_value: {intrinsic_value}")
 
         # ─── Score & margin of safety ──────────────────────────────────────────
         total_score = (
@@ -93,6 +102,7 @@ def rakesh_jhunjhunwala_agent(state: AgentState):
         margin_of_safety = (
             (intrinsic_value - market_cap) / market_cap if intrinsic_value and market_cap else None
         )
+        logger.debug(f"total_score: {total_score}, margin_of_safety: {margin_of_safety}")
 
         # Jhunjhunwala's decision rules (30% minimum margin of safety for conviction)
         if margin_of_safety is not None and margin_of_safety >= 0.30:
@@ -259,6 +269,7 @@ def analyze_growth(financial_data: list) -> dict[str, any]:
     # Revenue CAGR Analysis
     revenues = [item.revenue for item in financial_data 
                 if item.revenue is not None and item.revenue > 0]
+    logger.debug(f"analyze growth, revenues: {revenues}")
     
     if len(revenues) >= 3:
         initial_revenue = revenues[-1]  # Oldest

@@ -16,7 +16,9 @@ from typing_extensions import Literal
 from src.utils.progress import progress
 from src.utils.llm import call_llm
 import statistics
+import logging
 
+logger = logging.getLogger(__name__)
 
 class StanleyDruckenmillerSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -93,18 +95,23 @@ def stanley_druckenmiller_agent(state: AgentState):
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing growth & momentum")
         growth_momentum_analysis = analyze_growth_and_momentum(financial_data, prices)
+        logger.debug(f"growth_momentum_analysis: {growth_momentum_analysis}")
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing sentiment")
         sentiment_analysis = analyze_sentiment(company_news)
+        logger.debug(f"sentiment_analysis: {sentiment_analysis}")
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing insider activity")
         insider_activity = analyze_insider_activity(insider_trades)
+        logger.debug(f"insider_activity: {insider_activity}")
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Analyzing risk-reward")
         risk_reward_analysis = analyze_risk_reward(financial_data, prices)
+        logger.debug(f"risk_reward_analysis: {risk_reward_analysis}")
 
         progress.update_status("stanley_druckenmiller_agent", ticker, "Performing Druckenmiller-style valuation")
         valuation_analysis = analyze_druckenmiller_valuation(financial_data, market_cap)
+        logger.debug(f"valuation_analysis: {valuation_analysis}")
 
         # Combine partial scores with weights typical for Druckenmiller:
         #   35% Growth/Momentum, 20% Risk/Reward, 20% Valuation,
@@ -116,6 +123,7 @@ def stanley_druckenmiller_agent(state: AgentState):
             + sentiment_analysis["score"] * 0.15
             + insider_activity["score"] * 0.10
         )
+        logger.debug(f"total_score: {total_score}")
 
         max_possible_score = 10
 
