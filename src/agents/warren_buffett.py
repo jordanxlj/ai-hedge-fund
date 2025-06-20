@@ -60,10 +60,12 @@ def warren_buffett_agent(state: AgentState):
         progress.update_status("warren_buffett_agent", ticker, "Getting market cap")
         # Get current market cap
         market_cap = get_market_cap(ticker, end_date)
+        logger.debug(f"market cap: {market_cap}")
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing fundamentals")
         # Analyze fundamentals
         fundamental_analysis = analyze_fundamentals(financial_data)
+        logger.debug(f"fundamental analysis: {fundamental_analysis}")
 
         progress.update_status("warren_buffett_agent", ticker, "Analyzing consistency")
         consistency_analysis = analyze_consistency(financial_data)
@@ -173,6 +175,7 @@ def analyze_fundamentals(financial_data: list) -> dict[str, any]:
     reasoning = []
 
     # Check ROE (Return on Equity)
+    logger.debug(f"roe: {latest_data.return_on_equity}")
     if latest_data.return_on_equity and latest_data.return_on_equity > 0.15:  # 15% ROE threshold
         score += 2
         reasoning.append(f"Strong ROE of {latest_data.return_on_equity:.1%}")
@@ -182,6 +185,7 @@ def analyze_fundamentals(financial_data: list) -> dict[str, any]:
         reasoning.append("ROE data not available")
 
     # Check Debt to Equity
+    logger.debug(f"debt_to_equity: {latest_data.debt_to_equity}")
     if latest_data.debt_to_equity and latest_data.debt_to_equity < 0.5:
         score += 2
         reasoning.append("Conservative debt levels")
@@ -191,6 +195,7 @@ def analyze_fundamentals(financial_data: list) -> dict[str, any]:
         reasoning.append("Debt to equity data not available")
 
     # Check Operating Margin
+    logger.debug(f"operating_margin: {latest_data.operating_margin}")
     if latest_data.operating_margin and latest_data.operating_margin > 0.15:
         score += 2
         reasoning.append("Strong operating margins")
@@ -200,6 +205,7 @@ def analyze_fundamentals(financial_data: list) -> dict[str, any]:
         reasoning.append("Operating margin data not available")
 
     # Check Current Ratio
+    logger.debug(f"current_ratio: {latest_data.current_ratio}")
     if latest_data.current_ratio and latest_data.current_ratio > 1.5:
         score += 1
         reasoning.append("Good liquidity position")
@@ -221,9 +227,11 @@ def analyze_consistency(financial_data: list) -> dict[str, any]:
 
     # Check earnings growth trend
     earnings_values = [item.net_income for item in financial_data if item.net_income]
+    logger.debug(f"earnings_values: {earnings_values}")
     if len(earnings_values) >= 4:
         # Simple check: is each period's earnings bigger than the next?
         earnings_growth = all(earnings_values[i] > earnings_values[i + 1] for i in range(len(earnings_values) - 1))
+        logger.debug(f"earnings_growth: {earnings_growth}")
 
         if earnings_growth:
             score += 3
@@ -264,11 +272,14 @@ def analyze_moat(financial_data: list) -> dict[str, any]:
     # 1. Return on Capital Consistency (Buffett's favorite moat indicator)
     historical_roes = [item.return_on_equity for item in financial_data if item.return_on_equity is not None]
     historical_roics = [item.return_on_invested_capital for item in financial_data if item.return_on_invested_capital is not None]
+    logger.debug(f"historical_roes: {historical_roes}")
+    logger.debug(f"historical_roics: {historical_roics}")
     
     if len(historical_roes) >= 5:
         # Check for consistently high ROE (>15% for most periods)
         high_roe_periods = sum(1 for roe in historical_roes if roe > 0.15)
         roe_consistency = high_roe_periods / len(historical_roes)
+        logger.debug(f"roe_consistency: {roe_consistency}")
         
         if roe_consistency >= 0.8:  # 80%+ of periods with ROE > 15%
             moat_score += 2
@@ -284,6 +295,7 @@ def analyze_moat(financial_data: list) -> dict[str, any]:
 
     # 2. Operating Margin Stability (Pricing Power Indicator)
     historical_margins = [item.operating_margin for item in financial_data if item.operating_margin is not None]
+    logger.debug(f"historical_margins: {historical_margins}")
     if len(historical_margins) >= 5:
         # Check for stable or improving margins (sign of pricing power)
         avg_margin = sum(historical_margins) / len(historical_margins)
@@ -292,6 +304,7 @@ def analyze_moat(financial_data: list) -> dict[str, any]:
         
         recent_avg = sum(recent_margins) / len(recent_margins)
         older_avg = sum(older_margins) / len(older_margins)
+        logger.debug(f"avg_margin: {avg_margin:.2%}")
         
         if avg_margin > 0.2 and recent_avg >= older_avg:  # 20%+ margins and stable/improving
             moat_score += 1
@@ -407,6 +420,7 @@ def calculate_owner_earnings(financial_data: list) -> dict[str, any]:
 
     # Enhanced maintenance capex estimation using historical analysis
     maintenance_capex = estimate_maintenance_capex(financial_data)
+    logger.debug(f"maintenance capex: {maintenance_capex}")
     
     # Working capital change analysis (if data available)
     working_capital_change = 0
@@ -429,6 +443,7 @@ def calculate_owner_earnings(financial_data: list) -> dict[str, any]:
 
     # Calculate owner earnings
     owner_earnings = net_income + depreciation - maintenance_capex - working_capital_change
+    logger.debug(f"net_income: {net_income}, depreciation: {depreciation}, maintenance_capex: {maintenance_capex}, working_capital_change: {working_capital_change}")
 
     # Sanity checks
     if owner_earnings < net_income * 0.3:  # Owner earnings shouldn't be less than 30% of net income typically

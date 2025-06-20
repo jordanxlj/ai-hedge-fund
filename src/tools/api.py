@@ -453,7 +453,7 @@ def merge_financial_data(financial_metrics: list, financial_line_items: list) ->
 
     # 更新组合指标
     update_composite_indicates(aggregated_objects)
-
+    logger.debug(f"update composite indicates: {aggregated_objects}")
     # 按时间排序（最新的在前）并返回列表
     merged_data = [aggregated_objects[period] for period in sorted(aggregated_objects.keys(), reverse=True)]
     
@@ -462,8 +462,11 @@ def merge_financial_data(financial_metrics: list, financial_line_items: list) ->
 
 def update_composite_indicates(objects: dict[AggregatedFinancialInfo]):
     """更新组合指标"""
-    for obj in objects.items():
+    for k, v in objects.items():
         # 更新“商誉和无形资产”
-        logger.debug(f"obj: {obj}")
-        if getattr(obj, 'goodwill', None) and getattr(obj, 'intangible_assets', None):
-            obj.goodwill_and_intangible_assets = obj.goodwill + obj.intangible_assets
+        logger.debug(f"{k}, {v}")
+        if v.goodwill and v.intangible_assets:
+            v.goodwill_and_intangible_assets = v.goodwill + v.intangible_assets
+
+        if v.current_ratio is None and v.current_assets and v.current_liabilities:
+            v.current_ratio = v.current_assets / v.current_liabilities

@@ -265,7 +265,7 @@ class TushareProvider(AbstractDataProvider):
         try:
             # 使用映射表获取所有财务指标字段
             fields = get_tushare_fields('financial_metrics')
-            df = self.pro.fina_indicator(
+            df = self.pro.fina_indicator_vip(
                 ts_code=ts_code,
                 end_date=end_date,
                 fields=fields
@@ -481,9 +481,9 @@ class TushareProvider(AbstractDataProvider):
             ]
             
             # Fetch data
-            income_df = self._fetch_data('income', effective_ticker, end_date_ts, get_tushare_fields('income', income_fields))
-            balance_df = self._fetch_data('balancesheet', effective_ticker, end_date_ts, get_tushare_fields('balance', balance_fields))
-            cashflow_df = self._fetch_data('cashflow', effective_ticker, end_date_ts, get_tushare_fields('cashflow', cashflow_fields))
+            income_df = self._fetch_data('income_vip', effective_ticker, end_date_ts, get_tushare_fields('income', income_fields))
+            balance_df = self._fetch_data('balancesheet_vip', effective_ticker, end_date_ts, get_tushare_fields('balance', balance_fields))
+            cashflow_df = self._fetch_data('cashflow_vip', effective_ticker, end_date_ts, get_tushare_fields('cashflow', cashflow_fields))
             
             # Process data
             income_data = self._process_dataframe(income_df, income_fields, 'income') if income_df is not None else {}

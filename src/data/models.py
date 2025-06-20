@@ -225,6 +225,8 @@ class AggregatedFinancialInfo(FinancialMetrics):
     current_liabilities: float | None = None
     working_capital: float | None = None
     cash_and_equivalents: float | None = None
+    short_term_debt: float | None = None
+    long_term_debt: float | None = None
     total_debt: float | None = None
     shareholders_equity: float | None = None
     goodwill: float | None = None
