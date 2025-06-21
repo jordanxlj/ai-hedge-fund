@@ -656,35 +656,95 @@ class TushareProvider(AbstractDataProvider):
         start_date: Optional[str] = None,
         limit: int = 1000,
     ) -> List[InsiderTrade]:
-        """获取内部交易数据 (在Tushare中可能是股东减持数据)"""
+        """获取股东增减持数据
+        
+        使用Tushare stk_holdertrade接口获取股东增减持数据
+        参考文档: https://tushare.pro/document/2?doc_id=175
+        """
         try:
-            ts_code = self._convert_ticker(ticker)
+            if self.pro is None:
+                logger.error("Tushare API未初始化")
+                return []
+                
+            # 构建查询参数
+            params = {
+                'fields': 'ts_code,ann_date,holder_name,holder_type,in_de,change_vol,change_ratio,after_share,after_ratio,avg_price,total_share,begin_date,close_date'
+            }
             
-            # 获取股东减持数据 - 使用更简单的API
-            df = self.pro.top_list(
-                trade_date=self._convert_date_format(end_date) if end_date else None,
-                ts_code=ts_code
-            )
+            # 只有当ticker不为空且不为None时才添加ts_code参数
+            if ticker and str(ticker).strip():
+                ts_code = self._convert_ticker(ticker)
+                params['ts_code'] = ts_code
+            
+            # 设置日期参数
+            if start_date:
+                params['start_date'] = self._convert_date_format(start_date)
+            if end_date:
+                params['end_date'] = self._convert_date_format(end_date)
+            else:
+                params['ann_date'] = self._convert_date_format(end_date)
+            
+            # 获取股东增减持数据
+            df = self.pro.stk_holdertrade(**params)
             
             if df is None or df.empty:
+                logger.debug(f"未找到股东增减持数据: {ticker}")
                 return []
             
             trades = []
             for _, row in df.iterrows():
+                # 转换日期格式
+                filing_date = row['ann_date']
+                if pd.notna(filing_date):
+                    filing_date = filing_date[:4] + '-' + filing_date[4:6] + '-' + filing_date[6:8]
+                else:
+                    filing_date = end_date
+                
+                # 确定交易类型 (IN=增持, DE=减持)
+                transaction_type = "增持" if row['in_de'] == 'IN' else "减持"
+                
+                # 股份数量 (change_vol 单位为股)
+                shares = float(row['change_vol']) if pd.notna(row['change_vol']) else 0
+                
+                # 平均价格
+                price = float(row['avg_price']) if pd.notna(row['avg_price']) else 0.0
+                
+                # 交易金额 = 股份数量 * 平均价格
+                value = shares * price if shares and price else 0.0
+                
+                # 股东信息
+                holder_name = row['holder_name'] if pd.notna(row['holder_name']) else "未知"
+                holder_type_map = {'G': '高管', 'P': '个人', 'C': '公司'}
+                holder_type = holder_type_map.get(row['holder_type'], '未知') if pd.notna(row['holder_type']) else '未知'
+                
+                # 获取其他相关字段
+                change_ratio = float(row['change_ratio']) if pd.notna(row['change_ratio']) else None
+                after_share = float(row['after_share']) if pd.notna(row['after_share']) else None
+                after_ratio = float(row['after_ratio']) if pd.notna(row['after_ratio']) else None
+                
                 trade = InsiderTrade(
                     ticker=ticker,
-                    filing_date=row['trade_date'][:4] + '-' + row['trade_date'][4:6] + '-' + row['trade_date'][6:8] if pd.notna(row['trade_date']) else end_date,
-                    transaction_type="减持",
-                    shares=float(row['amount']) if pd.notna(row['amount']) else 0,
-                    price=float(row['close']) if pd.notna(row['close']) else 0.0,
-                    value=float(row['amount']) * float(row['close']) if pd.notna(row['amount']) and pd.notna(row['close']) else 0.0
+                    filing_date=filing_date,
+                    transaction_type=f"{holder_type}-{transaction_type}",
+                    shares=shares,
+                    price=price,
+                    value=value,
+                    holder_name=holder_name,
+                    holder_type=holder_type,
+                    change_ratio=change_ratio,
+                    after_share=after_share,
+                    after_ratio=after_ratio
                 )
                 trades.append(trade)
             
+            # 按公告日期排序，最新的在前
+            trades.sort(key=lambda x: x.filing_date, reverse=True)
+            
+            logger.info(f"获取股东增减持数据成功 {ticker}: {len(trades)} 条记录")
             return trades[:limit]
             
         except Exception as e:
-            logger.error(f"获取内部交易数据失败 {ticker}: {e}")
+            logger.error(f"获取股东增减持数据失败 {ticker}: {e}")
             return []
     
     @with_timeout_retry("get_company_news")
