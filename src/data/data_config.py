@@ -21,15 +21,154 @@ class DataConfig:
         
         self.config_file = Path(config_file)
         
-        # 检查配置文件是否存在
+        # 检查配置文件是否存在，如果不存在则创建默认配置
         if not self.config_file.exists():
-            raise FileNotFoundError(f"配置文件不存在: {self.config_file}")
+            self._create_default_config()
         
         # Load configuration from file
         try:
             self.config = load_yaml_config(self.config_file)
         except Exception as e:
             raise RuntimeError(f"加载配置文件失败: {self.config_file}, 错误: {e}")
+    
+    def _create_default_config(self):
+        """Create a default configuration file."""
+        default_config = {
+            "agent_models": {
+                "bill_ackman": {
+                    "default_model": "gpt-4o",
+                    "default_provider": "OpenAI"
+                },
+                "michael_burry": {
+                    "default_model": "gpt-4o",
+                    "default_provider": "OpenAI"
+                },
+                "portfolio_manager": {
+                    "default_model": "gpt-4o",
+                    "default_provider": "OpenAI"
+                },
+                "rakesh_jhunjhunwala": {
+                    "default_model": "gpt-4o",
+                    "default_provider": "OpenAI"
+                }
+            },
+            "data_providers": {
+                "available": {
+                    "financial_datasets": {
+                        "api_key_env": "FINANCIAL_DATASETS_API_KEY",
+                        "name": "FinancialDatasets.ai"
+                    },
+                    "tushare": {
+                        "api_key_env": "TUSHARE_API_KEY",
+                        "name": "Tushare Pro"
+                    }
+                },
+                "default": "tushare"
+            },
+            "interfaces": {
+                "call_llm_deepseek": {
+                    "cache_key_components": ["prompt", "model_name", "pydantic_model", "agent_name"],
+                    "cache_layers": ["persistent"],
+                    "cache_type": "llm_responses",
+                    "models": ["deepseek-reasoner", "deepseek-chat", "deepseek-*"],
+                    "providers": ["DeepSeek"],
+                    "timeout": {
+                        "timeout_seconds": 30,
+                        "max_retries": 3,
+                        "retry_delay_factor": 0.1
+                    },
+                    "ttl": {
+                        "default": 86400
+                    }
+                },
+                "call_llm_other": {
+                    "cache_layers": [],
+                    "cache_type": "none",
+                    "providers": ["OpenAI", "Anthropic", "Gemini", "Groq", "Ollama"],
+                    "timeout": {
+                        "timeout_seconds": 30,
+                        "max_retries": 3,
+                        "retry_delay_factor": 0.1
+                    },
+                    "ttl": {
+                        "default": 0
+                    }
+                },
+                "get_company_news": {
+                    "cache_layers": ["memory", "persistent"],
+                    "cache_type": "company_news",
+                    "merge_key": "date",
+                    "timeout": {
+                        "timeout_seconds": 5,
+                        "max_retries": 3,
+                        "retry_delay_factor": 0.5
+                    },
+                    "ttl": {
+                        "default": 86400
+                    }
+                },
+                "get_financial_metrics": {
+                    "cache_layers": ["memory", "persistent"],
+                    "cache_type": "financial_metrics",
+                    "merge_key": "report_period",
+                    "timeout": {
+                        "timeout_seconds": 5,
+                        "max_retries": 3,
+                        "retry_delay_factor": 0.5
+                    },
+                    "ttl": {
+                        "default": 86400
+                    }
+                },
+                "get_insider_trades": {
+                    "cache_layers": ["memory", "persistent"],
+                    "cache_type": "insider_trades",
+                    "merge_key": "filing_date",
+                    "timeout": {
+                        "timeout_seconds": 5,
+                        "max_retries": 3,
+                        "retry_delay_factor": 0.5
+                    },
+                    "ttl": {
+                        "default": 86400
+                    }
+                },
+                "get_prices": {
+                    "cache_layers": ["memory", "persistent"],
+                    "cache_type": "prices",
+                    "merge_key": "time",
+                    "timeout": {
+                        "timeout_seconds": 5,
+                        "max_retries": 3,
+                        "retry_delay_factor": 0.5
+                    },
+                    "ttl": {
+                        "after_hours": 86400,
+                        "market_hours": 3600
+                    }
+                },
+                "search_line_items": {
+                    "cache_layers": ["memory", "persistent"],
+                    "cache_type": "line_items",
+                    "merge_key": "report_period",
+                    "timeout": {
+                        "timeout_seconds": 5,
+                        "max_retries": 3,
+                        "retry_delay_factor": 0.5
+                    },
+                    "ttl": {
+                        "default": 86400
+                    }
+                }
+            }
+        }
+        
+        # Create directory if it doesn't exist
+        self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Save the default configuration
+        if not save_yaml_config(self.config_file, default_config):
+            raise RuntimeError(f"无法创建默认配置文件: {self.config_file}")
     
     def _save_config(self, config: Dict[str, Any]):
         """Save configuration to file."""
