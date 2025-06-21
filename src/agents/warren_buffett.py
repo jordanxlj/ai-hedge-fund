@@ -485,12 +485,12 @@ def estimate_maintenance_capex(financial_data: list) -> float:
     depreciation_values = []
     
     for item in financial_data[:5]:  # Last 5 periods
-        if hasattr(item, 'capital_expenditure') and hasattr(item, 'revenue'):
+        if item.capital_expenditure and item.revenue:
             if item.capital_expenditure and item.revenue and item.revenue > 0:
                 capex_ratio = abs(item.capital_expenditure) / item.revenue
                 capex_ratios.append(capex_ratio)
         
-        if hasattr(item, 'depreciation_and_amortization') and item.depreciation_and_amortization:
+        if item.depreciation_and_amortization:
             depreciation_values.append(item.depreciation_and_amortization)
     
     # Approach 2: Percentage of depreciation (typically 80-120% for maintenance)
@@ -510,7 +510,7 @@ def estimate_maintenance_capex(financial_data: list) -> float:
     # If we have historical data, use average capex ratio
     if len(capex_ratios) >= 3:
         avg_capex_ratio = sum(capex_ratios) / len(capex_ratios)
-        latest_revenue = financial_data[0].revenue if hasattr(financial_data[0], 'revenue') and financial_data[0].revenue else 0
+        latest_revenue = financial_data[0].revenue if financial_data[0].revenue else 0
         method_3 = avg_capex_ratio * latest_revenue if latest_revenue else 0
         
         # Use the median of the three approaches for conservatism
