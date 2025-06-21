@@ -712,7 +712,7 @@ class TushareProvider(AbstractDataProvider):
                 # 交易金额 = 股份数量 * 平均价格
                 value = shares * price if shares and price else 0.0
                 
-                # 股东信息
+                # 股东信息映射到现有字段
                 holder_name = row['holder_name'] if pd.notna(row['holder_name']) else "未知"
                 holder_type_map = {'G': '高管', 'P': '个人', 'C': '公司'}
                 holder_type = holder_type_map.get(row['holder_type'], '未知') if pd.notna(row['holder_type']) else '未知'
@@ -725,15 +725,15 @@ class TushareProvider(AbstractDataProvider):
                 trade = InsiderTrade(
                     ticker=ticker,
                     filing_date=filing_date,
-                    transaction_type=f"{holder_type}-{transaction_type}",
-                    shares=shares,
-                    price=price,
-                    value=value,
-                    holder_name=holder_name,
-                    holder_type=holder_type,
-                    change_ratio=change_ratio,
-                    after_share=after_share,
-                    after_ratio=after_ratio
+                    name=holder_name,  # 使用现有的name字段存储股东姓名
+                    title=holder_type,  # 使用现有的title字段存储股东类型
+                    transaction_type=transaction_type,  # 只存储增持/减持
+                    transaction_shares=shares,  # 使用现有的transaction_shares字段
+                    transaction_price_per_share=price,  # 使用现有的transaction_price_per_share字段
+                    transaction_value=value,  # 使用现有的transaction_value字段
+                    shares_owned_after_transaction=after_share,  # 使用现有字段存储变动后持股
+                    change_ratio=change_ratio,  # 占流通比例
+                    after_ratio=after_ratio  # 变动后占流通比例
                 )
                 trades.append(trade)
             

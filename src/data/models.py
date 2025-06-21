@@ -107,13 +107,7 @@ class InsiderTrade(BaseModel):
     
     # Tushare specific fields (for compatibility)
     transaction_type: str | None = None  # 交易类型
-    shares: float | None = None  # 股份数量
-    price: float | None = None  # 价格
-    value: float | None = None  # 价值
-    holder_name: str | None = None  # 股东姓名
-    holder_type: str | None = None  # 股东类型
     change_ratio: float | None = None  # 占流通比例(%)
-    after_share: float | None = None  # 变动后持股
     after_ratio: float | None = None  # 变动后占流通比例(%)
     
     # Allow additional fields dynamically
