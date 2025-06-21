@@ -1,4 +1,13 @@
 from pydantic import BaseModel
+from enum import Enum
+
+
+class TransactionType(str, Enum):
+    """交易类型枚举"""
+    BUY = "增持"
+    SELL = "减持"
+    PURCHASE = "购买"
+    SALE = "出售"
 
 
 class Price(BaseModel):
@@ -106,7 +115,7 @@ class InsiderTrade(BaseModel):
     filing_date: str
     
     # Tushare specific fields (for compatibility)
-    transaction_type: str | None = None  # 交易类型
+    transaction_type: TransactionType | None = None  # 交易类型
     change_ratio: float | None = None  # 占流通比例(%)
     after_ratio: float | None = None  # 变动后占流通比例(%)
     

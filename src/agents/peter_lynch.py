@@ -418,12 +418,13 @@ def analyze_insider_activity(insider_trades: list) -> dict:
         return {"score": score, "details": "; ".join(details)}
 
     buys, sells = 0, 0
-    for trade in insider_trades:
-        if trade.transaction_shares is not None:
-            if trade.transaction_shares > 0:
-                buys += 1
-            elif trade.transaction_shares < 0:
-                sells += 1
+    if insider_trades and len(insider_trades) > 0:
+        # Count buys vs. sells
+        buys = sum(1 for trade in insider_trades if trade.transaction_type and
+                    trade.transaction_type in [TransactionType.BUY, TransactionType.PURCHASE])
+        sells = sum(1 for trade in insider_trades if trade.transaction_type and
+                    trade.transaction_type in [TransactionType.SELL, TransactionType.SALE])
+
 
     total = buys + sells
     if total == 0:

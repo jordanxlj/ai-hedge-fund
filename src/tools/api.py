@@ -13,9 +13,20 @@ from src.data.models import (
     InsiderTrade,
     CompanyNews,
     AggregatedFinancialInfo,
+    TransactionType,
 )
 
 logger = logging.getLogger(__name__)
+
+def _convert_transaction_type(trade_data: dict) -> dict:
+    """转换transaction_type为枚举类型"""
+    if 'transaction_type' in trade_data and isinstance(trade_data['transaction_type'], str):
+        transaction_type_str = trade_data['transaction_type']
+        if transaction_type_str in ["Buy", "Purchase", "buy", "purchase", "增持", "购买"]:
+            trade_data['transaction_type'] = TransactionType.BUY
+        elif transaction_type_str in ["Sell", "Sale", "sell", "sale", "减持", "出售"]:
+            trade_data['transaction_type'] = TransactionType.SELL
+    return trade_data
 
 # Global cache instances
 _cache = get_cache()
@@ -259,13 +270,13 @@ def get_insider_trades(
     
     # Check memory cache first - fastest
     if cached_data := _cache.get_insider_trades(cache_key):
-        return [InsiderTrade(**trade) for trade in cached_data]
+        return [InsiderTrade(**_convert_transaction_type(trade)) for trade in cached_data]
     
     # Check persistent cache - second fastest
     if persistent_data := _persistent_cache.get_insider_trades(ticker, start_date or '1900-01-01', end_date, limit):
         # Load into memory cache for faster future access
         _cache.set_insider_trades(cache_key, persistent_data)
-        return [InsiderTrade(**trade) for trade in persistent_data]
+        return [InsiderTrade(**_convert_transaction_type(trade)) for trade in persistent_data]
 
     # If not in cache, fetch from data provider
     try:

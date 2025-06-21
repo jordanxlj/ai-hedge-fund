@@ -14,6 +14,7 @@ from src.data.models import (
     LineItem,
     InsiderTrade,
     CompanyNews,
+    TransactionType,
 )
 from src.utils.timeout_retry import with_timeout_retry
 from src.data.tushare_mapping import get_tushare_fields, apply_field_mapping
@@ -701,7 +702,7 @@ class TushareProvider(AbstractDataProvider):
                     filing_date = end_date
                 
                 # 确定交易类型 (IN=增持, DE=减持)
-                transaction_type = "增持" if row['in_de'] == 'IN' else "减持"
+                transaction_type = TransactionType.BUY if row['in_de'] == 'IN' else TransactionType.SELL
                 
                 # 股份数量 (change_vol 单位为股)
                 shares = float(row['change_vol']) if pd.notna(row['change_vol']) else 0

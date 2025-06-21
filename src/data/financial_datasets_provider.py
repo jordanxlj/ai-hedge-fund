@@ -15,6 +15,7 @@ from src.data.models import (
     InsiderTradeResponse,
     CompanyNews,
     CompanyNewsResponse,
+    TransactionType,
 )
 from src.utils.timeout_retry import with_http_timeout_retry
 
@@ -196,7 +197,18 @@ class FinancialDatasetsProvider(AbstractDataProvider):
                 if not insider_response.insider_trades:
                     break
 
-                all_trades.extend(insider_response.insider_trades)
+                # 转换transaction_type为枚举类型
+                converted_trades = []
+                for trade in insider_response.insider_trades:
+                    # 如果transaction_type是字符串，尝试转换为枚举
+                    if isinstance(trade.transaction_type, str):
+                        if trade.transaction_type.lower() in ["buy", "purchase"]:
+                            trade.transaction_type = TransactionType.BUY
+                        elif trade.transaction_type.lower() in ["sell", "sale"]:
+                            trade.transaction_type = TransactionType.SELL
+                    converted_trades.append(trade)
+
+                all_trades.extend(converted_trades)
                 
                 # 检查是否有更多数据
                 if not start_date or len(insider_response.insider_trades) < limit:

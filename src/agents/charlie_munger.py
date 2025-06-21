@@ -1,5 +1,6 @@
 from src.graph.state import AgentState, show_agent_reasoning
 from src.tools.api import get_financial_metrics, get_market_cap, search_line_items, get_insider_trades, get_company_news, merge_financial_data
+from src.data.models import TransactionType
 from src.prompts import get_charlie_munger_prompt_template
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
@@ -378,10 +379,10 @@ def analyze_management_quality(financial_data: list, insider_trades: list) -> di
     # 4. Insider activity - Munger values skin in the game
     if insider_trades and len(insider_trades) > 0:
         # Count buys vs. sells
-        buys = sum(1 for trade in insider_trades if hasattr(trade, 'transaction_type') and 
-                   trade.transaction_type and trade.transaction_type.lower() in ['buy', 'purchase'])
-        sells = sum(1 for trade in insider_trades if hasattr(trade, 'transaction_type') and 
-                    trade.transaction_type and trade.transaction_type.lower() in ['sell', 'sale'])
+        buys = sum(1 for trade in insider_trades if trade.transaction_type and
+                    trade.transaction_type in [TransactionType.BUY, TransactionType.PURCHASE])
+        sells = sum(1 for trade in insider_trades if trade.transaction_type and
+                    trade.transaction_type in [TransactionType.SELL, TransactionType.SALE])
         
         # Calculate the buy ratio
         total_trades = buys + sells
