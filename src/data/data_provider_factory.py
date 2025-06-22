@@ -6,6 +6,7 @@ from enum import Enum
 from src.data.abstract_data_provider import AbstractDataProvider
 from src.data.financial_datasets_provider import FinancialDatasetsProvider
 from src.data.tushare_provider import TushareProvider
+from src.data.futu_provider import FutuDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ class DataProviderType(Enum):
     """数据提供商类型枚举"""
     FINANCIAL_DATASETS = "financial_datasets"
     TUSHARE = "tushare"
+    FUTU = "futu"
 
 
 class DataProviderFactory:
@@ -22,6 +24,7 @@ class DataProviderFactory:
     _providers: Dict[DataProviderType, Type[AbstractDataProvider]] = {
         DataProviderType.FINANCIAL_DATASETS: FinancialDatasetsProvider,
         DataProviderType.TUSHARE: TushareProvider,
+        DataProviderType.FUTU: FutuDataProvider,
     }
     
     _instances: Dict[DataProviderType, AbstractDataProvider] = {}
@@ -88,4 +91,30 @@ class DataProviderFactory:
     def clear_instances(self):
         """清除所有实例（主要用于测试）"""
         self._instances.clear()
-        logger.info("已清除所有数据提供商实例") 
+        logger.info("已清除所有数据提供商实例")
+
+    @classmethod
+    def _check_futu_availability(cls) -> dict:
+        """检查 Futu 数据提供商可用性"""
+        try:
+            from src.data.futu_provider import FutuDataProvider
+            provider = FutuDataProvider()
+            is_available = provider.is_available()
+            return {
+                "available": is_available,
+                "name": "Futu OpenAPI",
+                "description": "富途证券开放平台 API",
+                "requires_api_key": False,
+                "requires_opend": True,
+                "status": "connected" if is_available else "disconnected"
+            }
+        except Exception as e:
+            return {
+                "available": False,
+                "name": "Futu OpenAPI", 
+                "description": "富途证券开放平台 API",
+                "requires_api_key": False,
+                "requires_opend": True,
+                "status": "error",
+                "error": str(e)
+            } 

@@ -20,7 +20,11 @@ data_providers:
     tushare:
       api_key_env: TUSHARE_API_KEY
       name: Tushare Pro
-  default: tushare
+    futu:
+      api_key_env: null
+      name: Futu OpenAPI
+      requires_opend: true
+  default: futu
 
 interfaces:
   call_llm_deepseek:
