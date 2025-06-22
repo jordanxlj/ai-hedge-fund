@@ -253,6 +253,22 @@ class AggregatedFinancialInfo(FinancialMetrics):
     
     # 比率和百分比（已在FinancialMetrics中定义的不重复）
     debt_to_equity_ratio: float | None = None
+    long_term_debt_to_assets_ratio: float | None = None
+    dividend_yield: float | None = None
+    
+    # 投资资本回报率(ROIC)相关
+    nopat: float | None = None
+    invested_capital: float | None = None
+    tax_rate: float | None = None
+    
+    # 其他比率
+    capex_to_operating_cash_flow: float | None = None
+    sales_expense_ratio: float | None = None
+
+    # 新增原始字段
+    selling_expenses: float | None = None
+    income_tax_expense: float | None = None
+    profit_before_tax: float | None = None
     
     # 允许动态添加字段
     model_config = {"extra": "allow"}
