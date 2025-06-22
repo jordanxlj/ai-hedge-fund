@@ -8,7 +8,9 @@ from src.data.models import (
     InsiderTrade,
     CompanyNews,
 )
-from src.utils.log_util import logger
+
+import logging
+logger = logging.getLogger(__name__)
 
 class FutuDataProvider(AbstractDataProvider):
     def __init__(self, api_key: Optional[str] = None):
@@ -136,27 +138,25 @@ class FutuDataProvider(AbstractDataProvider):
                 ft.StockField.NOCF_PER_SHARE,   # 每股经营现金流
             ]
             
-            # 为每个字段创建财务过滤器
-            for field in financial_fields:
-                financial_filter = ft.FinancialFilter()
-                financial_filter.stock_field = field
-                financial_filter.is_no_filter = True  # 不过滤，只获取数据
-                # 设置季度，TTM通常使用年报数据
-                if period.lower() == "ttm":
-                    financial_filter.quarter = ft.FinancialQuarter.ANNUAL
-                else:
-                    financial_filter.quarter = ft.FinancialQuarter.ANNUAL
-                financial_filters.append(financial_filter)
+            # 尝试使用简单过滤器而不是财务过滤器
+            # 使用当前价格作为过滤条件，设置一个很宽的范围
+            simple_filter = ft.SimpleFilter()
+            simple_filter.stock_field = ft.StockField.CUR_PRICE
+            simple_filter.filter_min = 0.01  # 最小价格
+            simple_filter.filter_max = 10000  # 最大价格，设置得很大以包含大部分股票
+            simple_filter.is_no_filter = False  # 启用过滤
+            
+            financial_filters = [simple_filter]
             
             # 根据ticker格式判断市场
             markets_to_try = []
             if futu_ticker.startswith('HK.'):
-                markets_to_try.append(ft.Market.HK_Security)
+                markets_to_try.append(ft.Market.HK)
             elif futu_ticker.startswith('US.'):
-                markets_to_try.append(ft.Market.US_Security)
+                markets_to_try.append(ft.Market.US)
             else:
                 # 默认先尝试港股，再尝试美股
-                markets_to_try = [ft.Market.HK_Security, ft.Market.US_Security]
+                markets_to_try = [ft.Market.HK, ft.Market.US]
             
             for market in markets_to_try:
                 ret, data = self.quote_ctx.get_stock_filter(
@@ -165,16 +165,24 @@ class FutuDataProvider(AbstractDataProvider):
                     begin=0,
                     num=100  # 增加查询数量，提高找到匹配股票的可能性
                 )
+                print(f"ret = {ret}, data = {data}")
                 
                 if ret == ft.RET_OK and data:
                     last_page, all_count, stock_list = data
+                    print(len(stock_list))
                     
                     # 查找匹配的股票
                     target_stock = None
-                    stock_code = futu_ticker.split('.')[-1]
                     
                     for stock in stock_list:
-                        if stock.stock_code == stock_code:
+                        print(f"stock = {stock}, stock_code = {futu_ticker}")
+                        # stock.stock_code 包含市场前缀，如 "HK.00700"
+                        # futu_ticker 也包含市场前缀，如 "HK.00700"
+                        if stock.stock_code == futu_ticker:
+                            target_stock = stock
+                            break
+                        # 也尝试匹配不带前缀的代码部分
+                        elif stock.stock_code.split('.')[-1] == futu_ticker.split('.')[-1]:
                             target_stock = stock
                             break
                     
@@ -199,75 +207,103 @@ class FutuDataProvider(AbstractDataProvider):
             financial_data = {}
             
             # 根据市场判断货币类型
-            if market == ft.Market.HK_Security:
+            if market == ft.Market.HK:
                 currency = "HKD"
-            elif market == ft.Market.US_Security:
+            elif market == ft.Market.US:
                 currency = "USD" 
             else:
                 # 根据ticker格式判断
                 futu_ticker = self._convert_ticker_format(ticker)
                 currency = "HKD" if futu_ticker.startswith('HK.') else "USD"
             
-            # 遍历财务数据
-            for financial_item in stock_data.financial_data_list:
-                field = financial_item.field_name
-                value = financial_item.value
+            # 根据futu API文档，FilterStockData对象直接包含财务指标字段
+            # 直接从stock_data对象获取属性值
+            
+            # 调试：打印stock_data对象的所有属性
+            print(f"stock_data类型: {type(stock_data)}")
+            print(f"stock_data属性: {dir(stock_data)}")
+            print(f"stock_data内容: {stock_data}")
+            
+            # 尝试访问一些可能的属性
+            for attr in dir(stock_data):
+                if not attr.startswith('_'):
+                    try:
+                        value = getattr(stock_data, attr)
+                        print(f"{attr}: {value}")
+                    except:
+                        pass
+            
+            # 估值指标
+            if hasattr(stock_data, 'pe_annual') and stock_data.pe_annual is not None:
+                financial_data['price_to_earnings_ratio'] = stock_data.pe_annual
+            if hasattr(stock_data, 'pe_ttm') and stock_data.pe_ttm is not None:
+                financial_data['pe_ratio'] = stock_data.pe_ttm
+            if hasattr(stock_data, 'pb_rate') and stock_data.pb_rate is not None:
+                financial_data['price_to_book_ratio'] = stock_data.pb_rate
+                financial_data['pb_ratio'] = stock_data.pb_rate
+            if hasattr(stock_data, 'ps_ttm') and stock_data.ps_ttm is not None:
+                financial_data['price_to_sales_ratio'] = stock_data.ps_ttm / 100.0
+            if hasattr(stock_data, 'pcf_ttm') and stock_data.pcf_ttm is not None:
+                financial_data['free_cash_flow_yield'] = stock_data.pcf_ttm / 100.0
                 
-                # 映射字段到FinancialMetrics字段
-                if field == ft.StockField.PE_ANNUAL:
-                    financial_data['price_to_earnings_ratio'] = value
-                elif field == ft.StockField.PE_TTM:
-                    financial_data['pe_ratio'] = value
-                elif field == ft.StockField.PB_RATE:
-                    financial_data['price_to_book_ratio'] = value
-                    financial_data['pb_ratio'] = value
-                elif field == ft.StockField.PS_TTM:
-                    financial_data['price_to_sales_ratio'] = value / 100.0 if value else None  # 转换百分比
-                elif field == ft.StockField.PCF_TTM:
-                    financial_data['free_cash_flow_yield'] = value / 100.0 if value else None
-                elif field == ft.StockField.MARKET_VAL:
-                    financial_data['market_cap'] = value
-                elif field == ft.StockField.TOTAL_SHARE:
-                    financial_data['outstanding_shares'] = value
-                elif field == ft.StockField.NET_PROFIT:
-                    financial_data['net_income'] = value
-                elif field == ft.StockField.NET_PROFIT_RATE:
-                    financial_data['net_margin'] = value / 100.0 if value else None
-                elif field == ft.StockField.GROSS_PROFIT_RATE:
-                    financial_data['gross_margin'] = value / 100.0 if value else None
-                elif field == ft.StockField.RETURN_ON_EQUITY_RATE:
-                    financial_data['return_on_equity'] = value / 100.0 if value else None
-                    financial_data['roe'] = value / 100.0 if value else None
-                elif field == ft.StockField.ROA_TTM:
-                    financial_data['return_on_assets'] = value / 100.0 if value else None
-                    financial_data['roa'] = value / 100.0 if value else None
-                elif field == ft.StockField.ROIC:
-                    financial_data['return_on_invested_capital'] = value / 100.0 if value else None
-                elif field == ft.StockField.NET_PROFIX_GROWTH:
-                    financial_data['earnings_growth'] = value / 100.0 if value else None
-                elif field == ft.StockField.SUM_OF_BUSINESS:
-                    financial_data['revenue'] = value
-                elif field == ft.StockField.SUM_OF_BUSINESS_GROWTH:
-                    financial_data['revenue_growth'] = value / 100.0 if value else None
-                elif field == ft.StockField.DEBT_ASSET_RATE:
-                    financial_data['debt_to_assets'] = value / 100.0 if value else None
-                elif field == ft.StockField.CURRENT_RATIO:
-                    financial_data['current_ratio'] = value
-                elif field == ft.StockField.QUICK_RATIO:
-                    financial_data['quick_ratio'] = value
-                elif field == ft.StockField.OPERATING_MARGIN_TTM:
-                    financial_data['operating_margin'] = value / 100.0 if value else None
-                elif field == ft.StockField.EBIT_MARGIN:
-                    financial_data['ebitda_margin'] = value / 100.0 if value else None
-                elif field == ft.StockField.OPERATING_CASH_FLOW_TTM:
-                    financial_data['operating_cash_flow'] = value
-                elif field == ft.StockField.BASIC_EPS:
-                    financial_data['earnings_per_share'] = value
-                    financial_data['eps'] = value
-                elif field == ft.StockField.DILUTED_EPS:
-                    financial_data['diluted_eps'] = value
-                elif field == ft.StockField.NOCF_PER_SHARE:
-                    financial_data['free_cash_flow_per_share'] = value
+            # 市值和股份
+            if hasattr(stock_data, 'market_val') and stock_data.market_val is not None:
+                financial_data['market_cap'] = stock_data.market_val
+            if hasattr(stock_data, 'total_share') and stock_data.total_share is not None:
+                financial_data['outstanding_shares'] = stock_data.total_share
+                
+            # 盈利指标
+            if hasattr(stock_data, 'net_profit') and stock_data.net_profit is not None:
+                financial_data['net_income'] = stock_data.net_profit
+            if hasattr(stock_data, 'net_profit_rate') and stock_data.net_profit_rate is not None:
+                financial_data['net_margin'] = stock_data.net_profit_rate / 100.0
+            if hasattr(stock_data, 'gross_profit_rate') and stock_data.gross_profit_rate is not None:
+                financial_data['gross_margin'] = stock_data.gross_profit_rate / 100.0
+                
+            # 回报率指标
+            if hasattr(stock_data, 'return_on_equity_rate') and stock_data.return_on_equity_rate is not None:
+                financial_data['return_on_equity'] = stock_data.return_on_equity_rate / 100.0
+                financial_data['roe'] = stock_data.return_on_equity_rate / 100.0
+            if hasattr(stock_data, 'roa_ttm') and stock_data.roa_ttm is not None:
+                financial_data['return_on_assets'] = stock_data.roa_ttm / 100.0
+                financial_data['roa'] = stock_data.roa_ttm / 100.0
+            if hasattr(stock_data, 'roic') and stock_data.roic is not None:
+                financial_data['return_on_invested_capital'] = stock_data.roic / 100.0
+                
+            # 增长率指标
+            if hasattr(stock_data, 'net_profix_growth') and stock_data.net_profix_growth is not None:
+                financial_data['earnings_growth'] = stock_data.net_profix_growth / 100.0
+            if hasattr(stock_data, 'sum_of_business') and stock_data.sum_of_business is not None:
+                financial_data['revenue'] = stock_data.sum_of_business
+            if hasattr(stock_data, 'sum_of_business_growth') and stock_data.sum_of_business_growth is not None:
+                financial_data['revenue_growth'] = stock_data.sum_of_business_growth / 100.0
+                
+            # 财务健康指标
+            if hasattr(stock_data, 'debt_asset_rate') and stock_data.debt_asset_rate is not None:
+                financial_data['debt_to_assets'] = stock_data.debt_asset_rate / 100.0
+            if hasattr(stock_data, 'current_ratio') and stock_data.current_ratio is not None:
+                financial_data['current_ratio'] = stock_data.current_ratio
+            if hasattr(stock_data, 'quick_ratio') and stock_data.quick_ratio is not None:
+                financial_data['quick_ratio'] = stock_data.quick_ratio
+                
+            # 利润率指标
+            if hasattr(stock_data, 'operating_margin_ttm') and stock_data.operating_margin_ttm is not None:
+                financial_data['operating_margin'] = stock_data.operating_margin_ttm / 100.0
+            if hasattr(stock_data, 'ebit_margin') and stock_data.ebit_margin is not None:
+                financial_data['ebitda_margin'] = stock_data.ebit_margin / 100.0
+                
+            # 现金流指标
+            if hasattr(stock_data, 'operating_cash_flow_ttm') and stock_data.operating_cash_flow_ttm is not None:
+                financial_data['operating_cash_flow'] = stock_data.operating_cash_flow_ttm
+                
+            # 每股指标
+            if hasattr(stock_data, 'basic_eps') and stock_data.basic_eps is not None:
+                financial_data['earnings_per_share'] = stock_data.basic_eps
+                financial_data['eps'] = stock_data.basic_eps
+            if hasattr(stock_data, 'diluted_eps') and stock_data.diluted_eps is not None:
+                financial_data['diluted_eps'] = stock_data.diluted_eps
+            if hasattr(stock_data, 'nocf_per_share') and stock_data.nocf_per_share is not None:
+                financial_data['free_cash_flow_per_share'] = stock_data.nocf_per_share
             
             # 创建FinancialMetrics对象
             metrics = FinancialMetrics(
@@ -277,11 +313,14 @@ class FutuDataProvider(AbstractDataProvider):
                 currency=currency,
                 **financial_data
             )
+            print(metrics)
             
             return [metrics]
             
         except Exception as e:
             logger.error(f"转换财务指标数据失败: {e}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
             return []
 
     def search_line_items(self, ticker: str, line_items: List[str], end_date: str, period: str = "ttm", limit: int = 10) -> List[LineItem]:
