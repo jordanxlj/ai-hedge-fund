@@ -15,6 +15,7 @@ from src.data.models import (
     AggregatedFinancialInfo,
     TransactionType,
 )
+from src.utils.financial_utils import reconstruct_financial_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -463,95 +464,12 @@ def merge_financial_data(financial_metrics: list, financial_line_items: list) ->
             logger.info(f"跳过财务报表项目数据，期间 {period_key} 没有对应的财务指标数据, 有效的: {aggregated_objects.keys()}")
 
     # 更新组合指标
-    update_composite_indicates(aggregated_objects)
-    logger.debug(f"update composite indicates: {aggregated_objects}")
+    for key, obj in aggregated_objects.items():
+        aggregated_objects[key] = reconstruct_financial_metrics(obj)
+        
+    logger.debug(f"reconstructed financial data: {aggregated_objects}")
     # 按时间排序（最新的在前）并返回列表
     merged_data = [aggregated_objects[period] for period in sorted(aggregated_objects.keys(), reverse=True)]
     
     logger.info(f"合并完成，共 {len(merged_data)} 个期间的数据")
     return merged_data
-
-def update_composite_indicates(objects: dict[AggregatedFinancialInfo]):
-    """更新组合指标"""
-    for k, v in objects.items():
-        # 更新"商誉和无形资产"
-        logger.debug(f"{k}, {v}")
-        if v.goodwill and v.intangible_assets:
-            v.goodwill_and_intangible_assets = v.goodwill + v.intangible_assets
-
-        if v.current_ratio is None and v.current_assets and v.current_liabilities:
-            v.current_ratio = v.current_assets / v.current_liabilities
-        
-        # 速动比率
-        if v.quick_ratio is None and v.current_assets and v.inventories and v.current_liabilities:
-            v.quick_ratio = (v.current_assets - v.inventories) / v.current_liabilities
-            
-        # 净资产收益率
-        if v.return_on_equity is None and v.net_income and v.shareholders_equity:
-            v.return_on_equity = v.net_income / v.shareholders_equity
-            
-        # 总资产回报率
-        if v.return_on_assets is None and v.net_income and v.total_assets:
-            v.return_on_assets = v.net_income / v.total_assets
-            
-        # 净利率
-        if v.net_margin is None and v.net_income and v.revenue:
-            v.net_margin = v.net_income / v.revenue
-            
-        # 营运资金
-        if v.working_capital is None and v.current_assets and v.current_liabilities:
-            v.working_capital = v.current_assets - v.current_liabilities
-            
-        # 产权比率
-        if v.debt_to_equity is None and v.total_debt and v.shareholders_equity:
-            v.debt_to_equity = v.total_debt / v.shareholders_equity
-            
-        # 毛利率
-        if v.gross_margin is None and v.gross_profit and v.revenue:
-            v.gross_margin = v.gross_profit / v.revenue
-            logger.debug(f"gross margin: {v.gross_margin}")
-            
-        # 营业利润率
-        if v.operating_margin is None and v.operating_income and v.revenue:
-            v.operating_margin = v.operating_income / v.revenue
-            logger.debug(f"operating margin: {v.operating_margin}")
-
-        # 销售费用率
-        if v.sales_expense_ratio is None and v.selling_expenses and v.revenue:
-            v.sales_expense_ratio = v.selling_expenses / v.revenue
-            logger.debug(f"sales expense ratio: {v.selling_expense_ratio}")
-
-        # 长期负债比率
-        if v.long_term_debt_to_assets_ratio is None and v.long_term_debt and v.total_assets:
-            v.long_term_debt_to_assets_ratio = v.long_term_debt / v.total_assets
-            logger.debug(f"long term debt to assets: {v.long_term_debt_to_assets}")
-            
-        # 资本支出比率
-        if v.capex_to_operating_cash_flow is None and v.capital_expenditure and v.operating_cash_flow:
-            # 资本支出通常是负值
-            v.capex_to_operating_cash_flow = abs(v.capital_expenditure) / v.operating_cash_flow
-            logger.debug(f"capex to operating cash flow : {v.capex_to_operating_cash_flow}")
-            
-        # --- ROIC 计算 ---
-        # 1. 计算有效税率
-        if v.tax_rate is None and v.income_tax_expense and v.profit_before_tax:
-            if v.profit_before_tax > 0:
-                v.tax_rate = v.income_tax_expense / v.profit_before_tax
-                logger.debug(f"tax rate: {v.tax_rate}")
-
-        # 2. 计算NOPAT（税后净营业利润）
-        if v.nopat is None and v.ebit and v.tax_rate is not None:
-            v.nopat = v.ebit * (1 - v.tax_rate)
-            logger.debug(f"nopat: {v.nopat}")
-            
-        # 3. 计算投资资本
-        if v.invested_capital is None and v.total_debt and v.shareholders_equity:
-            cash = v.cash_and_equivalents or 0
-            v.invested_capital = v.total_debt + v.shareholders_equity - cash
-            logger.debug(f"invested capital: {v.invested_capital}")
-            
-        # 4. 计算ROIC
-        if v.return_on_invested_capital is None and v.nopat and v.invested_capital:
-            if v.invested_capital > 0:
-                v.return_on_invested_capital = v.nopat / v.invested_capital
-                logger.debug(f"return on invested capital: {v.invested_capital}")
