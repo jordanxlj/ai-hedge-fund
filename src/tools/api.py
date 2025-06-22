@@ -474,10 +474,34 @@ def merge_financial_data(financial_metrics: list, financial_line_items: list) ->
 def update_composite_indicates(objects: dict[AggregatedFinancialInfo]):
     """更新组合指标"""
     for k, v in objects.items():
-        # 更新“商誉和无形资产”
+        # 更新"商誉和无形资产"
         logger.debug(f"{k}, {v}")
         if v.goodwill and v.intangible_assets:
             v.goodwill_and_intangible_assets = v.goodwill + v.intangible_assets
 
         if v.current_ratio is None and v.current_assets and v.current_liabilities:
             v.current_ratio = v.current_assets / v.current_liabilities
+        
+        # 速动比率
+        if v.quick_ratio is None and v.current_assets and v.inventories and v.current_liabilities:
+            v.quick_ratio = (v.current_assets - v.inventories) / v.current_liabilities
+            
+        # 净资产收益率
+        if v.return_on_equity is None and v.net_income and v.shareholders_equity:
+            v.return_on_equity = v.net_income / v.shareholders_equity
+            
+        # 总资产回报率
+        if v.return_on_assets is None and v.net_income and v.total_assets:
+            v.return_on_assets = v.net_income / v.total_assets
+            
+        # 净利率
+        if v.net_margin is None and v.net_income and v.revenue:
+            v.net_margin = v.net_income / v.revenue
+            
+        # 营运资金
+        if v.working_capital is None and v.current_assets and v.current_liabilities:
+            v.working_capital = v.current_assets - v.current_liabilities
+            
+        # 产权比率
+        if v.debt_to_equity is None and v.total_debt and v.shareholders_equity:
+            v.debt_to_equity = v.total_debt / v.shareholders_equity

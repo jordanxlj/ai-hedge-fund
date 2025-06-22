@@ -240,6 +240,7 @@ class AggregatedFinancialInfo(FinancialMetrics):
     goodwill: float | None = None
     intangible_assets: float | None = None
     goodwill_and_intangible_assets: float | None = None
+    inventories: float | None = None
     
     # 股份相关
     outstanding_shares: float | None = None
