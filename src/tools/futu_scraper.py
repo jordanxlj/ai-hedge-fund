@@ -2,7 +2,7 @@ import futu as ft
 import os
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from typing import List, Optional, get_type_hints, get_origin, get_args
 
 import duckdb
@@ -17,17 +17,34 @@ logger = logging.getLogger(__name__)
 # Fields that require using SimpleFilter based on Futu API docs
 SIMPLE_FILTER_FIELDS = {
     ft.StockField.MARKET_VAL, ft.StockField.PE_ANNUAL, ft.StockField.PE_TTM,
-    ft.StockField.PB_RATE, ft.StockField.PS_TTM, ft.StockField.PCF_TTM, ft.StockField.TOTAL_SHARE,
+    ft.StockField.PB_RATE, ft.StockField.CHANGE_RATE_5MIN, ft.StockField.CHANGE_RATE_BEGIN_YEAR,
+    ft.StockField.PS_TTM, ft.StockField.PCF_TTM, ft.StockField.TOTAL_SHARE,
     ft.StockField.FLOAT_SHARE, ft.StockField.FLOAT_MARKET_VAL
 }
 
-# Combine all fields and scrape them one by one
-ALL_FIELDS_TO_SCRAPE = [
-    # FinancialFilter fields
+FINANCIAL_FILTER_FIELDS = [
     ft.StockField.ACCOUNTS_RECEIVABLE, ft.StockField.BASIC_EPS, ft.StockField.CASH_AND_CASH_EQUIVALENTS,
-    # SimpleFilter fields (also included here for a single loop)
-    ft.StockField.MARKET_VAL, ft.StockField.PE_ANNUAL, ft.StockField.PE_TTM,
+    ft.StockField.CURRENT_ASSET_RATIO, ft.StockField.CURRENT_DEBT_RATIO, ft.StockField.CURRENT_RATIO,
+    ft.StockField.DEBT_ASSET_RATE, ft.StockField.DILUTED_EPS, ft.StockField.EBIT_GROWTH_RATE,
+    ft.StockField.EBIT_MARGIN, ft.StockField.EBIT_TTM, ft.StockField.EBITDA, ft.StockField.EBITDA_MARGIN,
+    ft.StockField.EPS_GROWTH_RATE, ft.StockField.EQUITY_MULTIPLIER, ft.StockField.FINANCIAL_COST_RATE,
+    ft.StockField.FIXED_ASSET_TURNOVER, ft.StockField.GROSS_PROFIT_RATE, ft.StockField.INVENTORY_TURNOVER,
+    ft.StockField.NET_PROFIT, ft.StockField.NET_PROFIT_CASH_COVER_TTM, ft.StockField.NET_PROFIT_RATE,
+    ft.StockField.NET_PROFIX_GROWTH, ft.StockField.NOCF_GROWTH_RATE, ft.StockField.NOCF_PER_SHARE,
+    ft.StockField.NOCF_PER_SHARE_GROWTH_RATE, ft.StockField.OPERATING_CASH_FLOW_TTM,
+    ft.StockField.OPERATING_MARGIN_TTM, ft.StockField.OPERATING_PROFIT_GROWTH_RATE,
+    ft.StockField.OPERATING_PROFIT_TO_TOTAL_PROFIT, ft.StockField.OPERATING_PROFIT_TTM,
+    ft.StockField.OPERATING_REVENUE_CASH_COVER, ft.StockField.PROFIT_BEFORE_TAX_GROWTH_RATE,
+    ft.StockField.PROFIT_TO_SHAREHOLDERS_GROWTH_RATE, ft.StockField.PROPERTY_RATIO,
+    ft.StockField.QUICK_RATIO, ft.StockField.RETURN_ON_EQUITY_RATE, ft.StockField.ROA_TTM,
+    ft.StockField.ROE_GROWTH_RATE, ft.StockField.ROIC, ft.StockField.ROIC_GROWTH_RATE,
+    ft.StockField.SHAREHOLDER_NET_PROFIT_TTM, ft.StockField.SUM_OF_BUSINESS,
+    ft.StockField.SUM_OF_BUSINESS_GROWTH, ft.StockField.TOTAL_ASSET_TURNOVER,
+    ft.StockField.TOTAL_ASSETS_GROWTH_RATE,
 ]
+
+# Combine all fields, ensuring no duplicates
+ALL_FIELDS_TO_SCRAPE = list(set(FINANCIAL_FILTER_FIELDS + list(SIMPLE_FILTER_FIELDS)))
 
 class FutuScraper:
     """
@@ -155,14 +172,31 @@ class FutuScraper:
                 raise ValueError("Unsupported market. Please use 'HK' or 'US'.")
 
             if end_date is None:
-                end_date = datetime.now().strftime('%Y-%m-%d')
+                today = date.today()
+                current_year = today.year
+                
+                if quarter == 'annual':
+                    end_date = date(current_year - 1, 12, 31).strftime('%Y-%m-%d')
+                elif quarter == 'q1':
+                    year = current_year if today.month >= 4 else current_year - 1
+                    end_date = date(year, 3, 31).strftime('%Y-%m-%d')
+                elif quarter == 'interim':
+                    year = current_year if today.month >= 7 else current_year - 1
+                    end_date = date(year, 6, 30).strftime('%Y-%m-%d')
+                elif quarter == 'q3':
+                    year = current_year if today.month >= 10 else current_year - 1
+                    end_date = date(year, 9, 30).strftime('%Y-%m-%d')
+                else: # Fallback to today if quarter is not recognized
+                    end_date = today.strftime('%Y-%m-%d')
+            
+            logger.info(f"Using report period end date: {end_date} for quarter '{quarter}'")
 
             all_stocks_data = {}
             
             quarter_map = {
                 "annual": ft.FinancialQuarter.ANNUAL,
                 "q1": ft.FinancialQuarter.FIRST_QUARTER,
-                "q2": ft.FinancialQuarter.INTERIM,
+                "interim": ft.FinancialQuarter.INTERIM,
                 "q3": ft.FinancialQuarter.THIRD_QUARTER,
             }
             quarter_enum = quarter_map.get(quarter.lower(), ft.FinancialQuarter.ANNUAL)
