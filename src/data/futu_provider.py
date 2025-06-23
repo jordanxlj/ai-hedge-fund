@@ -3,9 +3,9 @@ import os
 from typing import List, Optional
 from src.data.abstract_data_provider import AbstractDataProvider
 from src.data.models import Price, FinancialMetrics, InsiderTrade, CompanyNews, LineItem
-from src.data.futu_utils import convert_to_financial_metrics
+from src.data.futu_utils import convert_to_financial_metrics, get_report_period_date
 import logging
-from datetime import datetime
+from datetime import datetime, date
 import duckdb
 
 logger = logging.getLogger(__name__)
@@ -77,40 +77,45 @@ class FutuDataProvider(AbstractDataProvider):
 
     def get_financial_metrics(self, ticker: str, end_date: str, period: str = "ttm", limit: int = 10) -> List[FinancialMetrics]:
         """
-        Retrieves financial metrics for a given stock from the local DuckDB database.
+        Retrieves financial metrics for a given stock from the local DuckDB database,
+        querying the correct table based on the report period.
         """
         if not os.path.exists(self.db_path):
             logger.warning(f"DuckDB file '{self.db_path}' not found. Cannot fetch financial metrics.")
             return []
             
         try:
+            query_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+            report_date = get_report_period_date(query_date_obj, period)
+            table_name = f"financial_metrics_{report_date.strftime('%Y_%m_%d')}"
+
             with duckdb.connect(self.db_path, read_only=True) as conn:
-                # Construct the query to get the most recent record on or before the end_date
+                # Check if the specific table exists before querying
+                all_tables = conn.execute("SHOW TABLES;").fetchall()
+                if (table_name,) not in all_tables:
+                    logger.warning(f"Metrics table '{table_name}' not found for period '{period}' and end_date '{end_date}'.")
+                    return []
+
                 query = f"""
                 SELECT *
-                FROM financial_metrics
+                FROM "{table_name}"
                 WHERE ticker = ?
-                  AND period = ?
-                  AND report_period <= ?
-                ORDER BY report_period DESC
                 LIMIT ?
                 """
                 
-                results = conn.execute(query, [ticker, period, end_date, limit]).fetchdf()
+                results = conn.execute(query, [ticker, limit]).fetchdf()
                 
                 if results.empty:
                     return []
                     
-                # Convert DataFrame rows back to FinancialMetrics objects
                 metrics_list = []
                 for _, row in results.iterrows():
-                    # Pydantic's `model_validate` is the correct, type-safe method for V2
                     metrics_list.append(FinancialMetrics.model_validate(row.to_dict()))
                 
                 return metrics_list
 
         except (duckdb.CatalogException, duckdb.BinderException) as e:
-            logger.error(f"Error querying financial_metrics table: {e}. It may not exist or the schema may be incorrect. Try running the scraper first.")
+            logger.error(f"Error querying table {table_name}: {e}. Try running the scraper first.")
             return []
         except Exception as e:
             logger.error(f"Failed to get financial metrics for {ticker} from DuckDB: {e}")

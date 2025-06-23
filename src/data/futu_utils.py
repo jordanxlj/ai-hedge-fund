@@ -1,10 +1,31 @@
 import futu as ft
 from typing import List
 import logging
+from datetime import date, datetime
 
 from src.data.models import FinancialMetrics
 
 logger = logging.getLogger(__name__)
+
+def get_report_period_date(query_date: date, quarter: str) -> date:
+    """
+    Calculates the standardized report period end date based on a query date and quarter.
+    """
+    current_year = query_date.year
+    
+    if quarter == 'annual':
+        return date(current_year - 1, 12, 31)
+    elif quarter == 'q1':
+        year = current_year if query_date.month >= 4 else current_year - 1
+        return date(year, 3, 31)
+    elif quarter == 'interim':
+        year = current_year if query_date.month >= 7 else current_year - 1
+        return date(year, 6, 30)
+    elif quarter == 'q3':
+        year = current_year if query_date.month >= 10 else current_year - 1
+        return date(year, 9, 30)
+    else: # Fallback for unrecognized quarters
+        return query_date
 
 class FutuDummyStockData:
     """A helper class to create a stock data object from a dictionary."""

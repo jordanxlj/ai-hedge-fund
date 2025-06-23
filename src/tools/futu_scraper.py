@@ -10,15 +10,14 @@ from pydantic import BaseModel
 import pandas as pd
 
 from src.data.models import FinancialMetrics
-from src.data.futu_utils import FutuDummyStockData, convert_to_financial_metrics
+from src.data.futu_utils import FutuDummyStockData, convert_to_financial_metrics, get_report_period_date
 
 logger = logging.getLogger(__name__)
 
 # Fields that require using SimpleFilter based on Futu API docs
 SIMPLE_FILTER_FIELDS = {
     ft.StockField.MARKET_VAL, ft.StockField.PE_ANNUAL, ft.StockField.PE_TTM,
-    ft.StockField.PB_RATE, ft.StockField.CHANGE_RATE_5MIN, ft.StockField.CHANGE_RATE_BEGIN_YEAR,
-    ft.StockField.PS_TTM, ft.StockField.PCF_TTM, ft.StockField.TOTAL_SHARE,
+    ft.StockField.PB_RATE, ft.StockField.PS_TTM, ft.StockField.PCF_TTM, ft.StockField.TOTAL_SHARE,
     ft.StockField.FLOAT_SHARE, ft.StockField.FLOAT_MARKET_VAL
 }
 
@@ -107,19 +106,24 @@ class FutuScraper:
         conn.execute(create_table_sql)
         logger.info(f"Table '{table_name}' is ready in DuckDB.")
 
-    def scrape_and_store(self, market: str, quarter: str = "annual", end_date: Optional[str] = None):
+    def scrape_and_store(self, market: str, quarter: str = "annual"):
         """
-        Scrapes financial metrics and stores them in a DuckDB database.
+        Scrapes financial metrics for a specific report period and stores them 
+        in a dedicated table named after that period in a DuckDB database.
         """
-        scraped_metrics = self.scrape_financial_metrics(market, quarter, end_date)
+        # Determine the target report period date
+        report_date = get_report_period_date(date.today(), quarter)
+        report_date_str = report_date.strftime('%Y-%m-%d')
+        
+        scraped_metrics = self.scrape_financial_metrics(market, quarter, report_date_str)
         if not scraped_metrics:
             logger.info("No metrics were scraped. Nothing to store.")
             return
             
-        logger.info(f"Scraped {len(scraped_metrics)} records. Storing to DuckDB at {self.db_path}...")
+        table_name = f"financial_metrics_{report_date.strftime('%Y_%m_%d')}"
+        logger.info(f"Scraped {len(scraped_metrics)} records for period {report_date_str}. Storing to DuckDB table '{table_name}' at {self.db_path}...")
         
         with duckdb.connect(self.db_path) as conn:
-            table_name = "financial_metrics"
             primary_keys = ["ticker", "report_period", "period"]
             self._create_table_from_model(conn, FinancialMetrics, table_name, primary_keys)
             
@@ -155,7 +159,7 @@ class FutuScraper:
             
             conn.execute(upsert_sql)
 
-        logger.info(f"Successfully stored/updated {len(df)} records in DuckDB.")
+        logger.info(f"Successfully stored/updated {len(df)} records in DuckDB table '{table_name}'.")
 
     def scrape_financial_metrics(self, market: str, quarter: str = "annual", end_date: Optional[str] = None) -> List[FinancialMetrics]:
         """
