@@ -14,6 +14,7 @@ from src.data.futu_utils import FutuDummyStockData, convert_to_financial_metrics
 
 logger = logging.getLogger(__name__)
 
+
 class FutuScraper:
     """
     A scraper for fetching comprehensive financial metrics from Futu OpenD.
@@ -103,8 +104,12 @@ class FutuScraper:
             model_fields = {k for k in get_type_hints(FinancialMetrics) if k != 'model_config'}
             for col in model_fields:
                 if col not in df.columns:
-                    df[col] = None
+                    df[col] = pd.Series(dtype='object') # Use object to accommodate various types before converting
             
+            # Reorder df columns to match table schema precisely
+            ordered_cols = [f.name for f in FinancialMetrics.__pydantic_fields__.values()]
+            df = df[ordered_cols]
+
             # Upsert into the main table
             conn.register('metrics_df', df)
             
@@ -147,9 +152,9 @@ class FutuScraper:
             
             quarter_map = {
                 "annual": ft.FinancialQuarter.ANNUAL,
-                "q1": ft.FinancialQuarter.Q1,
-                "interim": ft.FinancialQuarter.INTERIM,
-                "q3": ft.FinancialQuarter.Q3,
+                "q1": ft.FinancialQuarter.FIRST_QUARTER,
+                "q2": ft.FinancialQuarter.INTERIM,
+                "q3": ft.FinancialQuarter.THIRD_QUARTER,
             }
             quarter_enum = quarter_map.get(quarter.lower(), ft.FinancialQuarter.ANNUAL)
 
@@ -173,7 +178,7 @@ class FutuScraper:
                         begin=begin_index,
                         num=num_per_req
                     )
-                    time.sleep(1) # Adjusted sleep time
+                    time.sleep(3.1) # Adjusted sleep time
 
                     if ret != ft.RET_OK:
                         if "不支持该过滤字段" in str(data):

@@ -6,6 +6,7 @@ from src.data.models import Price, FinancialMetrics, InsiderTrade, CompanyNews, 
 from src.data.futu_utils import convert_to_financial_metrics
 import logging
 from datetime import datetime
+import duckdb
 
 logger = logging.getLogger(__name__)
 
@@ -75,53 +76,45 @@ class FutuDataProvider(AbstractDataProvider):
         return f"US.{ticker.upper()}"
 
     def get_financial_metrics(self, ticker: str, end_date: str, period: str = "ttm", limit: int = 10) -> List[FinancialMetrics]:
-        self._connect()
+        """
+        Retrieves financial metrics for a given stock from the local DuckDB database.
+        """
+        if not os.path.exists(self.db_path):
+            logger.warning(f"DuckDB file '{self.db_path}' not found. Cannot fetch financial metrics.")
+            return []
+            
         try:
-            futu_ticker = self._convert_ticker_format(ticker)
-            
-            simple_filter = ft.FinancialFilter()
-            simple_filter.stock_field = ft.StockField.MARKET_VAL 
-            simple_filter.filter_min = 1
-            simple_filter.filter_max = 1e15
-            simple_filter.is_no_filter = False
-            simple_filter.quarter = ft.FinancialQuarter.ANNUAL
-
-            markets_to_try = []
-            if futu_ticker.startswith('HK.'):
-                markets_to_try.append(ft.Market.HK)
-            elif futu_ticker.startswith('US.'):
-                markets_to_try.append(ft.Market.US)
-            else:
-                markets_to_try = [ft.Market.HK, ft.Market.US]
-            
-            for market in markets_to_try:
-                ret, data = self.quote_ctx.get_stock_filter(
-                    market=market,
-                    filter_list=[simple_filter],
-                    begin=0,
-                    num=200
-                )
+            with duckdb.connect(self.db_path, read_only=True) as conn:
+                # Construct the query to get the most recent record on or before the end_date
+                query = f"""
+                SELECT *
+                FROM financial_metrics
+                WHERE ticker = ?
+                  AND period = ?
+                  AND report_period <= ?
+                ORDER BY report_period DESC
+                LIMIT ?
+                """
                 
-                if ret == ft.RET_OK and data is not None:
-                    _, _, stock_list = data
+                results = conn.execute(query, [ticker, period, end_date, limit]).fetchdf()
+                
+                if results.empty:
+                    return []
                     
-                    target_stock = None
-                    for stock in stock_list:
-                        if stock.stock_code == futu_ticker:
-                            target_stock = stock
-                            break
-                    
-                    if target_stock:
-                        return convert_to_financial_metrics(target_stock, ticker, end_date, period, market)
-            
-            logger.warning(f"Could not find financial metrics for stock {ticker}")
+                # Convert DataFrame rows back to FinancialMetrics objects
+                metrics_list = []
+                for _, row in results.iterrows():
+                    # Pydantic's `model_validate` is the correct, type-safe method for V2
+                    metrics_list.append(FinancialMetrics.model_validate(row.to_dict()))
+                
+                return metrics_list
+
+        except (duckdb.CatalogException, duckdb.BinderException) as e:
+            logger.error(f"Error querying financial_metrics table: {e}. It may not exist or the schema may be incorrect. Try running the scraper first.")
             return []
-            
         except Exception as e:
-            logger.error(f"Failed to get financial metrics for {ticker}: {e}")
+            logger.error(f"Failed to get financial metrics for {ticker} from DuckDB: {e}")
             return []
-        finally:
-            self._disconnect()
 
     def search_line_items(self, ticker: str, line_items: List[str], end_date: str, period: str = "ttm", limit: int = 10) -> List[LineItem]:
         return []
