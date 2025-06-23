@@ -14,6 +14,20 @@ from src.data.futu_utils import FutuDummyStockData, convert_to_financial_metrics
 
 logger = logging.getLogger(__name__)
 
+# Fields that require using SimpleFilter based on Futu API docs
+SIMPLE_FILTER_FIELDS = {
+    ft.StockField.MARKET_VAL, ft.StockField.PE_ANNUAL, ft.StockField.PE_TTM,
+    ft.StockField.PB_RATE, ft.StockField.PS_TTM, ft.StockField.PCF_TTM, ft.StockField.TOTAL_SHARE,
+    ft.StockField.FLOAT_SHARE, ft.StockField.FLOAT_MARKET_VAL
+}
+
+# Combine all fields and scrape them one by one
+ALL_FIELDS_TO_SCRAPE = [
+    # FinancialFilter fields
+    ft.StockField.ACCOUNTS_RECEIVABLE, ft.StockField.BASIC_EPS, ft.StockField.CASH_AND_CASH_EQUIVALENTS,
+    # SimpleFilter fields (also included here for a single loop)
+    ft.StockField.MARKET_VAL, ft.StockField.PE_ANNUAL, ft.StockField.PE_TTM,
+]
 
 class FutuScraper:
     """
@@ -143,12 +157,6 @@ class FutuScraper:
             if end_date is None:
                 end_date = datetime.now().strftime('%Y-%m-%d')
 
-            financial_fields_to_scrape = [
-                # A selection of fields for demonstration
-                #ft.StockField.MARKET_VAL, ft.StockField.PE_TTM, ft.StockField.PB_RATE,
-                ft.StockField.RETURN_ON_EQUITY_RATE, ft.StockField.NET_PROFIT, ft.StockField.SUM_OF_BUSINESS
-            ]
-
             all_stocks_data = {}
             
             quarter_map = {
@@ -159,23 +167,28 @@ class FutuScraper:
             }
             quarter_enum = quarter_map.get(quarter.lower(), ft.FinancialQuarter.ANNUAL)
 
-            for field in financial_fields_to_scrape:
+            for field in ALL_FIELDS_TO_SCRAPE:
                 logger.info(f"Scraping data for field: {field}")
                 begin_index = 0
                 num_per_req = 200
                 last_page = False
 
                 while not last_page:
-                    financial_filter = ft.FinancialFilter()
-                    financial_filter.stock_field = field
-                    financial_filter.filter_min = -1e15
-                    financial_filter.filter_max = 1e15
-                    financial_filter.is_no_filter = False
-                    financial_filter.quarter = quarter_enum
+                    # Choose filter type based on the field
+                    if field in SIMPLE_FILTER_FIELDS:
+                        filter_instance = ft.SimpleFilter()
+                    else:
+                        filter_instance = ft.FinancialFilter()
+                        filter_instance.quarter = quarter_enum
+
+                    filter_instance.stock_field = field
+                    filter_instance.filter_min = -1e15
+                    filter_instance.filter_max = 1e15
+                    filter_instance.is_no_filter = False
 
                     ret, data = self.quote_ctx.get_stock_filter(
                         market=ft_market,
-                        filter_list=[financial_filter],
+                        filter_list=[filter_instance],
                         begin=begin_index,
                         num=num_per_req
                     )
@@ -200,10 +213,17 @@ class FutuScraper:
                             all_stocks_data[stock_code] = {'stock_code': stock_code, 'stock_name': stock_data.stock_name}
                         
                         stock_vars = vars(stock_data)
-                        tuple_key = (field.lower(), quarter)
-                        if tuple_key in stock_vars:
-                            value = stock_vars[tuple_key]
-                            attr_name = field.lower()
+                        attr_name = field.lower()
+                        value = None
+
+                        # FinancialFilter returns a tuple key, SimpleFilter returns a string key
+                        if field in SIMPLE_FILTER_FIELDS:
+                            value = stock_vars.get(attr_name)
+                        else:
+                            tuple_key = (attr_name, quarter)
+                            value = stock_vars.get(tuple_key)
+                        
+                        if value is not None:
                             all_stocks_data[stock_code][attr_name] = value
 
                     begin_index += len(stock_list_chunk)
