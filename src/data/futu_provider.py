@@ -265,15 +265,17 @@ class FutuDataProvider(AbstractDataProvider):
                 quarter_enum = ft.FinancialQuarter.ANNUAL
 
             for field in financial_fields_to_scrape:
-                logger.info(f"Scraping data for field: {field.name}")
+                logger.info(f"Scraping data for field: {field}")
                 begin_index = 0
-                num_per_req = 100
+                num_per_req = 200
                 last_page = False
 
                 while not last_page:
                     financial_filter = ft.FinancialFilter()
                     financial_filter.stock_field = field
-                    financial_filter.is_no_filter = True
+                    financial_filter.filter_min = -1e15
+                    financial_filter.filter_max = 1e15
+                    financial_filter.is_no_filter = False
                     financial_filter.quarter = quarter_enum
 
                     ret, data = self.quote_ctx.get_stock_filter(
@@ -287,16 +289,17 @@ class FutuDataProvider(AbstractDataProvider):
 
                     if ret != ft.RET_OK:
                         if "不支持该过滤字段" in str(data):
-                             logger.warning(f"Field {field.name} is not supported by get_stock_filter. Skipping.")
+                             logger.warning(f"Field {field} is not supported by get_stock_filter. Skipping.")
                              break 
-                        logger.error(f"Futu API error for field {field.name}: {data}")
+                        logger.error(f"Futu API error for field {field}: {data}")
                         break
 
                     page_info, all_count, stock_list_chunk = data
+                    print(f"all_count = {all_count}, stock_list_chunk = {stock_list_chunk}")
                     last_page = page_info
 
                     if not stock_list_chunk:
-                        logger.warning(f"No stock data returned for field {field.name} on this page.")
+                        logger.warning(f"No stock data returned for field {field} on this page.")
                         break
 
                     for stock_data in stock_list_chunk:
@@ -304,9 +307,15 @@ class FutuDataProvider(AbstractDataProvider):
                         if stock_code not in all_stocks_data:
                             all_stocks_data[stock_code] = {'stock_code': stock_code, 'stock_name': stock_data.stock_name}
                         
-                        attr_name = field.name.lower()
-                        if hasattr(stock_data, attr_name):
-                            value = getattr(stock_data, attr_name)
+                        stock_vars = vars(stock_data)
+                        # The key is a tuple: (lowercase_field_name, quarter_string)
+                        # e.g., ('accounts_receivable', 'annual')
+                        tuple_key = (field.lower(), quarter)
+
+                        if tuple_key in stock_vars:
+                            value = stock_vars[tuple_key]
+                            # The key for our own dict should be just the field name
+                            attr_name = field.lower()
                             all_stocks_data[stock_code][attr_name] = value
 
                     begin_index += len(stock_list_chunk)
