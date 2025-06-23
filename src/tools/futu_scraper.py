@@ -100,16 +100,17 @@ class FutuScraper:
 
             df = pd.DataFrame(metrics_dicts)
             
-            # Ensure all model fields exist as columns, fill missing with None (which becomes NULL)
-            model_fields = {k for k in get_type_hints(FinancialMetrics) if k != 'model_config'}
-            for col in model_fields:
-                if col not in df.columns:
-                    df[col] = pd.Series(dtype='object') # Use object to accommodate various types before converting
-            
-            # Reorder df columns to match table schema precisely
-            ordered_cols = [f.name for f in FinancialMetrics.__pydantic_fields__.values()]
-            df = df[ordered_cols]
+            # Get the definitive list of model fields in order
+            ordered_cols = list(FinancialMetrics.model_fields.keys())
 
+            # Ensure all model fields exist as columns in the dataframe, and in the correct order
+            for col in ordered_cols:
+                if col not in df.columns:
+                    df[col] = None # DuckDB handles None as NULL
+            
+            # Reorder df columns to match table schema precisely and drop any extra columns
+            df = df[ordered_cols]
+            
             # Upsert into the main table
             conn.register('metrics_df', df)
             
