@@ -1,20 +1,19 @@
-from src.data.models import AggregatedFinancialInfo
+from src.data.models import FinancialProfile
 import logging
 
 logger = logging.getLogger(__name__)
 
-def reconstruct_financial_metrics(v: AggregatedFinancialInfo) -> AggregatedFinancialInfo:
+def reconstruct_financial_metrics(v: FinancialProfile) -> FinancialProfile:
     """
-    财务指标重建:
-    1. 补充计算各种比率和复合指标.
-    2. 根据已有的比率反算缺失的基础数值.
+    重构财务指标，计算或重新计算一些复合指标
     
     Args:
-        v: An AggregatedFinancialInfo object.
+        v: An FinancialProfile object.
         
     Returns:
-        The same object, modified in place.
+        FinancialProfile: The updated FinancialProfile object.
     """
+    logger.debug(f"reconstructing financial metrics for {v.ticker} at {v.report_period}")
     
     # --- Phase 1: Forward calculation (from fundamentals to ratios) ---
     # Goodwill and Intangible Assets

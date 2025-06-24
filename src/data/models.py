@@ -107,10 +107,14 @@ class FinancialMetricsResponse(BaseModel):
 
 
 class LineItem(BaseModel):
+    """Represents a single line item from a financial statement."""
     ticker: str
     report_period: str
-    period: str
+    period: str  # e.g., "annual", "quarterly"
     currency: str | None = None
+    name: str  # The name of the financial metric (e.g., "revenue", "net_income")
+    value: float | None = None
+    statement_type: str | None = None  # "income_statement", "balance_sheet", "cash_flow_statement"
 
     # Allow additional fields dynamically
     model_config = {"extra": "allow"}
@@ -223,7 +227,7 @@ class AgentStateMetadata(BaseModel):
     model_config = {"extra": "allow"}
 
 
-class AggregatedFinancialInfo(FinancialMetrics):
+class FinancialProfile(FinancialMetrics):
     """全面的财务信息，包括从财务报表中提取的核心项目和计算得出的指标。"""
 
     # 收入相关
