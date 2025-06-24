@@ -72,7 +72,7 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         financial_data['price_to_earnings_ratio'] = financial_data.pop('pe_ttm', None)
         financial_data['price_to_book_ratio'] = financial_data.pop('pb_rate', None)
         financial_data['price_to_sales_ratio'] = financial_data.pop('ps_ttm', None)
-        financial_data['pcf_ratio'] = financial_data.pop('pcf_ttm', None)
+        financial_data['price_to_cashflow_ratio'] = financial_data.pop('pcf_ttm', None)
 
         # Market & Shares
         financial_data['market_cap'] = financial_data.pop('market_val', None)
@@ -94,10 +94,10 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         # Growth Rates
         financial_data['earnings_growth'] = financial_data.pop('net_profix_growth', None)
         financial_data['revenue_growth'] = financial_data.pop('sum_of_business_growth', None)
-        financial_data['eps_growth'] = financial_data.pop('eps_growth_rate', None)
-        financial_data['roe_growth'] = financial_data.pop('roe_growth_rate', None)
-        financial_data['roic_growth'] = financial_data.pop('roic_growth_rate', None)
-        financial_data['operating_cash_flow_growth'] = financial_data.pop('nocf_growth_rate', None)
+        financial_data['earnings_per_share_growth'] = financial_data.pop('eps_growth_rate', None)
+        financial_data['return_on_equity_growth'] = financial_data.pop('roe_growth_rate', None)
+        financial_data['return_on_invested_capital_growth'] = financial_data.pop('roic_growth_rate', None)
+        financial_data['operating_cash_flow_ratio'] = financial_data.pop('nocf_growth_rate', None)
         financial_data['free_cash_flow_per_share_growth'] = financial_data.pop('nocf_per_share_growth_rate', None)
         financial_data['operating_income_growth'] = financial_data.pop('operating_profit_growth_rate', None)
         financial_data['total_assets_growth'] = financial_data.pop('total_assets_growth_rate', None)
@@ -130,12 +130,12 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         financial_data['operating_income_to_total_income_ratio'] = financial_data.pop('operating_profit_to_total_profit', None)
 
         # Turnover Ratios
-        financial_data['inventory_turnover_ratio'] = financial_data.pop('inventory_turnover', None)
-        financial_data['asset_turnover_ratio'] = financial_data.pop('total_asset_turnover', None)
-        financial_data['fixed_asset_turnover_ratio'] = financial_data.pop('fixed_asset_turnover', None)
+        financial_data['inventory_turnover'] = financial_data.pop('inventory_turnover', None)
+        financial_data['asset_turnover'] = financial_data.pop('total_asset_turnover', None)
+        financial_data['fixed_asset_turnover'] = financial_data.pop('fixed_asset_turnover', None)
 
         # Cost Ratios
-        financial_data['financial_cost_to_revenue_ratio'] = financial_data.pop('financial_cost_rate', None)
+        financial_data['financial_cost_rate'] = financial_data.pop('financial_cost_rate', None)
 
         # Create FinancialMetrics object, filtering out any None values from the dict
         valid_financial_data = {k: v for k, v in financial_data.items() if v is not None}

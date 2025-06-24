@@ -33,9 +33,13 @@ class FinancialMetrics(BaseModel):
     currency: str | None = None
     market_cap: float | None = None
     enterprise_value: float | None = None
+
     price_to_earnings_ratio: float | None = None
     price_to_book_ratio: float | None = None
     price_to_sales_ratio: float | None = None
+    price_to_cashflow_ratio: float | None = None
+
+    total_assets_growth: float | None = None
     enterprise_value_to_ebitda_ratio: float | None = None
     enterprise_value_to_revenue_ratio: float | None = None
     free_cash_flow_yield: float | None = None
@@ -43,10 +47,16 @@ class FinancialMetrics(BaseModel):
     gross_margin: float | None = None
     operating_margin: float | None = None
     net_margin: float | None = None
+
     return_on_equity: float | None = None
+    return_on_equity_growth: float | None = None
     return_on_assets: float | None = None
+    return_on_assets_growth: float | None = None
     return_on_invested_capital: float | None = None
+    return_on_invested_capital_growth: float | None = None
+
     asset_turnover: float | None = None
+    fixed_asset_turnover: float | None = None
     inventory_turnover: float | None = None
     receivables_turnover: float | None = None
     days_sales_outstanding: float | None = None
@@ -62,14 +72,17 @@ class FinancialMetrics(BaseModel):
     revenue_growth: float | None = None
     earnings_growth: float | None = None
     book_value_growth: float | None = None
-    earnings_per_share_growth: float | None = None
     free_cash_flow_growth: float | None = None
     operating_income_growth: float | None = None
     ebitda_growth: float | None = None
     payout_ratio: float | None = None
+
     earnings_per_share: float | None = None
+    earnings_per_share_growth: float | None = None
     book_value_per_share: float | None = None
     free_cash_flow_per_share: float | None = None
+    free_cash_flow_per_share_growth: float | None = None
+    financial_cost_rate: float | None = None
     
     # 股份相关
     total_shares_outstanding: float | None = None
@@ -223,12 +236,17 @@ class AggregatedFinancialInfo(FinancialMetrics):
     operating_cash_flow: float | None = None
     capital_expenditure: float | None = None
     depreciation_and_amortization: float | None = None
+    cash_conversion_ratio: float | None = None
+    operating_revenue_cash_cover: float | None = None
+    operating_profit_to_total_profit: float | None = None
     
     # 资产负债相关
     total_assets: float | None = None
     total_liabilities: float | None = None
     current_assets: float | None = None
+    current_assets_ratio: float | None = None
     current_liabilities: float | None = None
+    current_liabilities_ratio: float | None = None
     working_capital: float | None = None
     cash_and_equivalents: float | None = None
     short_term_debt: float | None = None
@@ -268,6 +286,7 @@ class AggregatedFinancialInfo(FinancialMetrics):
     selling_expenses: float | None = None
     income_tax_expense: float | None = None
     profit_before_tax: float | None = None
+    pretax_income_growth: float | None = None
     
     # 允许动态添加字段
     model_config = {"extra": "allow"}
