@@ -236,6 +236,7 @@ class FinancialProfile(FinancialMetrics):
     operating_expense: float | None = None                # 经营费用
     selling_expenses: float | None = None                 # 销售费用
     sales_expense_ratio: float | None = None              # 销售费用率
+    accounts_receivable: float | None = None              # 应收账款净额
 
     # 利润相关
     net_income: float | None = None                       # 净利润

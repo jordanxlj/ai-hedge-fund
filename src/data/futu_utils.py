@@ -107,9 +107,10 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
 
         # Financial Health
         financial_data['debt_to_assets'] = financial_data.pop('debt_asset_rate', None)
-        financial_data['debt_to_equity'] = financial_data.pop('property_ratio', None)
         financial_data['current_assets_ratio'] = financial_data.pop('current_asset_ratio', None)
         financial_data['current_liabilities_ratio'] = financial_data.pop('current_debt_ratio', None)
+        financial_data['quick_ratio'] = financial_data.pop('quick_ratio', None)
+        financial_data['current_ratio'] = financial_data.pop('current_ratio', None)
         
         # Margins
         financial_data['operating_margin'] = financial_data.pop('operating_margin_ttm', None)
@@ -118,6 +119,7 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         financial_data['operating_cash_flow'] = financial_data.pop('operating_cash_flow_ttm', None)
         financial_data['cash_conversion_ratio'] = financial_data.pop('net_profit_cash_cover_ttm', None)
         financial_data['cash_from_operations_to_revenue_ratio'] = financial_data.pop('operating_revenue_cash_cover', None)
+        financial_data['cash_and_equivalents'] = financial_data.pop('cash_and_cash_equivalents', None)
         
         # Per Share
         financial_data['earnings_per_share'] = financial_data.pop('basic_eps', None)
@@ -128,6 +130,7 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         financial_data['cash_and_equivalents'] = financial_data.pop('cash_and_cash_equivalents', None)
         financial_data['operating_income'] = financial_data.pop('operating_profit_ttm', None)
         financial_data['operating_income_to_total_income_ratio'] = financial_data.pop('operating_profit_to_total_profit', None)
+        financial_data['accounts_receivable'] = financial_data.pop('accounts_receivable', None)
 
         # Turnover Ratios
         financial_data['inventory_turnover'] = financial_data.pop('inventory_turnover', None)
