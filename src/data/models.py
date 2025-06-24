@@ -71,17 +71,10 @@ class FinancialMetrics(BaseModel):
     book_value_per_share: float | None = None
     free_cash_flow_per_share: float | None = None
     
-    # Tushare specific fields (for compatibility)
-    roe: float | None = None  # Return on equity
-    roa: float | None = None  # Return on assets  
-    eps: float | None = None  # Earnings per share
-    pe_ratio: float | None = None  # PE ratio
-    pb_ratio: float | None = None  # PB ratio
-
     # 股份相关
     total_shares_outstanding: float | None = None
     outstanding_shares: float | None = None
-
+    
     # Allow additional fields dynamically
     model_config = {"extra": "allow"}
 

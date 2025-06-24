@@ -69,10 +69,8 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         # where names differ or logic is needed.
         
         # Valuation Ratios
-        financial_data['price_to_earnings_ratio'] = financial_data.pop('pe_annual', None)
-        financial_data['pe_ratio'] = financial_data.pop('pe_ttm', None)
-        financial_data['pb_ratio'] = financial_data.pop('pb_rate', None)
-        financial_data['price_to_book_ratio'] = financial_data.get('pb_ratio')
+        financial_data['price_to_earnings_ratio'] = financial_data.pop('pe_ttm', None)
+        financial_data['price_to_book_ratio'] = financial_data.pop('pb_rate', None)
         financial_data['price_to_sales_ratio'] = financial_data.pop('ps_ttm', None)
         financial_data['pcf_ratio'] = financial_data.pop('pcf_ttm', None)
 
@@ -90,9 +88,7 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
 
         # Return Ratios
         financial_data['return_on_equity'] = financial_data.pop('return_on_equity_rate', None)
-        financial_data['roe'] = financial_data.get('return_on_equity')
         financial_data['return_on_assets'] = financial_data.pop('roa_ttm', None)
-        financial_data['roa'] = financial_data.get('return_on_assets')
         financial_data['return_on_invested_capital'] = financial_data.pop('roic', None)
 
         # Growth Rates
@@ -125,7 +121,6 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         
         # Per Share
         financial_data['earnings_per_share'] = financial_data.pop('basic_eps', None)
-        financial_data['eps'] = financial_data.get('earnings_per_share')
         financial_data['free_cash_flow_per_share'] = financial_data.pop('nocf_per_share', None)
 
         # Other Balance Sheet / Income Statement items

@@ -348,12 +348,12 @@ FINANCIAL_METRICS_FIELD_MAPPING = {
     'ca_turn': 'current_assets_turnover',                # 流动资产周转率
     'fa_turn': 'fixed_assets_turnover',                  # 固定资产周转率
     'assets_turn': 'total_assets_turnover',              # 总资产周转率
-    'roe': 'return_on_equity',                           # 净资产收益率
+    # 'roe': 'return_on_equity',                           # 净资产收益率
     'npta': 'net_profit_to_total_assets',                # 总资产报酬率
     'op_income': 'operating_income',                     # 经营活动净收益
     'daa': 'depreciation_and_amortization',              # 折旧与摊销
-    'roic': 'roic',                                      # 投入资本回报率
-    'roe_waa': 'roe',                                    # 加权平均净资产收益率
+    'roic': 'return_on_invested_capital',                # 投入资本回报率
+    'roe_waa': 'return_on_equity',                       # 加权平均净资产收益率
     'roe_dt': 'return_on_equity_diluted',                # 稀释净资产收益率
     'roe_yearly': 'return_on_equity_yearly',             # 年化净资产收益率
     'roa': 'return_on_assets',                           # 总资产净利率
@@ -507,10 +507,10 @@ FINANCIAL_METRICS_FIELD_MAPPING = {
 # 估值指标字段映射 (pro.daily_basic)
 VALUATION_METRICS_FIELD_MAPPING = {
     'ts_code': 'ts_code',
-    'trade_date': 'trade_date',
-    'close': 'close_price',                              # 当日收盘价
-    'turnover_rate': 'turnover_rate',                    # 换手率(%)
-    'turnover_rate_f': 'turnover_rate_float',            # 换手率(自由流通股)
+    # 'trade_date': 'trade_date',
+    # 'close': 'close_price',                              # 当日收盘价
+    # 'turnover_rate': 'turnover_rate',                    # 换手率(%)
+    # 'turnover_rate_f': 'turnover_rate_float',            # 换手率(自由流通股)
     'volume_ratio': 'volume_ratio',                      # 量比
     'pe': 'price_to_earnings_ratio',                     # 市盈率
     'pe_ttm': 'pe_ttm',                                  # 市盈率(TTM)
