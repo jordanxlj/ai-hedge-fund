@@ -27,6 +27,7 @@ class PriceResponse(BaseModel):
 
 class FinancialMetrics(BaseModel):
     ticker: str
+    name: str
     report_period: str
     period: str
     currency: str | None = None
@@ -76,7 +77,11 @@ class FinancialMetrics(BaseModel):
     eps: float | None = None  # Earnings per share
     pe_ratio: float | None = None  # PE ratio
     pb_ratio: float | None = None  # PB ratio
-    
+
+    # 股份相关
+    total_shares_outstanding: float | None = None
+    outstanding_shares: float | None = None
+
     # Allow additional fields dynamically
     model_config = {"extra": "allow"}
 
@@ -243,6 +248,7 @@ class AggregatedFinancialInfo(FinancialMetrics):
     inventories: float | None = None
     
     # 股份相关
+    total_shares_outstanding: float | None = None
     outstanding_shares: float | None = None
     #earnings_per_share: float | None = None  # already in the FinancialMetrics
     

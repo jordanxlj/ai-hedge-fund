@@ -248,7 +248,7 @@ class FutuScraper:
                     for stock_data in stock_list_chunk:
                         stock_code = stock_data.stock_code
                         if stock_code not in all_stocks_data:
-                            all_stocks_data[stock_code] = {'stock_code': stock_code, 'stock_name': stock_data.stock_name}
+                            all_stocks_data[stock_code] = {'stock_name': stock_data.stock_name}
                         
                         stock_vars = vars(stock_data)
                         attr_name = field.lower()
@@ -272,7 +272,7 @@ class FutuScraper:
                 parts = stock_code.split('.')
                 if len(parts) == 2:
                     internal_ticker = f"{parts[1]}.{parts[0]}"
-                    metrics = convert_to_financial_metrics(dummy_stock_obj, internal_ticker, end_date, quarter, ft_market)
+                    metrics = convert_to_financial_metrics(dummy_stock_obj, internal_ticker, data_dict['stock_name'], end_date, quarter, ft_market)
                     final_metrics.extend(metrics)
 
             return final_metrics

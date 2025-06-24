@@ -35,7 +35,7 @@ class FutuDummyStockData:
     def __getattr__(self, name):
         return self.__dict__.get(name)
 
-def convert_to_financial_metrics(stock_data, ticker: str, end_date: str, period: str, market=None) -> List[FinancialMetrics]:
+def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: str, period: str, market=None) -> List[FinancialMetrics]:
     """
     Converts a Futu stock filter result object to a FinancialMetrics object.
     """
@@ -78,7 +78,8 @@ def convert_to_financial_metrics(stock_data, ticker: str, end_date: str, period:
 
         # Market & Shares
         financial_data['market_cap'] = financial_data.pop('market_val', None)
-        financial_data['outstanding_shares'] = financial_data.pop('total_share', None)
+        financial_data['total_shares_outstanding'] = financial_data.pop('total_share', None)
+        financial_data['outstanding_shares'] = financial_data.pop('float_share', None)
 
         # Profitability
         financial_data['net_income'] = financial_data.pop('net_profit', None)
@@ -146,6 +147,7 @@ def convert_to_financial_metrics(stock_data, ticker: str, end_date: str, period:
         
         metrics = FinancialMetrics(
             ticker=ticker,
+            name=name,
             report_period=end_date,
             period=period,
             currency=currency,
