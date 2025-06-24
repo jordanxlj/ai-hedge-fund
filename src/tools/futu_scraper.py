@@ -9,8 +9,8 @@ import duckdb
 from pydantic import BaseModel
 import pandas as pd
 
-from src.data.models import FinancialMetrics
-from src.data.futu_utils import FutuDummyStockData, convert_to_financial_metrics, get_report_period_date
+from src.data.models import FinancialProfile
+from src.data.futu_utils import FutuDummyStockData, convert_to_financial_profile, get_report_period_date
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ ALL_FIELDS_TO_SCRAPE = list(set(FINANCIAL_FILTER_FIELDS + list(SIMPLE_FILTER_FIE
 
 class FutuScraper:
     """
-    A scraper for fetching comprehensive financial metrics from Futu OpenD.
+    A scraper for fetching comprehensive financial profile from Futu OpenD.
     """
     def __init__(self, db_path: str = "data/futu_financials.duckdb"):
         self.host = os.getenv("FUTU_HOST", "127.0.0.1")
@@ -108,35 +108,35 @@ class FutuScraper:
 
     def scrape_and_store(self, market: str, quarter: str = "annual"):
         """
-        Scrapes financial metrics for a specific report period and stores them 
+        Scrapes financial profile for a specific report period and stores them 
         in a dedicated table named after that period in a DuckDB database.
         """
         # Determine the target report period date
         report_date = get_report_period_date(date.today(), quarter)
         report_date_str = report_date.strftime('%Y-%m-%d')
         
-        scraped_metrics = self.scrape_financial_metrics(market, quarter, report_date_str)
-        if not scraped_metrics:
-            logger.info("No metrics were scraped. Nothing to store.")
+        scraped_profile = self.scrape_financial_profile(market, quarter, report_date_str)
+        if not scraped_profile:
+            logger.info("No profile were scraped. Nothing to store.")
             return
             
-        table_name = f"financial_metrics_{report_date.strftime('%Y_%m_%d')}"
-        logger.info(f"Scraped {len(scraped_metrics)} records for period {report_date_str}. Storing to DuckDB table '{table_name}' at {self.db_path}...")
+        table_name = f"financial_profile_{report_date.strftime('%Y_%m_%d')}"
+        logger.info(f"Scraped {len(scraped_profile)} records for period {report_date_str}. Storing to DuckDB table '{table_name}' at {self.db_path}...")
         
         with duckdb.connect(self.db_path) as conn:
             primary_keys = ["ticker", "report_period", "period"]
-            self._create_table_from_model(conn, FinancialMetrics, table_name, primary_keys)
+            self._create_table_from_model(conn, FinancialProfile, table_name, primary_keys)
             
             # Use pandas DataFrame for easier insertion
-            metrics_dicts = [m.model_dump(exclude_none=True) for m in scraped_metrics]
-            if not metrics_dicts:
+            profile_dicts = [m.model_dump(exclude_none=True) for m in scraped_profile]
+            if not profile_dicts:
                 logger.warning("After processing, no metric dictionaries to insert.")
                 return
 
-            df = pd.DataFrame(metrics_dicts)
+            df = pd.DataFrame(profile_dicts)
             
             # Get the definitive list of model fields in order
-            ordered_cols = list(FinancialMetrics.model_fields.keys())
+            ordered_cols = list(FinancialProfile.model_fields.keys())
 
             # Ensure all model fields exist as columns in the dataframe, and in the correct order
             for col in ordered_cols:
@@ -147,13 +147,13 @@ class FutuScraper:
             df = df[ordered_cols]
             
             # Upsert into the main table
-            conn.register('metrics_df', df)
+            conn.register('profile_df', df)
             
             update_set_sql = ", ".join([f'"{col}" = excluded."{col}"' for col in df.columns if col not in primary_keys])
             
             upsert_sql = f"""
             INSERT INTO "{table_name}"
-            SELECT * FROM metrics_df
+            SELECT * FROM profile_df
             ON CONFLICT ({', '.join(primary_keys)}) DO UPDATE SET {update_set_sql};
             """
             
@@ -161,9 +161,9 @@ class FutuScraper:
 
         logger.info(f"Successfully stored/updated {len(df)} records in DuckDB table '{table_name}'.")
 
-    def scrape_financial_metrics(self, market: str, quarter: str = "annual", end_date: Optional[str] = None) -> List[FinancialMetrics]:
+    def scrape_financial_profile(self, market: str, quarter: str = "annual", end_date: Optional[str] = None) -> List[FinancialProfile]:
         """
-        Scrapes financial metrics for all stocks in a given market by iterating through each financial field one by one.
+        Scrapes financial profile for all stocks in a given market by iterating through each financial field one by one.
         NOTE: This process is very slow due to API limitations and rate limiting.
         """
         self._connect()
@@ -266,19 +266,19 @@ class FutuScraper:
 
                     begin_index += len(stock_list_chunk)
             
-            final_metrics = []
+            final_profile = []
             for stock_code, data_dict in all_stocks_data.items():
                 dummy_stock_obj = FutuDummyStockData(data_dict)
                 parts = stock_code.split('.')
                 if len(parts) == 2:
                     internal_ticker = f"{parts[1]}.{parts[0]}"
-                    metrics = convert_to_financial_metrics(dummy_stock_obj, internal_ticker, data_dict['stock_name'], end_date, quarter, ft_market)
-                    final_metrics.extend(metrics)
+                    profile = convert_to_financial_profile(dummy_stock_obj, internal_ticker, data_dict['stock_name'], end_date, quarter, ft_market)
+                    final_profile.extend(profile)
 
-            return final_metrics
+            return final_profile
 
         except Exception as e:
-            logger.error(f"Failed to scrape financial metrics for market {market}: {e}")
+            logger.error(f"Failed to scrape financial profile for market {market}: {e}")
             import traceback
             logger.error(f"Detailed error: {traceback.format_exc()}")
             return []

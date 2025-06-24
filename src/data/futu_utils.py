@@ -3,7 +3,7 @@ from typing import List
 import logging
 from datetime import date, datetime
 
-from src.data.models import FinancialMetrics
+from src.data.models import FinancialProfile
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,9 @@ class FutuDummyStockData:
     def __getattr__(self, name):
         return self.__dict__.get(name)
 
-def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: str, period: str, market=None) -> List[FinancialMetrics]:
+def convert_to_financial_profile(stock_data, ticker: str, name: str, end_date: str, period: str, market=None) -> List[FinancialProfile]:
     """
-    Converts a Futu stock filter result object to a FinancialMetrics object.
+    Converts a Futu stock filter result object to a FinancialProfile object.
     """
     try:
         financial_data = {}
@@ -64,7 +64,7 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
                 # This could be other data like market_val
                 financial_data[key] = value
 
-        # Mapping from Futu fields to FinancialMetrics fields
+        # Mapping from Futu fields to FinancialProfile fields
         # This is not a complete 1-to-1 mapping in names, so we need to be explicit
         # where names differ or logic is needed.
         
@@ -140,10 +140,10 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
         # Cost Ratios
         financial_data['financial_cost_rate'] = financial_data.pop('financial_cost_rate', None)
 
-        # Create FinancialMetrics object, filtering out any None values from the dict
+        # Create FinancialProfile object, filtering out any None values from the dict
         valid_financial_data = {k: v for k, v in financial_data.items() if v is not None}
         
-        metrics = FinancialMetrics(
+        profile = FinancialProfile(
             ticker=ticker,
             name=name,
             report_period=end_date,
@@ -152,10 +152,10 @@ def convert_to_financial_metrics(stock_data, ticker: str, name: str, end_date: s
             **valid_financial_data
         )
         
-        return [metrics]
+        return [profile]
         
     except Exception as e:
-        logger.error(f"Failed to convert financial metric data for {ticker}: {e}")
+        logger.error(f"Failed to convert financial profile data for {ticker}: {e}")
         import traceback
         logger.error(f"Detailed error: {traceback.format_exc()}")
         return [] 
