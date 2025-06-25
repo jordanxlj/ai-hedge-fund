@@ -4,7 +4,7 @@ import pandas as pd
 import duckdb
 import os
 
-from src.tools.futu_scraper import FutuScraper
+from src.futu_scraper import FutuScraper
 from src.data.models import StockPlateMapping, FinancialProfile
 from futu import Market
 
