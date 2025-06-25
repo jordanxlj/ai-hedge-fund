@@ -306,5 +306,5 @@ class StockPlateMapping(BaseModel):
     plate_name: str
     market: str  # e.g., "HK", "SH", "SZ"
 
-    # Allow additional fields dynamically
-    model_config = {"extra": "allow"}
+    class Config:
+        from_attributes = True

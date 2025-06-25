@@ -346,14 +346,18 @@ class FutuScraper:
 
                     # 3. Store the mappings
                     for stock_info in stock_list:
+                        stock_code_full = stock_info['code']
+                        # ticker只保留code，不保留.HK这样的市场信息
+                        ticker_only = stock_code_full.split('.')[1] if '.' in stock_code_full else stock_code_full
+
                         mapping = StockPlateMapping(
-                            ticker=stock_info['code'],
+                            ticker=ticker_only,
                             stock_name=stock_info['stock_name'],
-                            plate_code=plate_id,
+                            plate_code=plate_code,
                             plate_name=plate_name,
                             market=market
                         )
-
+                        
                         # Using UPSERT logic, ON CONFLICT on composite primary key
                         con.execute(f"""
                             INSERT INTO {table_name} (ticker, stock_name, plate_code, plate_name, market)
@@ -370,3 +374,6 @@ class FutuScraper:
             return
         finally:
             self._disconnect()
+
+    def close(self):
+        self._disconnect()
