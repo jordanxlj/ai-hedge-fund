@@ -8,8 +8,9 @@ from typing import List, Optional, get_type_hints, get_origin, get_args
 import duckdb
 from pydantic import BaseModel
 import pandas as pd
+from collections import deque
 
-from src.data.models import FinancialProfile
+from src.data.models import FinancialProfile, StockPlateMapping
 from src.data.futu_utils import FutuDummyStockData, convert_to_financial_profile, get_report_period_date
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,9 @@ class FutuScraper:
         self.port = 11111
         self.quote_ctx = None
         self.db_path = db_path
+        self.req_freq = 3.1
+        self.rate_limit_timestamps = deque(maxlen=10)
+
         db_dir = os.path.dirname(db_path)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
@@ -122,7 +126,7 @@ class FutuScraper:
             
         table_name = f"financial_profile_{report_date.strftime('%Y_%m_%d')}"
         logger.info(f"Scraped {len(scraped_profile)} records for period {report_date_str}. Storing to DuckDB table '{table_name}' at {self.db_path}...")
-        
+
         with duckdb.connect(self.db_path) as conn:
             primary_keys = ["ticker", "report_period", "period"]
             self._create_table_from_model(conn, FinancialProfile, table_name, primary_keys)
@@ -246,7 +250,7 @@ class FutuScraper:
                         break
 
                     for stock_data in stock_list_chunk:
-                        stock_code = stock_data.stock_code
+                        stock_code = stock_data.ticker
                         if stock_code not in all_stocks_data:
                             all_stocks_data[stock_code] = {'stock_name': stock_data.stock_name}
                         
@@ -283,4 +287,86 @@ class FutuScraper:
             logger.error(f"Detailed error: {traceback.format_exc()}")
             return []
         finally:
-            self._disconnect() 
+            self._disconnect()
+
+    def scrape_stock_plate_mappings(self, market: str):
+        """
+        Scrapes stock-plate mappings for a given market and stores them in DuckDB.
+        """
+        table_name = "stock_plate_mappings"
+        self._connect()
+
+        try:
+            if market.upper() == 'HK':
+                ft_market = ft.Market.HK
+            elif market.upper() == 'US':
+                ft_market = ft.Market.US
+            else:
+                raise ValueError("Unsupported market. Please use 'HK' or 'US'.")
+
+            logger.debug(f"connect to duckdb: {self.db_path}")
+            with duckdb.connect(self.db_path) as con:
+                primary_keys = ["ticker", "plate_code"]
+                self._create_table_from_model(con, StockPlateMapping, table_name, primary_keys)
+
+                # 1. Get all plates for the market
+                ret, plate_list_df = self.quote_ctx.get_plate_list(market=ft_market, plate_class=ft.Plate.ALL)
+                if ret != ft.RET_OK:
+                    logger.error(f"Failed to get plate list for market {market}: {plate_list_df}")
+                    return
+
+                plate_list = plate_list_df.to_dict('records')
+                logger.info(f"Successfully retrieved {len(plate_list)} plates for market {market}.")
+
+                for plate_info in plate_list:
+                    print(f"plate info: {plate_info}")
+                    plate_code = plate_info['code']
+                    plate_name = plate_info['plate_name']
+                    plate_id = plate_info['plate_id']
+                    logger.info(f"Processing plate: {plate_name} ({plate_code})")
+
+                    # Rate limit: 10 requests per 30 seconds for get_plate_stock
+                    if len(self.rate_limit_timestamps) == 10:
+                        oldest_request_time = self.rate_limit_timestamps[0]
+                        elapsed_time = time.time() - oldest_request_time
+                        if elapsed_time < 30.0:
+                            sleep_duration = 30.0 - elapsed_time
+                            logger.info(f"Rate limit reached for get_plate_stock. Sleeping for {sleep_duration:.2f} seconds.")
+                            time.sleep(sleep_duration)
+
+                    # 2. Get all stocks within each plate
+                    ret, stock_list_df = self.quote_ctx.get_plate_stock(plate_code) # default sort is by code
+                    self.rate_limit_timestamps.append(time.time()) # Record timestamp after the call
+
+                    if ret != ft.RET_OK:
+                        logger.error(f"Failed to get stock list for plate {plate_name}: {stock_list_df}")
+                        continue
+
+                    stock_list = stock_list_df.to_dict('records')
+
+                    # 3. Store the mappings
+                    for stock_info in stock_list:
+                        mapping = StockPlateMapping(
+                            ticker=stock_info['code'],
+                            stock_name=stock_info['stock_name'],
+                            plate_code=plate_id,
+                            plate_name=plate_name,
+                            market=market
+                        )
+
+                        # Using UPSERT logic, ON CONFLICT on composite primary key
+                        con.execute(f"""
+                            INSERT INTO {table_name} (ticker, stock_name, plate_code, plate_name, market)
+                            VALUES (?, ?, ?, ?, ?)
+                            ON CONFLICT (ticker, plate_code) DO NOTHING;
+                        """, (mapping.ticker, mapping.stock_name, mapping.plate_code, mapping.plate_name, mapping.market))
+
+                    logger.info(f"Successfully processed {len(stock_list)} stocks for plate {plate_name}.")
+                    #time.sleep(self.req_freq) # Adhere to frequency limits
+        except Exception as e:
+            logger.error(f"Failed to scrape stock plate mappings for market {market}: {e}")
+            import traceback
+            logger.error(f"Detailed error: {traceback.format_exc()}")
+            return
+        finally:
+            self._disconnect()

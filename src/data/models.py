@@ -297,3 +297,14 @@ class FinancialProfile(FinancialMetrics):
     pretax_income_growth: float | None = None             # 税前利润增长率
 
     model_config = {"extra": "allow"}
+
+class StockPlateMapping(BaseModel):
+    """Represents the mapping between a stock and a plate."""
+    ticker: str
+    stock_name: str
+    plate_code: str
+    plate_name: str
+    market: str  # e.g., "HK", "SH", "SZ"
+
+    # Allow additional fields dynamically
+    model_config = {"extra": "allow"}
