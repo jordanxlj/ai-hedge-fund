@@ -352,7 +352,7 @@ class FutuScraper:
                         ticker = stock_info['code']
                         # Clean up ticker: remove market prefix/suffix like .HK or .US
                         if '.' in ticker:
-                            ticker = ticker.split('.')[0]
+                            ticker = ticker.split('.')[1]  # Take the second part (stock symbol)
 
                         mapping = StockPlateMapping(
                             ticker=ticker,
