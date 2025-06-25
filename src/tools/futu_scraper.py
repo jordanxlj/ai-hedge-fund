@@ -9,9 +9,14 @@ import duckdb
 from pydantic import BaseModel
 import pandas as pd
 from collections import deque
+from tenacity import retry, stop_after_attempt, wait_fixed
 
-from src.data.models import FinancialProfile, StockPlateMapping
-from src.data.futu_utils import FutuDummyStockData, convert_to_financial_profile, get_report_period_date
+from src.data.models import FinancialProfile, StockPlateMapping, Market
+from src.data.futu_utils import FutuDummyStockData, futu_data_to_financial_profile, get_report_period_date
+from src.utils.log_util import logger_setup as _init_logging
+
+# Initialise logging first so subsequent imports are covered
+_init_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +79,11 @@ class FutuScraper:
         if self.quote_ctx:
             self.quote_ctx.close()
             self.quote_ctx = None
+
+    def _ensure_connection(self):
+        """Ensures the Futu API connection is active."""
+        if self.quote_ctx is None or self.quote_ctx.status() != ft.RET_OK:
+            self._connect()
 
     def _get_pydantic_sql_type(self, field_type) -> str:
         """Maps Pydantic/Python types to DuckDB SQL types."""
@@ -276,7 +286,7 @@ class FutuScraper:
                 parts = stock_code.split('.')
                 if len(parts) == 2:
                     internal_ticker = f"{parts[1]}.{parts[0]}"
-                    profile = convert_to_financial_profile(dummy_stock_obj, internal_ticker, data_dict['stock_name'], end_date, quarter, ft_market)
+                    profile = futu_data_to_financial_profile(dummy_stock_obj, internal_ticker, data_dict['stock_name'], end_date, quarter, ft_market)
                     final_profile.extend(profile)
 
             return final_profile
@@ -289,22 +299,18 @@ class FutuScraper:
         finally:
             self._disconnect()
 
-    def scrape_stock_plate_mappings(self, market: str):
+    def scrape_stock_plate_mappings(self, market: Market = Market.HK):
         """
         Scrapes stock-plate mappings for a given market and stores them in DuckDB.
         """
+        self._ensure_connection()
+
+        # Convert our Market enum to the futu Market enum
+        ft_market = ft.Market.HK if market == Market.HK else ft.Market.US
+
         table_name = "stock_plate_mappings"
-        self._connect()
-
         try:
-            if market.upper() == 'HK':
-                ft_market = ft.Market.HK
-            elif market.upper() == 'US':
-                ft_market = ft.Market.US
-            else:
-                raise ValueError("Unsupported market. Please use 'HK' or 'US'.")
-
-            logger.debug(f"connect to duckdb: {self.db_path}")
+            logger.info(f"Starting to scrape stock plate mappings for market: {market}")
             with duckdb.connect(self.db_path) as con:
                 primary_keys = ["ticker", "plate_code"]
                 self._create_table_from_model(con, StockPlateMapping, table_name, primary_keys)
@@ -315,65 +321,112 @@ class FutuScraper:
                     logger.error(f"Failed to get plate list for market {market}: {plate_list_df}")
                     return
 
+                if plate_list_df.empty:
+                    logger.warning(f"No plates found for market {market}. Exiting.")
+                    return
+
                 plate_list = plate_list_df.to_dict('records')
                 logger.info(f"Successfully retrieved {len(plate_list)} plates for market {market}.")
 
-                for plate_info in plate_list:
-                    print(f"plate info: {plate_info}")
+                all_mappings = []
+                for i, plate_info in enumerate(plate_list):
                     plate_code = plate_info['code']
                     plate_name = plate_info['plate_name']
-                    plate_id = plate_info['plate_id']
-                    logger.info(f"Processing plate: {plate_name} ({plate_code})")
-
-                    # Rate limit: 10 requests per 30 seconds for get_plate_stock
-                    if len(self.rate_limit_timestamps) == 10:
-                        oldest_request_time = self.rate_limit_timestamps[0]
-                        elapsed_time = time.time() - oldest_request_time
-                        if elapsed_time < 30.0:
-                            sleep_duration = 30.0 - elapsed_time
-                            logger.info(f"Rate limit reached for get_plate_stock. Sleeping for {sleep_duration:.2f} seconds.")
-                            time.sleep(sleep_duration)
-
-                    # 2. Get all stocks within each plate
-                    ret, stock_list_df = self.quote_ctx.get_plate_stock(plate_code) # default sort is by code
-                    self.rate_limit_timestamps.append(time.time()) # Record timestamp after the call
+                    
+                    logger.debug(f"Processing plate {i+1}/{len(plate_list)}: {plate_name} ({plate_code})")
+                    
+                    # 2. Get all stocks in the plate
+                    ret, stock_list_df = self._get_plate_stock_with_retry(plate_code)
 
                     if ret != ft.RET_OK:
-                        logger.error(f"Failed to get stock list for plate {plate_name}: {stock_list_df}")
+                        logger.warning(f"Could not get stocks for plate {plate_name} ({plate_code}): {stock_list_df}")
                         continue
+                    
+                    if stock_list_df.empty:
+                        logger.debug(f"Plate {plate_name} ({plate_code}) has no stocks.")
+                        continue
+                        
+                    logger.debug(f"Found {len(stock_list_df)} stocks in plate {plate_name}.")
 
-                    stock_list = stock_list_df.to_dict('records')
-
-                    # 3. Store the mappings
-                    for stock_info in stock_list:
-                        stock_code_full = stock_info['code']
-                        # ticker只保留code，不保留.HK这样的市场信息
-                        ticker_only = stock_code_full.split('.')[1] if '.' in stock_code_full else stock_code_full
+                    for stock_info in stock_list_df.to_dict('records'):
+                        ticker = stock_info['code']
+                        # Clean up ticker: remove market prefix/suffix like .HK or .US
+                        if '.' in ticker:
+                            ticker = ticker.split('.')[0]
 
                         mapping = StockPlateMapping(
-                            ticker=ticker_only,
+                            ticker=ticker,
                             stock_name=stock_info['stock_name'],
                             plate_code=plate_code,
                             plate_name=plate_name,
                             market=market
                         )
-                        
-                        # Using UPSERT logic, ON CONFLICT on composite primary key
-                        con.execute(f"""
-                            INSERT INTO {table_name} (ticker, stock_name, plate_code, plate_name, market)
-                            VALUES (?, ?, ?, ?, ?)
-                            ON CONFLICT (ticker, plate_code) DO NOTHING;
-                        """, (mapping.ticker, mapping.stock_name, mapping.plate_code, mapping.plate_name, mapping.market))
+                        all_mappings.append(mapping)
+                
+                if all_mappings:
+                    self._upsert_data(con, table_name, all_mappings, primary_keys)
+                    logger.info(f"Successfully upserted {len(all_mappings)} stock-plate mappings for market {market} into '{table_name}'.")
+                else:
+                    logger.info(f"No new stock-plate mappings to insert for market {market}.")
 
-                    logger.info(f"Successfully processed {len(stock_list)} stocks for plate {plate_name}.")
-                    #time.sleep(self.req_freq) # Adhere to frequency limits
         except Exception as e:
             logger.error(f"Failed to scrape stock plate mappings for market {market}: {e}")
             import traceback
             logger.error(f"Detailed error: {traceback.format_exc()}")
-            return
         finally:
             self._disconnect()
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(31))
+    def _get_plate_stock_with_retry(self, plate_code: str):
+        ret, stock_list_df = self.quote_ctx.get_plate_stock(plate_code)
+        return ret, stock_list_df
+
+    def _upsert_data(self, conn: duckdb.DuckDBPyConnection, table_name: str, data: List[BaseModel], primary_keys: List[str]):
+        """
+        Generic method to upsert a list of Pydantic models into a DuckDB table.
+        """
+        if not data:
+            logger.info("No data provided to upsert.")
+            return
+
+        model = data[0].__class__
+        model_fields = list(model.model_fields.keys())
+
+        # Convert list of Pydantic objects to a list of dictionaries
+        data_dicts = [m.model_dump() for m in data]
+        
+        # Create a DataFrame from the dictionaries, ensuring column order
+        df = pd.DataFrame(data_dicts, columns=model_fields)
+
+        # Upsert into the main table
+        # Use a temporary table for the upsert operation to handle it atomically
+        temp_table_name = f"temp_{table_name}_{int(time.time())}"
+        conn.register(temp_table_name, df)
+        
+        # Ensure column names are quoted to handle special characters or keywords
+        quoted_cols = [f'"{col}"' for col in model_fields]
+        quoted_pk = [f'"{pk}"' for pk in primary_keys]
+        
+        # Prepare the SET clause for the DO UPDATE part
+        update_set_sql = ", ".join([f'{col} = excluded.{col}' for col in quoted_cols if col not in quoted_pk])
+        
+        # If there are no columns to update (all are primary keys), the upsert is just an INSERT...ON CONFLICT DO NOTHING
+        if not update_set_sql:
+            on_conflict_sql = "DO NOTHING"
+        else:
+            on_conflict_sql = f"DO UPDATE SET {update_set_sql}"
+
+        upsert_sql = f"""
+        INSERT INTO "{table_name}" ({', '.join(quoted_cols)})
+        SELECT {', '.join(quoted_cols)} FROM {temp_table_name}
+        ON CONFLICT ({', '.join(quoted_pk)}) {on_conflict_sql};
+        """
+        
+        try:
+            conn.execute(upsert_sql)
+            logger.info(f"Successfully upserted {len(df)} records into '{table_name}'.")
+        finally:
+            conn.unregister(temp_table_name)
 
     def close(self):
         self._disconnect()

@@ -1,11 +1,15 @@
 import futu as ft
-from typing import List
+from typing import List, Dict, Any
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from src.data.models import FinancialProfile
 
 logger = logging.getLogger(__name__)
+
+def get_db_path(db_name: str = "futu_financials.duckdb") -> str:
+    """Constructs the full path to the DuckDB database file."""
+    return f"data/{db_name}"
 
 def get_report_period_date(query_date: date, quarter: str) -> date:
     """

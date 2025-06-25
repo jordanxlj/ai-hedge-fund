@@ -1,6 +1,11 @@
 from pydantic import BaseModel
 from enum import Enum
 
+class Market(str, Enum):
+    SH = "SH"   #A股 上证
+    SZ = "SZ"   #A股 深证
+    HK = "HK"   #H股 恒生
+    US = "US"   #美股
 
 class TransactionType(str, Enum):
     """交易类型枚举"""
@@ -306,5 +311,4 @@ class StockPlateMapping(BaseModel):
     plate_name: str
     market: str  # e.g., "HK", "SH", "SZ"
 
-    class Config:
-        from_attributes = True
+    model_config = {"extra": "allow"}
