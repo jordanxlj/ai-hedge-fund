@@ -35,127 +35,47 @@ class FutuDummyStockData:
     def __getattr__(self, name):
         return self.__dict__.get(name)
 
-def convert_to_financial_profile(stock_data, ticker: str, name: str, end_date: str, period: str, market=None) -> List[FinancialProfile]:
-    """
-    Converts a Futu stock filter result object to a FinancialProfile object.
-    """
-    try:
-        financial_data = {}
-        
-        # Determine currency from market
-        currency = "USD" # Default
-        if market == ft.Market.HK:
-            currency = "HKD"
-        elif market == ft.Market.US:
-            currency = "USD" 
-        elif ticker.upper().endswith('.HK'):
-             currency = "HKD"
-        elif ticker.upper().endswith('.US'):
-             currency = "USD"
+# Mapping from Futu API field names to our FinancialProfile model field names
+FUTU_FIELD_MAPPING = {
+    'pe_ttm': 'price_to_earnings_ratio',
+    'pb_rate': 'price_to_book_ratio',
+    'ps_ttm': 'price_to_sales_ratio',
+    'pcf_ttm': 'price_to_cashflow_ratio',
+    'market_val': 'market_cap',
+    'net_profit': 'net_income',
+    'net_profit_rate': 'net_margin',
+    'gross_profit_rate': 'gross_margin',
+    'return_on_equity_rate': 'return_on_equity',
+    'debt_asset_rate': 'debt_to_assets',
+    'sum_of_business': 'revenue',
+}
 
-        # Dynamically extract all available financial data from the stock_data object
-        stock_vars = vars(stock_data)
-        for key, value in stock_vars.items():
-            if isinstance(key, tuple) and len(key) == 2:
-                # This is a financial metric, e.g., ('accounts_receivable', 'annual')
-                attr_name, _ = key
-                financial_data[attr_name] = value
-            elif isinstance(key, str) and key not in ['stock_code', 'stock_name']:
-                # This could be other data like market_val
-                financial_data[key] = value
+def futu_data_to_financial_profile(data: dict, report_date: str, period: str) -> FinancialProfile:
+    """从Futu API返回的字典数据创建FinancialProfile对象"""
+    
+    # 1. Clean the ticker
+    stock_code_full = data.get('stock_code')
+    ticker_only = stock_code_full.split('.')[0] if stock_code_full and '.' in stock_code_full else stock_code_full
 
-        # Mapping from Futu fields to FinancialProfile fields
-        # This is not a complete 1-to-1 mapping in names, so we need to be explicit
-        # where names differ or logic is needed.
-        
-        # Valuation Ratios
-        financial_data['price_to_earnings_ratio'] = financial_data.pop('pe_ttm', None)
-        financial_data['price_to_book_ratio'] = financial_data.pop('pb_rate', None)
-        financial_data['price_to_sales_ratio'] = financial_data.pop('ps_ttm', None)
-        financial_data['price_to_cashflow_ratio'] = financial_data.pop('pcf_ttm', None)
+    # 2. Rename keys based on mapping
+    mapped_data = {}
+    for futu_key, model_key in FUTU_FIELD_MAPPING.items():
+        if futu_key in data and data[futu_key] is not None:
+            mapped_data[model_key] = data[futu_key]
 
-        # Market & Shares
-        financial_data['market_cap'] = financial_data.pop('market_val', None)
-        financial_data['total_shares_outstanding'] = financial_data.pop('total_share', None)
-        financial_data['outstanding_shares'] = financial_data.pop('float_share', None)
+    # Include any other fields that have direct 1:1 name mapping
+    for key, value in data.items():
+        if key not in FUTU_FIELD_MAPPING and hasattr(FinancialProfile, key) and value is not None:
+             mapped_data[key] = value
 
-        # Profitability
-        financial_data['net_income'] = financial_data.pop('net_profit', None)
-        financial_data['net_margin'] = financial_data.pop('net_profit_rate', None)
-        financial_data['gross_margin'] = financial_data.pop('gross_profit_rate', None)
-        financial_data['ebit'] = financial_data.pop('ebit_ttm', None)
-        financial_data['net_income_to_shareholders'] = financial_data.pop('shareholder_net_profit_ttm', None)
-
-        # Return Ratios
-        financial_data['return_on_equity'] = financial_data.pop('return_on_equity_rate', None)
-        financial_data['return_on_assets'] = financial_data.pop('roa_ttm', None)
-        financial_data['return_on_invested_capital'] = financial_data.pop('roic', None)
-
-        # Growth Rates
-        financial_data['earnings_growth'] = financial_data.pop('net_profix_growth', None)
-        financial_data['revenue_growth'] = financial_data.pop('sum_of_business_growth', None)
-        financial_data['earnings_per_share_growth'] = financial_data.pop('eps_growth_rate', None)
-        financial_data['return_on_equity_growth'] = financial_data.pop('roe_growth_rate', None)
-        financial_data['return_on_invested_capital_growth'] = financial_data.pop('roic_growth_rate', None)
-        financial_data['operating_cash_flow_ratio'] = financial_data.pop('nocf_growth_rate', None)
-        financial_data['free_cash_flow_per_share_growth'] = financial_data.pop('nocf_per_share_growth_rate', None)
-        financial_data['operating_income_growth'] = financial_data.pop('operating_profit_growth_rate', None)
-        financial_data['total_assets_growth'] = financial_data.pop('total_assets_growth_rate', None)
-        financial_data['net_income_to_shareholders_growth'] = financial_data.pop('profit_to_shareholders_growth_rate', None)
-        financial_data['pretax_income_growth'] = financial_data.pop('profit_before_tax_growth_rate', None)
-        financial_data['ebit_growth'] = financial_data.pop('ebit_growth_rate', None)
-
-        # Financial Health
-        financial_data['debt_to_assets'] = financial_data.pop('debt_asset_rate', None)
-        financial_data['current_assets_ratio'] = financial_data.pop('current_asset_ratio', None)
-        financial_data['current_liabilities_ratio'] = financial_data.pop('current_debt_ratio', None)
-        financial_data['quick_ratio'] = financial_data.pop('quick_ratio', None)
-        financial_data['current_ratio'] = financial_data.pop('current_ratio', None)
-        
-        # Margins
-        financial_data['operating_margin'] = financial_data.pop('operating_margin_ttm', None)
-        
-        # Cash Flow
-        financial_data['operating_cash_flow'] = financial_data.pop('operating_cash_flow_ttm', None)
-        financial_data['cash_conversion_ratio'] = financial_data.pop('net_profit_cash_cover_ttm', None)
-        financial_data['cash_from_operations_to_revenue_ratio'] = financial_data.pop('operating_revenue_cash_cover', None)
-        financial_data['cash_and_equivalents'] = financial_data.pop('cash_and_cash_equivalents', None)
-        
-        # Per Share
-        financial_data['earnings_per_share'] = financial_data.pop('basic_eps', None)
-        financial_data['free_cash_flow_per_share'] = financial_data.pop('nocf_per_share', None)
-
-        # Other Balance Sheet / Income Statement items
-        financial_data['revenue'] = financial_data.pop('sum_of_business', None)
-        financial_data['cash_and_equivalents'] = financial_data.pop('cash_and_cash_equivalents', None)
-        financial_data['operating_income'] = financial_data.pop('operating_profit_ttm', None)
-        financial_data['operating_income_to_total_income_ratio'] = financial_data.pop('operating_profit_to_total_profit', None)
-        financial_data['accounts_receivable'] = financial_data.pop('accounts_receivable', None)
-
-        # Turnover Ratios
-        financial_data['inventory_turnover'] = financial_data.pop('inventory_turnover', None)
-        financial_data['asset_turnover'] = financial_data.pop('total_asset_turnover', None)
-        financial_data['fixed_asset_turnover'] = financial_data.pop('fixed_asset_turnover', None)
-
-        # Cost Ratios
-        financial_data['financial_cost_rate'] = financial_data.pop('financial_cost_rate', None)
-
-        # Create FinancialProfile object, filtering out any None values from the dict
-        valid_financial_data = {k: v for k, v in financial_data.items() if v is not None}
-        
-        profile = FinancialProfile(
-            ticker=ticker,
-            name=name,
-            report_period=end_date,
-            period=period,
-            currency=currency,
-            **valid_financial_data
-        )
-        
-        return [profile]
-        
-    except Exception as e:
-        logger.error(f"Failed to convert financial profile data for {ticker}: {e}")
-        import traceback
-        logger.error(f"Detailed error: {traceback.format_exc()}")
-        return [] 
+    # 3. Create the FinancialProfile object
+    profile = FinancialProfile(
+        ticker=ticker_only,
+        name=data.get('stock_name'),
+        report_period=report_date,
+        period=period,
+        currency="HKD",  # This might need to be dynamic based on the market
+        **mapped_data
+    )
+            
+    return profile 

@@ -2,25 +2,27 @@ import futu as ft
 import os
 from typing import List, Optional
 from src.data.abstract_data_provider import AbstractDataProvider
-from src.data.models import Price, FinancialMetrics, InsiderTrade, CompanyNews, LineItem
-from src.data.futu_utils import convert_to_financial_metrics, get_report_period_date
+from src.data.models import Price, FinancialProfile, InsiderTrade, CompanyNews, LineItem
+from src.data.futu_utils import get_report_period_date
 import logging
 from datetime import datetime, date
 import duckdb
+from pathlib import Path
+from src.utils.timeout_retry import with_timeout_retry
 
 logger = logging.getLogger(__name__)
 
 class FutuDataProvider(AbstractDataProvider):
 
-    def __init__(self, api_key: Optional[str] = None):
-        self.host = os.getenv("FUTU_HOST", "127.0.0.1")
-        super().__init__(name="Futu", api_key=api_key)
+    def __init__(self, db_path: str = "data/futu_financials.duckdb"):
+        super().__init__("Futu", api_key=None) # API key no longer needed for provider
+        self.db_path = db_path
         self.quote_ctx = None
 
     def _connect(self):
         if self.quote_ctx is None:
             try:
-                self.quote_ctx = ft.OpenQuoteContext(host=self.host, port=11111)
+                self.quote_ctx = ft.OpenQuoteContext(host=os.getenv("FUTU_HOST", "127.0.0.1"), port=11111)
             except Exception as e:
                 logger.error(f"Failed to connect to Futu: {e}")
                 raise
@@ -75,51 +77,54 @@ class FutuDataProvider(AbstractDataProvider):
             return f"HK.{ticker.zfill(5)}"
         return f"US.{ticker.upper()}"
 
-    def get_financial_metrics(self, ticker: str, end_date: str, period: str = "ttm", limit: int = 10) -> List[FinancialMetrics]:
-        """
-        Retrieves financial metrics for a given stock from the local DuckDB database,
-        querying the correct table based on the report period.
-        """
-        if not os.path.exists(self.db_path):
-            logger.warning(f"DuckDB file '{self.db_path}' not found. Cannot fetch financial metrics.")
-            return []
-            
+    def _get_db_connection(self):
+        """Creates and returns a connection to the DuckDB database."""
         try:
-            query_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
-            report_date = get_report_period_date(query_date_obj, period)
-            table_name = f"financial_metrics_{report_date.strftime('%Y_%m_%d')}"
-
-            with duckdb.connect(self.db_path, read_only=True) as conn:
-                # Check if the specific table exists before querying
-                all_tables = conn.execute("SHOW TABLES;").fetchall()
-                if (table_name,) not in all_tables:
-                    logger.warning(f"Metrics table '{table_name}' not found for period '{period}' and end_date '{end_date}'.")
-                    return []
-
-                query = f"""
-                SELECT *
-                FROM "{table_name}"
-                WHERE ticker = ?
-                LIMIT ?
-                """
-                
-                results = conn.execute(query, [ticker, limit]).fetchdf()
-                
-                if results.empty:
-                    return []
-                    
-                metrics_list = []
-                for _, row in results.iterrows():
-                    metrics_list.append(FinancialMetrics.model_validate(row.to_dict()))
-                
-                return metrics_list
-
-        except (duckdb.CatalogException, duckdb.BinderException) as e:
-            logger.error(f"Error querying table {table_name}: {e}. Try running the scraper first.")
-            return []
+            return duckdb.connect(database=self.db_path, read_only=True)
         except Exception as e:
-            logger.error(f"Failed to get financial metrics for {ticker} from DuckDB: {e}")
+            logger.error(f"Failed to connect to DuckDB database at {self.db_path}: {e}")
+            return None
+
+    @with_timeout_retry("get_financial_profile")
+    def get_financial_metrics(
+        self,
+        ticker: str,
+        end_date: str,
+        period: str = "annual",
+        limit: int = 10,
+    ) -> List[FinancialProfile]:
+        """
+        从DuckDB数据库获取财务指标。
+        """
+        report_date = get_report_period_date(datetime.strptime(end_date, "%Y-%m-%d").date(), period)
+        table_name = f"financial_profile_{report_date.strftime('%Y_%m_%d')}"
+
+        con = self._get_db_connection()
+        if not con:
             return []
+
+        try:
+            # Check if table exists
+            res = con.execute(f"SELECT 1 FROM pg_tables WHERE tablename = '{table_name}'").fetchone()
+            if res is None:
+                logger.warning(f"Table '{table_name}' does not exist in the database.")
+                return []
+
+            query = f"SELECT * FROM {table_name} WHERE ticker = ? ORDER BY report_period DESC LIMIT ?"
+            df = con.execute(query, [ticker, limit]).fetch_df()
+            
+            if df.empty:
+                return []
+            
+            profiles = [FinancialProfile(**row) for _, row in df.iterrows()]
+            return profiles
+
+        except Exception as e:
+            logger.error(f"Failed to get financial metrics for {ticker} from {table_name}: {e}")
+            return []
+        finally:
+            if con:
+                con.close()
 
     def search_line_items(self, ticker: str, line_items: List[str], end_date: str, period: str = "ttm", limit: int = 10) -> List[LineItem]:
         return []
@@ -149,12 +154,8 @@ class FutuDataProvider(AbstractDataProvider):
             self._disconnect()
 
     def is_available(self) -> bool:
-        try:
-            self._connect()
-            self._disconnect()
-            return True
-        except Exception:
-            return False
+        """检查数据提供商是否可用（检查数据库文件是否存在）。"""
+        return Path(self.db_path).exists()
 
     def convert_period(self, period: str) -> str:
         # Futu API uses different period designations
