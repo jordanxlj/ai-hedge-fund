@@ -99,10 +99,10 @@ class TestFutuScraper:
         _, models_list, _ = upsert_args
         
         assert len(models_list) == 3
-        assert {m.ticker for m in models_list} == {'US.MSFT', 'US.GOOG', 'US.AMZN'}
+        assert {m.ticker for m in models_list} == {'MSFT', 'GOOG', 'AMZN'}
         
         # Verify that a value was correctly parsed and mapped
-        msft_model = next(m for m in models_list if m.ticker == 'US.MSFT')
+        msft_model = next(m for m in models_list if m.ticker == 'MSFT')
         assert msft_model.price_to_earnings_ratio == 30.5
 
     def test_scrape_and_store_no_data(self, monkeypatch, scraper_instance):

@@ -54,32 +54,57 @@ FUTU_FIELD_MAPPING = {
     'sum_of_business': 'revenue',
 }
 
-def futu_data_to_financial_profile(data: dict, report_date: str, period: str) -> FinancialProfile:
-    """从Futu API返回的字典数据创建FinancialProfile对象"""
+def futu_data_to_financial_profile(data: dict, report_date: str, period: str) -> List[FinancialProfile]:
+    """从Futu API返回的字典数据创建FinancialProfile对象列表"""
+    profiles = []
+    if not data:
+        return profiles
+
+    for stock_code, stock_data in data.items():
+        # 1. Clean the ticker
+        ticker_only = stock_code.split('.')[1] if '.' in stock_code else stock_code
+
+        # 2. Rename keys based on mapping
+        mapped_data = {}
+        for futu_key, model_key in FUTU_FIELD_MAPPING.items():
+            if futu_key in stock_data and stock_data[futu_key] is not None:
+                mapped_data[model_key] = stock_data[futu_key]
+
+        # Include any other fields that have direct 1:1 name mapping
+        for key, value in stock_data.items():
+            if key not in FUTU_FIELD_MAPPING and hasattr(FinancialProfile, key) and value is not None:
+                mapped_data[key] = value
+
+        # 3. Create the FinancialProfile object
+        profile = FinancialProfile(
+            ticker=ticker_only,
+            name=stock_data.get('stock_name', ticker_only),  # Use ticker as fallback for name
+            report_period=report_date,
+            period=period,
+            currency="HKD",  # This might need to be dynamic based on the market
+            **mapped_data
+        )
+        profiles.append(profile)
+        
+    return profiles
+
+
+def get_report_period_date(current_date: date, quarter: str) -> date:
+    """
+    Calculates the standardized report period end date based on a query date and quarter.
+    """
+    current_year = current_date.year
     
-    # 1. Clean the ticker
-    stock_code_full = data.get('stock_code')
-    ticker_only = stock_code_full.split('.')[0] if stock_code_full and '.' in stock_code_full else stock_code_full
-
-    # 2. Rename keys based on mapping
-    mapped_data = {}
-    for futu_key, model_key in FUTU_FIELD_MAPPING.items():
-        if futu_key in data and data[futu_key] is not None:
-            mapped_data[model_key] = data[futu_key]
-
-    # Include any other fields that have direct 1:1 name mapping
-    for key, value in data.items():
-        if key not in FUTU_FIELD_MAPPING and hasattr(FinancialProfile, key) and value is not None:
-             mapped_data[key] = value
-
-    # 3. Create the FinancialProfile object
-    profile = FinancialProfile(
-        ticker=ticker_only,
-        name=data.get('stock_name'),
-        report_period=report_date,
-        period=period,
-        currency="HKD",  # This might need to be dynamic based on the market
-        **mapped_data
-    )
-            
-    return profile 
+    if quarter == 'annual':
+        return date(current_year - 1, 12, 31)
+    elif quarter == 'q1':
+        year = current_year if current_date.month >= 4 else current_year - 1
+        return date(year, 3, 31)
+    elif quarter == 'interim':
+        year = current_year if current_date.month >= 7 else current_year - 1
+        return date(year, 6, 30)
+    elif quarter == 'q3':
+        year = current_year if current_date.month >= 10 else current_year - 1
+        return date(year, 9, 30)
+    else: # Fallback for unrecognized quarters
+        return current_date 
