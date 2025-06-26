@@ -1,17 +1,16 @@
 import pytest
-from unittest.mock import MagicMock, patch
 import pandas as pd
-import duckdb
-import os
+import futu as ft
+from unittest.mock import patch, MagicMock, call
 
-from src.futu_scraper import FutuScraper
-from src.data.models import StockPlateMapping, FinancialProfile
-from futu import Market
+from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE
+from src.data.models import Market
 
-# Sample data for mocking Futu API responses
+# --- Sample Data ---
+
 SAMPLE_PLATE_LIST = pd.DataFrame([
-    {'code': 'PLT.001', 'plate_name': 'Tech Giants'},
-    {'code': 'PLT.002', 'plate_name': 'Finance Leaders'},
+    {'code': 'PLT.001', 'plate_name': 'Tech Giants', 'plate_id': 'P1'},
+    {'code': 'PLT.002', 'plate_name': 'Financials', 'plate_id': 'P2'},
 ])
 
 SAMPLE_STOCK_LIST_TECH = pd.DataFrame([
@@ -23,96 +22,118 @@ SAMPLE_STOCK_LIST_FINANCE = pd.DataFrame([
     {'code': 'US.JPM', 'stock_name': 'JPMorgan Chase & Co.'},
 ])
 
+# Sample data for financial profile scraping
+SAMPLE_FINANCIAL_DATA_PAGE1 = pd.DataFrame({
+    'stock_code': ['US.MSFT', 'US.GOOG'],
+    'pe_ttm': [30.5, 25.1],
+    'is_last_page': [False, False]
+})
+SAMPLE_FINANCIAL_DATA_PAGE2 = pd.DataFrame({
+    'stock_code': ['US.AMZN'],
+    'pe_ttm': [55.2],
+    'is_last_page': [True]
+})
+
+
 @pytest.fixture
 def scraper_instance():
-    """Fixture to create a FutuScraper instance with a test database."""
-    test_db_path = "tests/test_futu_data.duckdb"
-    # Ensure the test db is clean before each test
-    if os.path.exists(test_db_path):
-        os.remove(test_db_path)
-    
-    scraper = FutuScraper(db_path=test_db_path)
-    # Mock the Futu OpenQuoteContext
-    scraper.quote_ctx = MagicMock()
-    
-    yield scraper
-    
-    # Teardown: clean up the test database
-    scraper.close()
-    if os.path.exists(test_db_path):
-        os.remove(test_db_path)
+    """Fixture to create a FutuScraper instance with a mocked quote_ctx and db_api."""
+    with patch('futu.OpenQuoteContext') as mock_futu_connect:
+        # Create an instance of the scraper
+        scraper = FutuScraper(db_path="test_scraper.db")
+
+        # Mock the quote_ctx and db_api on the instance
+        scraper.quote_ctx = MagicMock()
+        scraper.db_api = MagicMock()
+
+        yield scraper
+
+        # Teardown
+        scraper.close()
+
 
 class TestFutuScraper:
-    @patch('duckdb.connect')
-    def test_scrape_stock_plate_mappings(self, mock_db_connect, scraper_instance):
+    def test_scrape_stock_plate_mappings(self, scraper_instance):
         """Test the scraping and storing of stock-plate mappings."""
         # --- Setup Mocks ---
-        # Mock the database connection and cursor
-        mock_con = MagicMock()
-        
-        # Important: Set up the context manager behavior
-        # When 'with duckdb.connect() as con:' is used, con should be mock_con
-        mock_con.__enter__.return_value = mock_con
-        mock_con.__exit__.return_value = None
-        mock_db_connect.return_value = mock_con
-
-        # Mock the Futu API calls
         def get_plate_stock_side_effect(plate_code, *args, **kwargs):
             if plate_code == 'PLT.001':
-                return (0, SAMPLE_STOCK_LIST_TECH)
+                return (ft.RET_OK, SAMPLE_STOCK_LIST_TECH)
             elif plate_code == 'PLT.002':
-                return (0, SAMPLE_STOCK_LIST_FINANCE)
-            return (0, pd.DataFrame()) # Default empty response
+                return (ft.RET_OK, SAMPLE_STOCK_LIST_FINANCE)
+            return (ft.RET_OK, pd.DataFrame())
 
-        scraper_instance.quote_ctx.get_plate_list.return_value = (0, SAMPLE_PLATE_LIST)
+        scraper_instance.quote_ctx.get_plate_list.return_value = (ft.RET_OK, SAMPLE_PLATE_LIST)
         scraper_instance.quote_ctx.get_plate_stock.side_effect = get_plate_stock_side_effect
-
-        # Save a reference to the mocked quote_ctx before it gets cleaned up
-        mock_quote_ctx = scraper_instance.quote_ctx
 
         # --- Execute the Method ---
         scraper_instance.scrape_stock_plate_mappings(market=Market.US)
 
         # --- Assertions ---
-        # 1. Check if the table was created correctly
-        if mock_con.execute.call_args_list:
-            create_table_call = mock_con.execute.call_args_list[0]
-            assert 'CREATE TABLE IF NOT EXISTS "stock_plate_mappings"' in str(create_table_call)
-        else:
-            # If no execute calls were made, the method likely exited early
-            # Let's check if it was due to empty plate list or other issues
-            assert False, "No database execute calls were made. Check if the method exited early."
+        scraper_instance.db_api.create_table_from_model.assert_called_once()
+        scraper_instance.db_api.upsert_data_from_models.assert_called_once()
+        assert scraper_instance.quote_ctx.get_plate_list.call_count == 1
+        assert scraper_instance.quote_ctx.get_plate_stock.call_count == 2
 
-        # 2. Check that the data was prepared and registered as a DataFrame
-        # The `register` method is called on the connection object `mock_con`
-        if mock_con.register.call_count > 0:
-            mock_con.register.assert_called_once()
-            # call_args gives a tuple of (args, kwargs), we need the first arg of the args tuple
-            registered_df_name, registered_df = mock_con.register.call_args[0]
-            
-            assert isinstance(registered_df, pd.DataFrame)
-            # Total stocks = 2 (Tech) + 1 (Finance) = 3
-            assert len(registered_df) == 3
+    @patch('time.sleep', return_value=None)
+    @patch('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
+    def test_scrape_and_store_financial_profile(self, scraper_instance):
+        """Test the financial profile scraping and storing workflow."""
+        # --- Setup Mocks ---
+        scraper_instance.quote_ctx.get_stock_filter.side_effect = [
+            (ft.RET_OK, SAMPLE_FINANCIAL_DATA_PAGE1),
+            (ft.RET_OK, SAMPLE_FINANCIAL_DATA_PAGE2),
+        ]
 
-            # 3. Verify the contents of the registered DataFrame
-            # Check that tickers were cleaned (e.g., 'US.AAPL' -> 'AAPL')
-            assert 'AAPL' in registered_df['ticker'].values
-            assert 'GOOG' in registered_df['ticker'].values
-            assert 'JPM' in registered_df['ticker'].values
-            # Check a specific row for correctness
-            aapl_row = registered_df[registered_df['ticker'] == 'AAPL'].iloc[0]
-            assert aapl_row['stock_name'] == 'Apple Inc.'
-            assert aapl_row['plate_code'] == 'PLT.001'
-            assert aapl_row['market'] == 'US'
+        # --- Execute the Method ---
+        scraper_instance.scrape_and_store(market='US', quarter='annual')
 
-            # 4. Check that a single upsert SQL command was executed
-            # The first call is CREATE TABLE, the second should be the INSERT
-            insert_calls = [call for call in mock_con.execute.call_args_list if "INSERT INTO" in str(call)]
-            assert len(insert_calls) == 1, f"Expected 1 INSERT call, but found {len(insert_calls)}"
-            assert "ON CONFLICT (\"ticker\", \"plate_code\") DO UPDATE" in str(insert_calls[0])
-        else:
-            assert False, "No DataFrame was registered. Check if the upsert method was called."
+        # --- Assertions ---
+        scraper_instance.db_api.create_table_from_model.assert_called_once()
+        scraper_instance.db_api.upsert_data_from_models.assert_called_once()
+        
+        upsert_args, _ = scraper_instance.db_api.upsert_data_from_models.call_args
+        _, models_list, _ = upsert_args
+        
+        assert len(models_list) == 3
+        assert {m.ticker for m in models_list} == {'US.MSFT', 'US.GOOG', 'US.AMZN'}
+        
+        # Verify that a value was correctly parsed and mapped
+        msft_model = next(m for m in models_list if m.ticker == 'US.MSFT')
+        assert msft_model.price_to_earnings_ratio == 30.5
 
-        # 5. Check API call counts to ensure no unnecessary requests
-        assert mock_quote_ctx.get_plate_list.call_count == 1
-        assert mock_quote_ctx.get_plate_stock.call_count == 2 
+    @patch('time.sleep', return_value=None)
+    @patch('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
+    def test_scrape_and_store_no_data(self, scraper_instance):
+        """Test the scrape_and_store method when no financial data is returned."""
+        scraper_instance.quote_ctx.get_stock_filter.return_value = (ft.RET_OK, pd.DataFrame())
+        
+        scraper_instance.scrape_and_store(market='US')
+        
+        # The scraper should log and exit gracefully without calling db methods
+        scraper_instance.db_api.create_table_from_model.assert_not_called()
+        scraper_instance.db_api.upsert_data_from_models.assert_not_called()
+
+    def test_get_plate_list_error(self, scraper_instance):
+        """Test error handling when fetching the plate list fails."""
+        scraper_instance.quote_ctx.get_plate_list.return_value = (ft.RET_ERROR, "API error")
+        result = scraper_instance._get_plate_list(Market.US)
+        assert result == []
+
+    def test_get_plate_stock_error(self, scraper_instance):
+        """Test error handling when fetching stocks for a plate fails."""
+        scraper_instance.quote_ctx.get_plate_stock.return_value = (ft.RET_ERROR, "API error")
+        result = scraper_instance._get_plate_stock_with_retry("PLT.001")
+        assert result is None
+
+    def test_unsupported_market_scrape_profile(self, scraper_instance):
+        """Test that an unsupported market raises a ValueError."""
+        with pytest.raises(ValueError, match="Unsupported market"):
+            scraper_instance.scrape_financial_profile(market="XE")
+
+    @patch('futu.OpenQuoteContext', side_effect=Exception("Connection Failed"))
+    def test_connect_failure(self, mock_futu_connect):
+        """Test that an exception during Futu connection is handled."""
+        scraper = FutuScraper()
+        with pytest.raises(Exception, match="Connection Failed"):
+            scraper._connect()

@@ -180,6 +180,7 @@ class FutuScraper:
                         begin=begin_index,
                         num=num_per_req
                     )
+                    print(f"data: {data}")
                     time.sleep(self.req_freq)
 
                     if ret != ft.RET_OK:
