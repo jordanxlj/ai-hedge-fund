@@ -199,8 +199,8 @@ class FutuScraper:
                         if stock_code not in all_stocks_data:
                             all_stocks_data[stock_code] = {'ticker': stock_code}
 
-                        field_value = row[field.name.lower()]
-                        all_stocks_data[stock_code][field.name.lower()] = field_value
+                        field_value = row[field.lower()]
+                        all_stocks_data[stock_code][field.lower()] = field_value
 
                     if data.iloc[0]['is_last_page']:
                         last_page = True

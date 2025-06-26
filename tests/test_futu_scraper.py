@@ -1,6 +1,7 @@
 import pytest
 import pandas as pd
 import futu as ft
+import time
 from unittest.mock import patch, MagicMock, call
 
 from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE
@@ -75,10 +76,12 @@ class TestFutuScraper:
         assert scraper_instance.quote_ctx.get_plate_list.call_count == 1
         assert scraper_instance.quote_ctx.get_plate_stock.call_count == 2
 
-    @patch('time.sleep', return_value=None)
-    @patch('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
-    def test_scrape_and_store_financial_profile(self, scraper_instance):
+    def test_scrape_and_store_financial_profile(self, monkeypatch, scraper_instance):
         """Test the financial profile scraping and storing workflow."""
+        # Patch sleep and the fields list using monkeypatch for better pytest integration
+        monkeypatch.setattr(time, 'sleep', lambda x: None)
+        monkeypatch.setattr('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
+
         # --- Setup Mocks ---
         scraper_instance.quote_ctx.get_stock_filter.side_effect = [
             (ft.RET_OK, SAMPLE_FINANCIAL_DATA_PAGE1),
@@ -102,9 +105,11 @@ class TestFutuScraper:
         msft_model = next(m for m in models_list if m.ticker == 'US.MSFT')
         assert msft_model.price_to_earnings_ratio == 30.5
 
-    @patch('time.sleep', return_value=None)
-    @patch('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
-    def test_scrape_and_store_no_data(self, scraper_instance):
+    def test_scrape_and_store_no_data(self, monkeypatch, scraper_instance):
+        # Patch sleep and the fields list using monkeypatch for better pytest integration
+        monkeypatch.setattr(time, 'sleep', lambda x: None)
+        monkeypatch.setattr('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
+
         """Test the scrape_and_store method when no financial data is returned."""
         scraper_instance.quote_ctx.get_stock_filter.return_value = (ft.RET_OK, pd.DataFrame())
         
