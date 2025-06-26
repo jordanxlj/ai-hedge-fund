@@ -5,10 +5,11 @@ import logging
 from datetime import datetime, date
 from typing import List, Optional
 from collections import deque
+import asyncio
 
 import pandas as pd
 from pydantic import BaseModel
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type, RetryCallState
 
 from src.data.models import FinancialProfile, StockPlateMapping, Market
 from src.data.futu_utils import FutuDummyStockData, futu_data_to_financial_profile, get_report_period_date
@@ -52,31 +53,32 @@ FINANCIAL_FILTER_FIELDS = [
 ALL_FIELDS_TO_SCRAPE = list(set(FINANCIAL_FILTER_FIELDS + list(SIMPLE_FILTER_FIELDS)))
 
 class FutuNetworkError(Exception):
-    """Custom exception for Futu network-related errors that can be retried."""
+    """Custom exception for retryable network errors."""
     pass
 
 class FutuRateLimitError(Exception):
     """Custom exception for Futu rate limit errors."""
     pass
 
-def wait_based_on_error(retry_state):
-    """Custom wait strategy for tenacity to handle different error types."""
+def wait_based_on_error(retry_state: RetryCallState) -> float:
+    """
+    A synchronous wait strategy for tenacity that calculates wait time based on error type.
+    It does not perform the sleep itself; it returns the number of seconds to wait.
+    """
     exc = retry_state.outcome.exception()
+    wait_seconds = 1.0  # Default wait time
     if isinstance(exc, FutuRateLimitError):
-        wait_seconds = 31
+        wait_seconds = 31.0
         logger.warning(f"Rate limit error detected. Waiting {wait_seconds} seconds before retry...")
-        return wait_seconds
-    if isinstance(exc, FutuNetworkError):
-        # Use exponential backoff for network errors: 2s, 4s, 8s...
-        wait_seconds = 2 ** retry_state.attempt_number
+    elif isinstance(exc, FutuNetworkError):
+        # Exponential backoff
+        wait_seconds = float(2 ** retry_state.attempt_number)
         logger.warning(f"Network error detected. Waiting {wait_seconds} seconds before retry...")
-        return wait_seconds
-    return 1 # Default fallback
+
+    return wait_seconds
 
 class FutuScraper:
-    """
-    A scraper for fetching comprehensive financial profile from Futu OpenD.
-    """
+    """Asynchronously scrapes financial data and plate mappings from Futu OpenD API."""
     def __init__(self, db_path: str = "data/futu_financials.duckdb"):
         self.host = os.getenv("FUTU_HOST", "127.0.0.1")
         self.port = 11111
@@ -85,261 +87,189 @@ class FutuScraper:
         self.req_freq = 3.1
         self.rate_limit_timestamps = deque(maxlen=10)
 
-    def _connect(self):
-        """Connects to both Futu and the database."""
+    async def _connect(self):
+        """Asynchronously connects to the Futu API and the database."""
         if self.quote_ctx is None:
             try:
                 self.quote_ctx = ft.OpenQuoteContext(host=self.host, port=self.port)
+                await asyncio.sleep(0.1) # Brief delay to ensure connection stability
             except Exception as e:
-                logger.error(f"Failed to connect to Futu: {e}")
+                logger.error(f"Failed to connect to Futu API: {e}")
                 raise
         self.db_api.connect()
 
     def _disconnect(self):
-        """Disconnects from Futu and the database."""
+        """Disconnects from the Futu API and the database."""
         if self.quote_ctx:
             self.quote_ctx.close()
             self.quote_ctx = None
         self.db_api.close()
 
-    def _ensure_connection(self):
+    async def _ensure_connection(self):
         """Ensures the Futu API connection is active."""
         if self.quote_ctx is None or self.quote_ctx.status != ft.RET_OK:
-            self._connect()
+            await self._connect()
 
-    def scrape_and_store(self, market: str, quarter: str = "annual"):
-        """
-        Scrapes financial profile for a specific report period and stores them
-        in a dedicated table named after that period in a DB.
-        """
-        # Determine the target report period date
+    async def scrape_and_store_financials(self, market: str, quarter: str = "annual"):
+        """Scrapes financial data for a specific report period and stores it."""
         report_date = get_report_period_date(date.today(), quarter)
         report_date_str = report_date.strftime('%Y-%m-%d')
-
-        scraped_profile = self.scrape_financial_profile(market, quarter, report_date_str)
-        if not scraped_profile:
-            logger.info("No profile were scraped. Nothing to store.")
+        
+        scraped_profiles = await self.scrape_financial_profile(market, quarter, report_date_str)
+        if not scraped_profiles:
+            logger.info("No financial data was scraped, nothing to store.")
             return
-
+            
         table_name = f"financial_profile_{report_date.strftime('%Y_%m_%d')}"
-        logger.info(f"Scraped {len(scraped_profile)} records for period {report_date_str}. Storing to DB table '{table_name}'...")
+        logger.info(f"Scraped {len(scraped_profiles)} records for period {report_date_str}, storing to table '{table_name}'...")
 
         primary_keys = ["ticker", "report_period", "period"]
         self.db_api.create_table_from_model(table_name, FinancialProfile, primary_keys)
+        self.db_api.upsert_data_from_models(table_name, scraped_profiles, primary_keys)
+        logger.info(f"Successfully stored/updated {len(scraped_profiles)} records in '{table_name}'.")
 
-        if scraped_profile:
-            self.db_api.upsert_data_from_models(table_name, scraped_profile, primary_keys)
-            logger.info(f"Successfully stored/updated {len(scraped_profile)} records in table '{table_name}'.")
-        else:
-            logger.info("No data to store.")
-
-    def scrape_financial_profile(self, market: str, quarter: str = "annual", end_date: Optional[str] = None) -> List[FinancialProfile]:
-        """
-        Scrapes financial profile for all stocks in a given market by iterating through each financial field one by one.
-        NOTE: This process is very slow due to API limitations and rate limiting.
-        """
-        self._connect()
+    async def scrape_financial_profile(self, market: str, quarter: str, end_date: str) -> List[FinancialProfile]:
+        """Asynchronously scrapes financial profiles for all stocks in a given market."""
+        await self._ensure_connection()
         try:
-            if market.upper() == 'HK':
-                ft_market = ft.Market.HK
-            elif market.upper() == 'US':
-                ft_market = ft.Market.US
-            else:
-                raise ValueError("Unsupported market. Please use 'HK' or 'US'.")
-
-            if end_date is None:
-                today = date.today()
-                current_year = today.year
-
-                if quarter == 'annual':
-                    end_date = date(current_year - 1, 12, 31).strftime('%Y-%m-%d')
-                elif quarter == 'q1':
-                    year = current_year if today.month >= 4 else current_year - 1
-                    end_date = date(year, 3, 31).strftime('%Y-%m-%d')
-                elif quarter == 'interim':
-                    year = current_year if today.month >= 7 else current_year - 1
-                    end_date = date(year, 6, 30).strftime('%Y-%m-%d')
-                elif quarter == 'q3':
-                    year = current_year if today.month >= 10 else current_year - 1
-                    end_date = date(year, 9, 30).strftime('%Y-%m-%d')
-                else: # Fallback to today if quarter is not recognized
-                    end_date = today.strftime('%Y-%m-%d')
-
+            ft_market = self._validate_market(market)
             logger.info(f"Using report period end date: {end_date} for quarter '{quarter}'")
 
             all_stocks_data = {}
+            quarter_enum = self._get_quarter_enum(quarter)
 
-            quarter_map = {
-                "annual": ft.FinancialQuarter.ANNUAL,
-                "q1": ft.FinancialQuarter.FIRST_QUARTER,
-                "interim": ft.FinancialQuarter.INTERIM,
-                "q3": ft.FinancialQuarter.THIRD_QUARTER,
-            }
-            quarter_enum = quarter_map.get(quarter.lower(), ft.FinancialQuarter.ANNUAL)
+            tasks = [self._scrape_field(field, ft_market, quarter_enum, all_stocks_data) for field in ALL_FIELDS_TO_SCRAPE]
+            await asyncio.gather(*tasks)
 
-            for field in ALL_FIELDS_TO_SCRAPE:
-                logger.info(f"Scraping data for field: {field}")
-                begin_index = 0
-                num_per_req = 200
-                last_page = False
-
-                while not last_page:
-                    # Choose filter type based on the field
-                    if field in SIMPLE_FILTER_FIELDS:
-                        filter_instance = ft.SimpleFilter()
-                    else:
-                        filter_instance = ft.FinancialFilter()
-                        filter_instance.quarter = quarter_enum
-
-                    filter_instance.stock_field = field
-                    filter_instance.filter_min = -1e15
-                    filter_instance.filter_max = 1e15
-                    filter_instance.is_no_filter = False
-
-                    ret, data = self.quote_ctx.get_stock_filter(
-                        market=ft_market,
-                        filter_list=[filter_instance],
-                        begin=begin_index,
-                        num=num_per_req
-                    )
-                    print(f"data: {data}")
-                    time.sleep(self.req_freq)
-
-                    if ret != ft.RET_OK:
-                        if "不支持该过滤字段" in str(data):
-                            logger.warning(f"Field {field} is not supported. Skipping.")
-                            break
-                        logger.error(f"Error fetching data for field {field}: {data}")
-                        break
-
-                    if data is None or data.empty:
-                        last_page = True
-                        continue
-
-                    for index, row in data.iterrows():
-                        stock_code = row['stock_code']
-                        if stock_code not in all_stocks_data:
-                            all_stocks_data[stock_code] = {'ticker': stock_code}
-
-                        field_value = row[field.lower()]
-                        all_stocks_data[stock_code][field.lower()] = field_value
-
-                    if data.iloc[0]['is_last_page']:
-                        last_page = True
-                    else:
-                        begin_index += num_per_req
-
-            logger.info(f"Finished scraping. Total unique stocks found: {len(all_stocks_data)}")
-
-            # Convert dict to FinancialProfile objects
-            profile_list = futu_data_to_financial_profile(all_stocks_data, end_date, quarter)
-
-            return profile_list
-
-        finally:
-            self._disconnect()
-
-    def scrape_stock_plate_mappings(self, market: Market = Market.HK):
-        """
-        Scrapes stock-plate mappings for a given market and stores them in the database.
-        """
-        self._ensure_connection()
-        plate_list = self._get_plate_list(market)
-        if not plate_list:
-            logger.warning(f"No plates found for market: {market.value}")
-            return
-
-        all_mappings = []
-        for plate in plate_list:
-            stocks_df = self._get_plate_stock_with_retry(plate['code'])
-            if stocks_df is not None and not stocks_df.empty:
-                for stock in stocks_df.to_dict('records'):
-                    ticker = stock['code']
-                    # Clean up ticker to remove market prefix
-                    if '.' in ticker:
-                        ticker = ticker.split('.')[1]
-
-                    all_mappings.append(StockPlateMapping(
-                        ticker=ticker,
-                        stock_name=stock['stock_name'],
-                        plate_code=plate['code'],
-                        plate_name=plate['plate_name'],
-                        market=market
-                    ))
-        
-        if all_mappings:
-            table_name = "stock_plate_mappings"
-            primary_keys = ["ticker", "plate_code"]
-            self.db_api.create_table_from_model(table_name, StockPlateMapping, primary_keys)
-            self.db_api.upsert_data_from_models(table_name, all_mappings, primary_keys)
-            logger.info(f"Upserted {len(all_mappings)} stock-plate mappings.")
-
-    def _get_plate_list(self, market: Market = Market.HK):
-        """Fetches the list of all plates for a given market."""
-        self._ensure_connection()
-
-        if market == Market.HK:
-            futu_market = ft.Market.HK
-        elif market == Market.US:
-            futu_market = ft.Market.US
-        else:
-            raise ValueError("Unsupported market")
-
-        ret, data = self.quote_ctx.get_plate_list(futu_market, ft.Plate.ALL)
-        if ret == ft.RET_OK:
-            return data.to_dict('records')
-        else:
-            logger.error(f"Failed to get plate list: {data}")
+            return self._process_scraped_data(all_stocks_data, end_date, quarter)
+        except Exception as e:
+            logger.error(f"Failed to scrape financial profiles for market {market}: {e}", exc_info=True)
             return []
 
-    @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_based_on_error,
-        retry=retry_if_exception_type((FutuNetworkError, FutuRateLimitError))
-    )
-    def _get_plate_stock_with_retry(self, plate_code: str) -> Optional[pd.DataFrame]:
-        """
-        A retry-enabled method to fetch stocks in a given plate.
-        Retries on specific, recoverable network or rate limit errors.
-        """
-        self._ensure_connection()
+    async def _scrape_field(self, field, ft_market, quarter_enum, all_stocks_data):
+        """Asynchronously scrapes data for a single financial field."""
+        logger.info(f"Scraping field: {field}")
+        begin_index = 0
+        num_per_req = 200
+        while True:
+            filter_instance = self._create_filter(field, quarter_enum)
+            ret, data = self.quote_ctx.get_stock_filter(market=ft_market, filter_list=[filter_instance], begin=begin_index, num=num_per_req)
+            await asyncio.sleep(self.req_freq)
 
-        # Proactive rate limit handling
-        if len(self.rate_limit_timestamps) == 10:
-            elapsed_time = time.time() - self.rate_limit_timestamps[0]
-            if elapsed_time < 31:
-                sleep_duration = 31 - elapsed_time
-                time.sleep(sleep_duration)
+            if ret != ft.RET_OK:
+                logger.error(f"Futu API error for field {field}: {data}")
+                break
+            if data is None or data.empty:
+                break
+            
+            for _, row in data.iterrows():
+                stock_code = row['stock_code']
+                if stock_code not in all_stocks_data:
+                    all_stocks_data[stock_code] = {'ticker': stock_code}
+                all_stocks_data[stock_code][field.lower()] = row[field.lower()]
 
+            if data.iloc[0]['is_last_page']:
+                break
+            begin_index += num_per_req
+
+    def _validate_market(self, market: str) -> ft.Market:
+        """Validates and returns the Futu API market enum."""
+        market_map = {'HK': ft.Market.HK, 'US': ft.Market.US}
+        ft_market = market_map.get(market.upper())
+        if not ft_market:
+            raise ValueError(f"Unsupported market: {market}. Please use 'HK' or 'US'.")
+        return ft_market
+
+    def _get_quarter_enum(self, quarter: str) -> ft.FinancialQuarter:
+        """Gets the Futu API quarter enum."""
+        quarter_map = {"annual": ft.FinancialQuarter.ANNUAL, "q1": ft.FinancialQuarter.FIRST_QUARTER, "interim": ft.FinancialQuarter.INTERIM, "q3": ft.FinancialQuarter.THIRD_QUARTER}
+        return quarter_map.get(quarter.lower(), ft.FinancialQuarter.ANNUAL)
+
+    def _create_filter(self, field, quarter_enum):
+        """Creates an API request filter instance."""
+        filter_instance = ft.SimpleFilter() if field in SIMPLE_FILTER_FIELDS else ft.FinancialFilter()
+        if isinstance(filter_instance, ft.FinancialFilter):
+            filter_instance.quarter = quarter_enum
+        filter_instance.stock_field = field
+        filter_instance.filter_min = -1e15
+        filter_instance.filter_max = 1e15
+        filter_instance.is_no_filter = False
+        return filter_instance
+
+    def _process_scraped_data(self, all_stocks_data: dict, end_date: str, quarter: str) -> List[FinancialProfile]:
+        """Processes raw scraped data into a list of FinancialProfile objects."""
+        logger.info(f"Finished scraping. Total unique stocks found: {len(all_stocks_data)}")
+        return futu_data_to_financial_profile(all_stocks_data, end_date, quarter)
+
+    async def scrape_stock_plate_mappings(self, market: Market = Market.HK):
+        """Scrapes and stores stock-to-plate mappings."""
+        await self._ensure_connection()
+        try:
+            plate_list = self._get_plate_list(market)
+            if not plate_list:
+                logger.warning(f"No plates found for market: {market.value}")
+                return
+
+            all_mappings = []
+            for plate in plate_list:
+                stocks_df = await self._get_plate_stock_with_retry(plate['code'])
+                if stocks_df is not None and not stocks_df.empty:
+                    for _, stock in stocks_df.iterrows():
+                        ticker = stock['code'].split('.')[1] if '.' in stock['code'] else stock['code']
+                        all_mappings.append(StockPlateMapping(ticker=ticker, stock_name=stock['stock_name'], plate_code=plate['code'], plate_name=plate['plate_name'], market=market.value))
+            
+            if all_mappings:
+                table_name = "stock_plate_mappings"
+                primary_keys = ["ticker", "plate_code"]
+                self.db_api.create_table_from_model(table_name, StockPlateMapping, primary_keys)
+                self.db_api.upsert_data_from_models(table_name, all_mappings, primary_keys)
+                logger.info(f"Upserted {len(all_mappings)} stock-plate mappings.")
+        finally:
+            self.close()
+
+    def _get_plate_list(self, market: Market):
+        """Fetches the list of all plates for a given market."""
+        ft_market = self._validate_market(market.value)
+        ret, data = self.quote_ctx.get_plate_list(ft_market, ft.Plate.ALL)
+        if ret == ft.RET_OK:
+            return data.to_dict('records')
+        logger.error(f"Failed to get plate list for {market.value}: {data}")
+        return []
+
+    @retry(stop=stop_after_attempt(5), wait=wait_based_on_error, retry=retry_if_exception_type((FutuNetworkError, FutuRateLimitError)))
+    async def _get_plate_stock_with_retry(self, plate_code: str) -> Optional[pd.DataFrame]:
+        """A retry-enabled async method to fetch stocks in a given plate."""
+        await self._ensure_connection()
         logger.info(f"Fetching stocks for plate: {plate_code}")
         ret, data = self.quote_ctx.get_plate_stock(plate_code)
         
-        self.rate_limit_timestamps.append(time.time())
-        
-        if ret == ft.RET_OK:
-            return data
-            
         error_msg = str(data)
+        if ret != ft.RET_OK:
+            if "频率太高" in error_msg: raise FutuRateLimitError(error_msg)
+            if "NN_ProtoRet_ByDisConnOrCacnel" in error_msg or "网络中断" in error_msg: raise FutuNetworkError(error_msg)
+            logger.error(f"Non-retryable error for plate {plate_code}: {error_msg}")
+            return None
+        return data
+
+    def __enter__(self):
+        asyncio.run(self._connect())
+        return self
         
-        # Raise specific exceptions for tenacity to catch and handle
-        if "频率太高" in error_msg:
-             raise FutuRateLimitError(error_msg)
-        
-        if "NN_ProtoRet_ByDisConnOrCacnel" in error_msg or "网络中断" in error_msg:
-            raise FutuNetworkError(error_msg)
-            
-        logger.error(f"Failed to get stocks for plate {plate_code}. Non-retryable error: {error_msg}")
-        return None
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._disconnect()
 
     def close(self):
         """Closes both Futu and database connections."""
         self._disconnect()
 
 # Example usage:
-if __name__ == '__main__':
-    scraper = FutuScraper()
-    # scraper.scrape_and_store(market='HK', quarter='annual')
-    # scraper.scrape_and_store(market='HK', quarter='interim')
-    # scraper.scrape_and_store(market='HK', quarter='q1')
-    scraper.scrape_stock_plate_mappings(market=Market.HK)
-    scraper.close()
+async def main():
+    async with FutuScraper() as scraper:
+        # Scrape financials and plate mappings concurrently
+        await asyncio.gather(
+            scraper.scrape_and_store_financials("HK", "annual"),
+            scraper.scrape_stock_plate_mappings(Market.HK)
+        )
+
+if __name__ == "__main__":
+    asyncio.run(main())
