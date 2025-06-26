@@ -89,14 +89,25 @@ class FutuScraper:
 
     async def _connect(self):
         """Asynchronously connects to the Futu API and the database."""
-        if self.quote_ctx is None:
+        if not self.quote_ctx:
             try:
                 self.quote_ctx = ft.OpenQuoteContext(host=self.host, port=self.port)
-                await asyncio.sleep(0.1) # Brief delay to ensure connection stability
+                logger.info("Futu API connected successfully.")
             except Exception as e:
                 logger.error(f"Failed to connect to Futu API: {e}")
                 raise
-        self.db_api.connect()
+
+        if not self.db_api:
+            try:
+                self.db_api = get_database_api("duckdb", db_path=self.db_path)
+                self.db_api.connect()
+            except UnicodeDecodeError as e:
+                logger.error(f"Failed to connect to DuckDB due to a database file path openning issue: {e}")
+                logger.error(f"Problematic path: {self.db_path}")
+                raise
+            except Exception as e:
+                logger.error(f"An unexpected error occurred while connecting to the database: {e}")
+                raise
 
     def _disconnect(self):
         """Disconnects from the Futu API and the database."""
@@ -217,8 +228,7 @@ class FutuScraper:
                     for _, stock in stocks_df.iterrows():
                         ticker = stock['code'].split('.')[1] if '.' in stock['code'] else stock['code']
                         all_mappings.append(StockPlateMapping(ticker=ticker, stock_name=stock['stock_name'], plate_code=plate['plate_id'], plate_name=plate['plate_name'], market=market.value))
-                    break
-            
+
             if all_mappings:
                 table_name = "stock_plate_mappings"
                 primary_keys = ["ticker", "plate_code"]
@@ -265,6 +275,6 @@ class FutuScraper:
 
 if __name__ == "__main__":
     scraper = FutuScraper()
-    asyncio.run(scraper.scrape_and_store("HK", "annual"))
+    asyncio.run(scraper.scrape_and_store_financials("HK", "annual"))
     asyncio.run(scraper.scrape_stock_plate_mappings(Market.HK))
     scraper.close()
