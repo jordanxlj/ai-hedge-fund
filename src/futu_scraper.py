@@ -332,11 +332,23 @@ class FutuScraper:
                 for i, plate_info in enumerate(plate_list):
                     plate_code = plate_info['code']
                     plate_name = plate_info['plate_name']
-                    
+                    plate_id = plate_info['plate_id']
+                    logger.info(f"Processing plate: {plate_name} ({plate_code})")
+
+                    # Rate limit: 10 requests per 30 seconds for get_plate_stock
+                    if len(self.rate_limit_timestamps) == 10:
+                        oldest_request_time = self.rate_limit_timestamps[0]
+                        elapsed_time = time.time() - oldest_request_time
+                        if elapsed_time < 30.0:
+                            sleep_duration = 30.0 - elapsed_time
+                            logger.info(f"Rate limit reached for get_plate_stock. Sleeping for {sleep_duration:.2f} seconds.")
+                            time.sleep(sleep_duration)
+
                     logger.debug(f"Processing plate {i+1}/{len(plate_list)}: {plate_name} ({plate_code})")
                     
                     # 2. Get all stocks in the plate
                     ret, stock_list_df = self._get_plate_stock_with_retry(plate_code)
+                    self.rate_limit_timestamps.append(time.time()) # Record timestamp after the call
 
                     if ret != ft.RET_OK:
                         logger.warning(f"Could not get stocks for plate {plate_name} ({plate_code}): {stock_list_df}")
@@ -357,7 +369,7 @@ class FutuScraper:
                         mapping = StockPlateMapping(
                             ticker=ticker,
                             stock_name=stock_info['stock_name'],
-                            plate_code=plate_code,
+                            plate_code=plate_id,
                             plate_name=plate_name,
                             market=market
                         )
