@@ -216,7 +216,8 @@ class FutuScraper:
                 if stocks_df is not None and not stocks_df.empty:
                     for _, stock in stocks_df.iterrows():
                         ticker = stock['code'].split('.')[1] if '.' in stock['code'] else stock['code']
-                        all_mappings.append(StockPlateMapping(ticker=ticker, stock_name=stock['stock_name'], plate_code=plate['code'], plate_name=plate['plate_name'], market=market.value))
+                        all_mappings.append(StockPlateMapping(ticker=ticker, stock_name=stock['stock_name'], plate_code=plate['plate_id'], plate_name=plate['plate_name'], market=market.value))
+                    break
             
             if all_mappings:
                 table_name = "stock_plate_mappings"
@@ -262,14 +263,8 @@ class FutuScraper:
         """Closes both Futu and database connections."""
         self._disconnect()
 
-# Example usage:
-async def main():
-    async with FutuScraper() as scraper:
-        # Scrape financials and plate mappings concurrently
-        await asyncio.gather(
-            scraper.scrape_and_store_financials("HK", "annual"),
-            scraper.scrape_stock_plate_mappings(Market.HK)
-        )
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    scraper = FutuScraper()
+    asyncio.run(scraper.scrape_and_store("HK", "annual"))
+    asyncio.run(scraper.scrape_stock_plate_mappings(Market.HK))
+    scraper.close()
