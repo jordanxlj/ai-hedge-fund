@@ -4,7 +4,7 @@ import futu as ft
 import time
 from unittest.mock import patch, MagicMock, call
 
-from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE
+from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE, FutuNetworkError, FutuRateLimitError
 from src.data.models import Market
 
 # --- Sample Data ---
@@ -142,3 +142,55 @@ class TestFutuScraper:
         scraper = FutuScraper()
         with pytest.raises(Exception, match="Connection Failed"):
             scraper._connect()
+
+    def test_retry_on_network_error(self, monkeypatch, scraper_instance):
+        """Test that the scraper retries on a recoverable network error."""
+        # Mock the API to fail once with a network error, then succeed
+        side_effect_list = [
+            (ft.RET_ERROR, "NN_ProtoRet_ByDisConnOrCacnel"),
+            (ft.RET_OK, SAMPLE_STOCK_LIST_TECH)
+        ]
+        scraper_instance.quote_ctx.get_plate_stock.side_effect = side_effect_list
+
+        # Mock time.sleep to track calls without actually waiting
+        mock_sleep = MagicMock()
+        monkeypatch.setattr(time, 'sleep', mock_sleep)
+
+        # Execute the method
+        result = scraper_instance._get_plate_stock_with_retry("PLT.001")
+
+        # Assertions
+        assert scraper_instance.quote_ctx.get_plate_stock.call_count == 2
+        mock_sleep.assert_called_once_with(2) # 2**1 for the first retry
+        assert not result.empty
+
+    def test_retry_on_rate_limit_error(self, monkeypatch, scraper_instance):
+        """Test that the scraper waits and retries on a rate limit error."""
+        side_effect_list = [
+            (ft.RET_ERROR, "频率太高"),
+            (ft.RET_OK, SAMPLE_STOCK_LIST_FINANCE)
+        ]
+        scraper_instance.quote_ctx.get_plate_stock.side_effect = side_effect_list
+
+        mock_sleep = MagicMock()
+        monkeypatch.setattr(time, 'sleep', mock_sleep)
+
+        result = scraper_instance._get_plate_stock_with_retry("PLT.002")
+
+        assert scraper_instance.quote_ctx.get_plate_stock.call_count == 2
+        mock_sleep.assert_called_once_with(31) # Fixed wait for rate limit
+        assert not result.empty
+
+    def test_no_retry_on_other_error(self, monkeypatch, scraper_instance):
+        """Test that the scraper does not retry on a non-specified error."""
+        scraper_instance.quote_ctx.get_plate_stock.return_value = (ft.RET_ERROR, "Some other unknown error")
+
+        mock_sleep = MagicMock()
+        monkeypatch.setattr(time, 'sleep', mock_sleep)
+
+        # Execute and assert it returns None without retrying
+        result = scraper_instance._get_plate_stock_with_retry("PLT.003")
+
+        assert result is None
+        scraper_instance.quote_ctx.get_plate_stock.assert_called_once()
+        mock_sleep.assert_not_called()

@@ -46,7 +46,7 @@ class DuckDBAPI(DatabaseAPI):
 
     def connect(self, **kwargs: Any) -> duckdb.DuckDBPyConnection:
         """建立并返回一个 DuckDB 连接。"""
-        if self.conn is None or not self.conn.is_closed():
+        if self.conn is None:
             self.conn = duckdb.connect(database=self.db_path, read_only=False, **kwargs)
         return self.conn
 

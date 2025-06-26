@@ -8,7 +8,7 @@ from collections import deque
 
 import pandas as pd
 from pydantic import BaseModel
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 
 from src.data.models import FinancialProfile, StockPlateMapping, Market
 from src.data.futu_utils import FutuDummyStockData, futu_data_to_financial_profile, get_report_period_date
@@ -51,6 +51,28 @@ FINANCIAL_FILTER_FIELDS = [
 # Combine all fields, ensuring no duplicates
 ALL_FIELDS_TO_SCRAPE = list(set(FINANCIAL_FILTER_FIELDS + list(SIMPLE_FILTER_FIELDS)))
 
+class FutuNetworkError(Exception):
+    """Custom exception for Futu network-related errors that can be retried."""
+    pass
+
+class FutuRateLimitError(Exception):
+    """Custom exception for Futu rate limit errors."""
+    pass
+
+def wait_based_on_error(retry_state):
+    """Custom wait strategy for tenacity to handle different error types."""
+    exc = retry_state.outcome.exception()
+    if isinstance(exc, FutuRateLimitError):
+        wait_seconds = 31
+        logger.warning(f"Rate limit error detected. Waiting {wait_seconds} seconds before retry...")
+        return wait_seconds
+    if isinstance(exc, FutuNetworkError):
+        # Use exponential backoff for network errors: 2s, 4s, 8s...
+        wait_seconds = 2 ** retry_state.attempt_number
+        logger.warning(f"Network error detected. Waiting {wait_seconds} seconds before retry...")
+        return wait_seconds
+    return 1 # Default fallback
+
 class FutuScraper:
     """
     A scraper for fetching comprehensive financial profile from Futu OpenD.
@@ -82,7 +104,7 @@ class FutuScraper:
 
     def _ensure_connection(self):
         """Ensures the Futu API connection is active."""
-        if self.quote_ctx is None or self.quote_ctx.status() != ft.RET_OK:
+        if self.quote_ctx is None or self.quote_ctx.status != ft.RET_OK:
             self._connect()
 
     def scrape_and_store(self, market: str, quarter: str = "annual"):
@@ -270,29 +292,44 @@ class FutuScraper:
             logger.error(f"Failed to get plate list: {data}")
             return []
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(31))
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_based_on_error,
+        retry=retry_if_exception_type((FutuNetworkError, FutuRateLimitError))
+    )
     def _get_plate_stock_with_retry(self, plate_code: str) -> Optional[pd.DataFrame]:
         """
         A retry-enabled method to fetch stocks in a given plate.
+        Retries on specific, recoverable network or rate limit errors.
         """
         self._ensure_connection()
+
+        # Proactive rate limit handling
+        if len(self.rate_limit_timestamps) == 10:
+            elapsed_time = time.time() - self.rate_limit_timestamps[0]
+            if elapsed_time < 31:
+                sleep_duration = 31 - elapsed_time
+                time.sleep(sleep_duration)
+
         logger.info(f"Fetching stocks for plate: {plate_code}")
         ret, data = self.quote_ctx.get_plate_stock(plate_code)
-
-        # Rate limit handling
-        now = time.time()
-        if len(self.rate_limit_timestamps) == 10:
-            if now - self.rate_limit_timestamps[0] < 30:
-                sleep_time = 30 - (now - self.rate_limit_timestamps[0])
-                logger.warning(f"Approaching rate limit, sleeping for {sleep_time:.1f}s")
-                time.sleep(sleep_time)
-        self.rate_limit_timestamps.append(now)
-
+        
+        self.rate_limit_timestamps.append(time.time())
+        
         if ret == ft.RET_OK:
             return data
-        else:
-            logger.error(f"Failed to get stocks for plate {plate_code} after multiple retries. Error: {data}")
-            return None
+            
+        error_msg = str(data)
+        
+        # Raise specific exceptions for tenacity to catch and handle
+        if "频率太高" in error_msg:
+             raise FutuRateLimitError(error_msg)
+        
+        if "NN_ProtoRet_ByDisConnOrCacnel" in error_msg or "网络中断" in error_msg:
+            raise FutuNetworkError(error_msg)
+            
+        logger.error(f"Failed to get stocks for plate {plate_code}. Non-retryable error: {error_msg}")
+        return None
 
     def close(self):
         """Closes both Futu and database connections."""
