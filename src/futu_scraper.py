@@ -3,17 +3,17 @@ import os
 import time
 import logging
 from datetime import datetime, date
-from typing import List, Optional, get_type_hints, get_origin, get_args
-
-import duckdb
-from pydantic import BaseModel
-import pandas as pd
+from typing import List, Optional
 from collections import deque
+
+import pandas as pd
+from pydantic import BaseModel
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from src.data.models import FinancialProfile, StockPlateMapping, Market
 from src.data.futu_utils import FutuDummyStockData, futu_data_to_financial_profile, get_report_period_date
 from src.utils.log_util import logger_setup as _init_logging
+from src.data.db import get_database_api, DatabaseAPI
 
 # Initialise logging first so subsequent imports are covered
 _init_logging()
@@ -58,122 +58,58 @@ class FutuScraper:
     def __init__(self, db_path: str = "data/futu_financials.duckdb"):
         self.host = os.getenv("FUTU_HOST", "127.0.0.1")
         self.port = 11111
-        self.quote_ctx = None
-        self.db_path = db_path
+        self.quote_ctx: Optional[ft.OpenQuoteContext] = None
+        self.db_api: DatabaseAPI = get_database_api("duckdb", db_path=db_path)
         self.req_freq = 3.1
         self.rate_limit_timestamps = deque(maxlen=10)
 
-        db_dir = os.path.dirname(db_path)
-        if db_dir:
-            os.makedirs(db_dir, exist_ok=True)
-
     def _connect(self):
+        """Connects to both Futu and the database."""
         if self.quote_ctx is None:
             try:
                 self.quote_ctx = ft.OpenQuoteContext(host=self.host, port=self.port)
             except Exception as e:
                 logger.error(f"Failed to connect to Futu: {e}")
                 raise
+        self.db_api.connect()
 
     def _disconnect(self):
+        """Disconnects from Futu and the database."""
         if self.quote_ctx:
             self.quote_ctx.close()
             self.quote_ctx = None
+        self.db_api.close()
 
     def _ensure_connection(self):
         """Ensures the Futu API connection is active."""
         if self.quote_ctx is None or self.quote_ctx.status() != ft.RET_OK:
             self._connect()
 
-    def _get_pydantic_sql_type(self, field_type) -> str:
-        """Maps Pydantic/Python types to DuckDB SQL types."""
-        origin = get_origin(field_type)
-        if origin is None:  # Simple type
-            if field_type is str: return "VARCHAR"
-            if field_type is float: return "DOUBLE"
-            if field_type is int: return "BIGINT"
-            if field_type is bool: return "BOOLEAN"
-            if field_type is datetime: return "TIMESTAMP"
-        
-        # Handle Optional[T] types
-        args = get_args(field_type)
-        if len(args) == 2 and args[1] is type(None):
-            return self._get_pydantic_sql_type(args[0])
-
-        return "VARCHAR" # Default for complex types like list/dict
-
-    def _create_table_from_model(self, conn: duckdb.DuckDBPyConnection, model: BaseModel, table_name: str, primary_keys: List[str]):
-        """Creates a DuckDB table based on a Pydantic model."""
-        fields = get_type_hints(model)
-        
-        columns_sql = []
-        for name, field_type in fields.items():
-            if name == 'model_config': continue
-            sql_type = self._get_pydantic_sql_type(field_type)
-            columns_sql.append(f'"{name}" {sql_type}')
-        
-        pk_sql = f"PRIMARY KEY ({', '.join(primary_keys)})"
-        columns_sql.append(pk_sql)
-        
-        create_table_sql = f"CREATE TABLE IF NOT EXISTS \"{table_name}\" ({', '.join(columns_sql)})"
-        
-        conn.execute(create_table_sql)
-        logger.info(f"Table '{table_name}' is ready in DuckDB.")
-
     def scrape_and_store(self, market: str, quarter: str = "annual"):
         """
-        Scrapes financial profile for a specific report period and stores them 
-        in a dedicated table named after that period in a DuckDB database.
+        Scrapes financial profile for a specific report period and stores them
+        in a dedicated table named after that period in a DB.
         """
         # Determine the target report period date
         report_date = get_report_period_date(date.today(), quarter)
         report_date_str = report_date.strftime('%Y-%m-%d')
-        
+
         scraped_profile = self.scrape_financial_profile(market, quarter, report_date_str)
         if not scraped_profile:
             logger.info("No profile were scraped. Nothing to store.")
             return
-            
+
         table_name = f"financial_profile_{report_date.strftime('%Y_%m_%d')}"
-        logger.info(f"Scraped {len(scraped_profile)} records for period {report_date_str}. Storing to DuckDB table '{table_name}' at {self.db_path}...")
+        logger.info(f"Scraped {len(scraped_profile)} records for period {report_date_str}. Storing to DB table '{table_name}'...")
 
-        with duckdb.connect(self.db_path) as conn:
-            primary_keys = ["ticker", "report_period", "period"]
-            self._create_table_from_model(conn, FinancialProfile, table_name, primary_keys)
-            
-            # Use pandas DataFrame for easier insertion
-            profile_dicts = [m.model_dump(exclude_none=True) for m in scraped_profile]
-            if not profile_dicts:
-                logger.warning("After processing, no metric dictionaries to insert.")
-                return
+        primary_keys = ["ticker", "report_period", "period"]
+        self.db_api.create_table_from_model(table_name, FinancialProfile, primary_keys)
 
-            df = pd.DataFrame(profile_dicts)
-            
-            # Get the definitive list of model fields in order
-            ordered_cols = list(FinancialProfile.model_fields.keys())
-
-            # Ensure all model fields exist as columns in the dataframe, and in the correct order
-            for col in ordered_cols:
-                if col not in df.columns:
-                    df[col] = None # DuckDB handles None as NULL
-            
-            # Reorder df columns to match table schema precisely and drop any extra columns
-            df = df[ordered_cols]
-            
-            # Upsert into the main table
-            conn.register('profile_df', df)
-            
-            update_set_sql = ", ".join([f'"{col}" = excluded."{col}"' for col in df.columns if col not in primary_keys])
-            
-            upsert_sql = f"""
-            INSERT INTO "{table_name}"
-            SELECT * FROM profile_df
-            ON CONFLICT ({', '.join(primary_keys)}) DO UPDATE SET {update_set_sql};
-            """
-            
-            conn.execute(upsert_sql)
-
-        logger.info(f"Successfully stored/updated {len(df)} records in DuckDB table '{table_name}'.")
+        if scraped_profile:
+            self.db_api.upsert_data_from_models(table_name, scraped_profile, primary_keys)
+            logger.info(f"Successfully stored/updated {len(scraped_profile)} records in table '{table_name}'.")
+        else:
+            logger.info("No data to store.")
 
     def scrape_financial_profile(self, market: str, quarter: str = "annual", end_date: Optional[str] = None) -> List[FinancialProfile]:
         """
@@ -192,7 +128,7 @@ class FutuScraper:
             if end_date is None:
                 today = date.today()
                 current_year = today.year
-                
+
                 if quarter == 'annual':
                     end_date = date(current_year - 1, 12, 31).strftime('%Y-%m-%d')
                 elif quarter == 'q1':
@@ -206,11 +142,11 @@ class FutuScraper:
                     end_date = date(year, 9, 30).strftime('%Y-%m-%d')
                 else: # Fallback to today if quarter is not recognized
                     end_date = today.strftime('%Y-%m-%d')
-            
+
             logger.info(f"Using report period end date: {end_date} for quarter '{quarter}'")
 
             all_stocks_data = {}
-            
+
             quarter_map = {
                 "annual": ft.FinancialQuarter.ANNUAL,
                 "q1": ft.FinancialQuarter.FIRST_QUARTER,
@@ -244,201 +180,128 @@ class FutuScraper:
                         begin=begin_index,
                         num=num_per_req
                     )
-                    time.sleep(3.1) # Adjusted sleep time
+                    time.sleep(self.req_freq)
 
                     if ret != ft.RET_OK:
                         if "不支持该过滤字段" in str(data):
-                             logger.warning(f"Field {field} is not supported by get_stock_filter. Skipping.")
-                             break 
-                        logger.error(f"Futu API error for field {field}: {data}")
+                            logger.warning(f"Field {field} is not supported. Skipping.")
+                            break
+                        logger.error(f"Error fetching data for field {field}: {data}")
                         break
 
-                    page_info, _, stock_list_chunk = data
-                    last_page = page_info
+                    if data is None or data.empty:
+                        last_page = True
+                        continue
 
-                    if not stock_list_chunk:
-                        break
-
-                    for stock_data in stock_list_chunk:
-                        stock_code = stock_data.ticker
+                    for index, row in data.iterrows():
+                        stock_code = row['stock_code']
                         if stock_code not in all_stocks_data:
-                            all_stocks_data[stock_code] = {'stock_name': stock_data.stock_name}
-                        
-                        stock_vars = vars(stock_data)
-                        attr_name = field.lower()
-                        value = None
+                            all_stocks_data[stock_code] = {'ticker': stock_code}
 
-                        # FinancialFilter returns a tuple key, SimpleFilter returns a string key
-                        if field in SIMPLE_FILTER_FIELDS:
-                            value = stock_vars.get(attr_name)
-                        else:
-                            tuple_key = (attr_name, quarter)
-                            value = stock_vars.get(tuple_key)
-                        
-                        if value is not None:
-                            all_stocks_data[stock_code][attr_name] = value
+                        field_value = row[field.name.lower()]
+                        all_stocks_data[stock_code][field.name.lower()] = field_value
 
-                    begin_index += len(stock_list_chunk)
-            
-            final_profile = []
-            for stock_code, data_dict in all_stocks_data.items():
-                dummy_stock_obj = FutuDummyStockData(data_dict)
-                parts = stock_code.split('.')
-                if len(parts) == 2:
-                    internal_ticker = f"{parts[1]}.{parts[0]}"
-                    profile = futu_data_to_financial_profile(dummy_stock_obj, internal_ticker, data_dict['stock_name'], end_date, quarter, ft_market)
-                    final_profile.extend(profile)
+                    if data.iloc[0]['is_last_page']:
+                        last_page = True
+                    else:
+                        begin_index += num_per_req
 
-            return final_profile
+            logger.info(f"Finished scraping. Total unique stocks found: {len(all_stocks_data)}")
 
-        except Exception as e:
-            logger.error(f"Failed to scrape financial profile for market {market}: {e}")
-            import traceback
-            logger.error(f"Detailed error: {traceback.format_exc()}")
-            return []
+            # Convert dict to FinancialProfile objects
+            profile_list = futu_data_to_financial_profile(all_stocks_data, end_date, quarter)
+
+            return profile_list
+
         finally:
             self._disconnect()
 
     def scrape_stock_plate_mappings(self, market: Market = Market.HK):
         """
-        Scrapes stock-plate mappings for a given market and stores them in DuckDB.
+        Scrapes stock-plate mappings for a given market and stores them in the database.
         """
         self._ensure_connection()
-
-        # Convert our Market enum to the futu Market enum
-        ft_market = ft.Market.HK if market == Market.HK else ft.Market.US
-
-        table_name = "stock_plate_mappings"
-        try:
-            logger.info(f"Starting to scrape stock plate mappings for market: {market}")
-            with duckdb.connect(self.db_path) as con:
-                primary_keys = ["ticker", "plate_code"]
-                self._create_table_from_model(con, StockPlateMapping, table_name, primary_keys)
-
-                # 1. Get all plates for the market
-                ret, plate_list_df = self.quote_ctx.get_plate_list(market=ft_market, plate_class=ft.Plate.ALL)
-                if ret != ft.RET_OK:
-                    logger.error(f"Failed to get plate list for market {market}: {plate_list_df}")
-                    return
-
-                if plate_list_df.empty:
-                    logger.warning(f"No plates found for market {market}. Exiting.")
-                    return
-
-                plate_list = plate_list_df.to_dict('records')
-                logger.info(f"Successfully retrieved {len(plate_list)} plates for market {market}.")
-
-                all_mappings = []
-                for i, plate_info in enumerate(plate_list):
-                    plate_code = plate_info['code']
-                    plate_name = plate_info['plate_name']
-                    plate_id = plate_info['plate_id']
-                    logger.info(f"Processing plate: {plate_name} ({plate_code})")
-
-                    # Rate limit: 10 requests per 30 seconds for get_plate_stock
-                    if len(self.rate_limit_timestamps) == 10:
-                        oldest_request_time = self.rate_limit_timestamps[0]
-                        elapsed_time = time.time() - oldest_request_time
-                        if elapsed_time < 30.0:
-                            sleep_duration = 30.0 - elapsed_time
-                            logger.info(f"Rate limit reached for get_plate_stock. Sleeping for {sleep_duration:.2f} seconds.")
-                            time.sleep(sleep_duration)
-
-                    logger.debug(f"Processing plate {i+1}/{len(plate_list)}: {plate_name} ({plate_code})")
-                    
-                    # 2. Get all stocks in the plate
-                    ret, stock_list_df = self._get_plate_stock_with_retry(plate_code)
-                    self.rate_limit_timestamps.append(time.time()) # Record timestamp after the call
-
-                    if ret != ft.RET_OK:
-                        logger.warning(f"Could not get stocks for plate {plate_name} ({plate_code}): {stock_list_df}")
-                        continue
-                    
-                    if stock_list_df.empty:
-                        logger.debug(f"Plate {plate_name} ({plate_code}) has no stocks.")
-                        continue
-                        
-                    logger.debug(f"Found {len(stock_list_df)} stocks in plate {plate_name}.")
-
-                    for stock_info in stock_list_df.to_dict('records'):
-                        ticker = stock_info['code']
-                        # Clean up ticker: remove market prefix/suffix like .HK or .US
-                        if '.' in ticker:
-                            ticker = ticker.split('.')[1]  # Take the second part (stock symbol)
-
-                        mapping = StockPlateMapping(
-                            ticker=ticker,
-                            stock_name=stock_info['stock_name'],
-                            plate_code=plate_id,
-                            plate_name=plate_name,
-                            market=market
-                        )
-                        all_mappings.append(mapping)
-                
-                if all_mappings:
-                    self._upsert_data(con, table_name, all_mappings, primary_keys)
-                    logger.info(f"Successfully upserted {len(all_mappings)} stock-plate mappings for market {market} into '{table_name}'.")
-                else:
-                    logger.info(f"No new stock-plate mappings to insert for market {market}.")
-
-        except Exception as e:
-            logger.error(f"Failed to scrape stock plate mappings for market {market}: {e}")
-            import traceback
-            logger.error(f"Detailed error: {traceback.format_exc()}")
-        finally:
-            self._disconnect()
-
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(31))
-    def _get_plate_stock_with_retry(self, plate_code: str):
-        ret, stock_list_df = self.quote_ctx.get_plate_stock(plate_code)
-        return ret, stock_list_df
-
-    def _upsert_data(self, conn: duckdb.DuckDBPyConnection, table_name: str, data: List[BaseModel], primary_keys: List[str]):
-        """
-        Generic method to upsert a list of Pydantic models into a DuckDB table.
-        """
-        if not data:
-            logger.info("No data provided to upsert.")
+        plate_list = self._get_plate_list(market)
+        if not plate_list:
+            logger.warning(f"No plates found for market: {market.value}")
             return
 
-        model = data[0].__class__
-        model_fields = list(model.model_fields.keys())
+        all_mappings = []
+        for plate in plate_list:
+            stocks_df = self._get_plate_stock_with_retry(plate['code'])
+            if stocks_df is not None and not stocks_df.empty:
+                for stock in stocks_df.to_dict('records'):
+                    ticker = stock['code']
+                    # Clean up ticker to remove market prefix
+                    if '.' in ticker:
+                        ticker = ticker.split('.')[1]
 
-        # Convert list of Pydantic objects to a list of dictionaries
-        data_dicts = [m.model_dump() for m in data]
+                    all_mappings.append(StockPlateMapping(
+                        ticker=ticker,
+                        stock_name=stock['stock_name'],
+                        plate_code=plate['code'],
+                        plate_name=plate['plate_name'],
+                        market=market
+                    ))
         
-        # Create a DataFrame from the dictionaries, ensuring column order
-        df = pd.DataFrame(data_dicts, columns=model_fields)
+        if all_mappings:
+            table_name = "stock_plate_mappings"
+            primary_keys = ["ticker", "plate_code"]
+            self.db_api.create_table_from_model(table_name, StockPlateMapping, primary_keys)
+            self.db_api.upsert_data_from_models(table_name, all_mappings, primary_keys)
+            logger.info(f"Upserted {len(all_mappings)} stock-plate mappings.")
 
-        # Upsert into the main table
-        # Use a temporary table for the upsert operation to handle it atomically
-        temp_table_name = f"temp_{table_name}_{int(time.time())}"
-        conn.register(temp_table_name, df)
-        
-        # Ensure column names are quoted to handle special characters or keywords
-        quoted_cols = [f'"{col}"' for col in model_fields]
-        quoted_pk = [f'"{pk}"' for pk in primary_keys]
-        
-        # Prepare the SET clause for the DO UPDATE part
-        update_set_sql = ", ".join([f'{col} = excluded.{col}' for col in quoted_cols if col not in quoted_pk])
-        
-        # If there are no columns to update (all are primary keys), the upsert is just an INSERT...ON CONFLICT DO NOTHING
-        if not update_set_sql:
-            on_conflict_sql = "DO NOTHING"
+    def _get_plate_list(self, market: Market = Market.HK):
+        """Fetches the list of all plates for a given market."""
+        self._ensure_connection()
+
+        if market == Market.HK:
+            futu_market = ft.Market.HK
+        elif market == Market.US:
+            futu_market = ft.Market.US
         else:
-            on_conflict_sql = f"DO UPDATE SET {update_set_sql}"
+            raise ValueError("Unsupported market")
 
-        upsert_sql = f"""
-        INSERT INTO "{table_name}" ({', '.join(quoted_cols)})
-        SELECT {', '.join(quoted_cols)} FROM {temp_table_name}
-        ON CONFLICT ({', '.join(quoted_pk)}) {on_conflict_sql};
+        ret, data = self.quote_ctx.get_plate_list(futu_market, ft.Plate.ALL)
+        if ret == ft.RET_OK:
+            return data.to_dict('records')
+        else:
+            logger.error(f"Failed to get plate list: {data}")
+            return []
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(31))
+    def _get_plate_stock_with_retry(self, plate_code: str) -> Optional[pd.DataFrame]:
         """
-        
-        try:
-            conn.execute(upsert_sql)
-            logger.info(f"Successfully upserted {len(df)} records into '{table_name}'.")
-        finally:
-            conn.unregister(temp_table_name)
+        A retry-enabled method to fetch stocks in a given plate.
+        """
+        self._ensure_connection()
+        logger.info(f"Fetching stocks for plate: {plate_code}")
+        ret, data = self.quote_ctx.get_plate_stock(plate_code)
+
+        # Rate limit handling
+        now = time.time()
+        if len(self.rate_limit_timestamps) == 10:
+            if now - self.rate_limit_timestamps[0] < 30:
+                sleep_time = 30 - (now - self.rate_limit_timestamps[0])
+                logger.warning(f"Approaching rate limit, sleeping for {sleep_time:.1f}s")
+                time.sleep(sleep_time)
+        self.rate_limit_timestamps.append(now)
+
+        if ret == ft.RET_OK:
+            return data
+        else:
+            logger.error(f"Failed to get stocks for plate {plate_code} after multiple retries. Error: {data}")
+            return None
 
     def close(self):
+        """Closes both Futu and database connections."""
         self._disconnect()
+
+# Example usage:
+if __name__ == '__main__':
+    scraper = FutuScraper()
+    # scraper.scrape_and_store(market='HK', quarter='annual')
+    # scraper.scrape_and_store(market='HK', quarter='interim')
+    # scraper.scrape_and_store(market='HK', quarter='q1')
+    scraper.scrape_stock_plate_mappings(market=Market.HK)
+    scraper.close()
