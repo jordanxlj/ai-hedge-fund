@@ -3,6 +3,7 @@ import pandas as pd
 import futu as ft
 import asyncio
 from unittest.mock import patch, MagicMock, AsyncMock
+from types import SimpleNamespace
 
 from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE, FutuNetworkError, FutuRateLimitError
 from src.data.models import Market
@@ -26,6 +27,7 @@ SAMPLE_STOCK_LIST_FINANCE = pd.DataFrame([
 # Sample data for financial profile scraping
 SAMPLE_FINANCIAL_DATA_PAGE1 = pd.DataFrame({
     'stock_code': ['US.MSFT', 'US.GOOG'],
+    'stock_name': ['Mcrosoft', 'Google'],
     'pe_ttm': [30.5, 25.1],
     'is_last_page': [False, False]
 })
@@ -35,6 +37,14 @@ SAMPLE_FINANCIAL_DATA_PAGE2 = pd.DataFrame({
     'pe_ttm': [55.2],
     'is_last_page': [True]
 })
+
+# New mock data structure to match the refactored scraper logic
+MOCK_STOCK_PAGE1_MSFT = SimpleNamespace(stock_code='US.MSFT', stock_name='Microsoft', pe_ttm=30.5)
+MOCK_STOCK_PAGE1_GOOG = SimpleNamespace(stock_code='US.GOOG', stock_name='Google', pe_ttm=25.1)
+MOCK_API_RETURN_PAGE1 = (False, None, [MOCK_STOCK_PAGE1_MSFT, MOCK_STOCK_PAGE1_GOOG])
+
+MOCK_STOCK_PAGE2_AMZN = SimpleNamespace(stock_code='US.AMZN', stock_name='Amazon', pe_ttm=55.2)
+MOCK_API_RETURN_PAGE2 = (True, None, [MOCK_STOCK_PAGE2_AMZN])
 
 
 @pytest.fixture
@@ -78,14 +88,14 @@ class TestFutuScraper:
     async def test_scrape_and_store_financial_profile(self, monkeypatch, scraper_instance):
         """Test the async financial profile scraping and storing workflow."""
         monkeypatch.setattr('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
-        
+
         # --- Mocks ---
-        # Simulate pagination: first page has more data, second page is the last one.
+        # Use the new mock data structure that returns a tuple, not a DataFrame
         scraper_instance.quote_ctx.get_stock_filter.side_effect = [
-            (ft.RET_OK, SAMPLE_FINANCIAL_DATA_PAGE1),
-            (ft.RET_OK, SAMPLE_FINANCIAL_DATA_PAGE2)
+            (ft.RET_OK, MOCK_API_RETURN_PAGE1),
+            (ft.RET_OK, MOCK_API_RETURN_PAGE2)
         ]
-        monkeypatch.setattr('src.futu_scraper.asyncio.sleep', AsyncMock()) # Use AsyncMock for sleep
+        monkeypatch.setattr('src.futu_scraper.asyncio.sleep', AsyncMock())
 
         # --- Execute ---
         await scraper_instance.scrape_and_store_financials("US", "annual")
@@ -96,10 +106,15 @@ class TestFutuScraper:
         _, models_list, _ = upsert_args
         assert len(models_list) == 3
         assert {m.ticker for m in models_list} == {'MSFT', 'GOOG', 'AMZN'}
+        # Verify a value was correctly parsed
+        msft_model = next(m for m in models_list if m.ticker == 'MSFT')
+        assert msft_model.price_to_earnings_ratio == 30.5
 
-    async def test_scrape_and_store_no_data(self, scraper_instance):
+    async def test_scrape_and_store_no_data(self, monkeypatch, scraper_instance):
         """Test async scrape_and_store when no financial data is returned."""
-        scraper_instance.quote_ctx.get_stock_filter.return_value = (ft.RET_OK, pd.DataFrame())
+        monkeypatch.setattr('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
+
+        scraper_instance.quote_ctx.get_stock_filter.return_value = (ft.RET_OK, (True, None, pd.DataFrame()))
         await scraper_instance.scrape_and_store_financials('US')
         scraper_instance.db_api.create_table_from_model.assert_not_called()
 

@@ -46,6 +46,22 @@ FINANCIAL_FILTER_FIELDS = [
     ft.StockField.ROE_GROWTH_RATE, ft.StockField.ROIC, ft.StockField.ROIC_GROWTH_RATE,
     ft.StockField.SHAREHOLDER_NET_PROFIT_TTM, ft.StockField.SUM_OF_BUSINESS,
     ft.StockField.SUM_OF_BUSINESS_GROWTH, ft.StockField.TOTAL_ASSET_TURNOVER,
+    ft.StockField.TOTAL_ASSETS_GROWTH_RATE,    ft.StockField.CURRENT_ASSET_RATIO, ft.StockField.CURRENT_DEBT_RATIO, ft.StockField.CURRENT_RATIO,
+    ft.StockField.DEBT_ASSET_RATE, ft.StockField.DILUTED_EPS, ft.StockField.EBIT_GROWTH_RATE,
+    ft.StockField.EBIT_MARGIN, ft.StockField.EBIT_TTM, ft.StockField.EBITDA, ft.StockField.EBITDA_MARGIN,
+    ft.StockField.EPS_GROWTH_RATE, ft.StockField.EQUITY_MULTIPLIER, ft.StockField.FINANCIAL_COST_RATE,
+    ft.StockField.FIXED_ASSET_TURNOVER, ft.StockField.GROSS_PROFIT_RATE, ft.StockField.INVENTORY_TURNOVER,
+    ft.StockField.NET_PROFIT, ft.StockField.NET_PROFIT_CASH_COVER_TTM, ft.StockField.NET_PROFIT_RATE,
+    ft.StockField.NET_PROFIX_GROWTH, ft.StockField.NOCF_GROWTH_RATE, ft.StockField.NOCF_PER_SHARE,
+    ft.StockField.NOCF_PER_SHARE_GROWTH_RATE, ft.StockField.OPERATING_CASH_FLOW_TTM,
+    ft.StockField.OPERATING_MARGIN_TTM, ft.StockField.OPERATING_PROFIT_GROWTH_RATE,
+    ft.StockField.OPERATING_PROFIT_TO_TOTAL_PROFIT, ft.StockField.OPERATING_PROFIT_TTM,
+    ft.StockField.OPERATING_REVENUE_CASH_COVER, ft.StockField.PROFIT_BEFORE_TAX_GROWTH_RATE,
+    ft.StockField.PROFIT_TO_SHAREHOLDERS_GROWTH_RATE, ft.StockField.PROPERTY_RATIO,
+    ft.StockField.QUICK_RATIO, ft.StockField.RETURN_ON_EQUITY_RATE, ft.StockField.ROA_TTM,
+    ft.StockField.ROE_GROWTH_RATE, ft.StockField.ROIC, ft.StockField.ROIC_GROWTH_RATE,
+    ft.StockField.SHAREHOLDER_NET_PROFIT_TTM, ft.StockField.SUM_OF_BUSINESS,
+    ft.StockField.SUM_OF_BUSINESS_GROWTH, ft.StockField.TOTAL_ASSET_TURNOVER,
     ft.StockField.TOTAL_ASSETS_GROWTH_RATE,
 ]
 
@@ -162,6 +178,7 @@ class FutuScraper:
             logger.error(f"Failed to scrape financial profiles for market {market}: {e}", exc_info=True)
             return []
 
+    @retry(stop=stop_after_attempt(5), wait=wait_based_on_error, retry=retry_if_exception_type((FutuNetworkError, FutuRateLimitError)))
     async def _scrape_field(self, field, ft_market, quarter, all_stocks_data):
         """Asynchronously scrapes data for a single financial field."""
         logger.info(f"Scraping field: {field}")
@@ -177,12 +194,18 @@ class FutuScraper:
             if ret != ft.RET_OK:
                 logger.error(f"Futu API error for field {field}: {data}")
                 break
-            if data is None:
-                break
 
+            error_msg = str(data)
+            if ret != ft.RET_OK:
+                if "频率太高" in error_msg: raise FutuRateLimitError(error_msg)
+                if "NN_ProtoRet_ByDisConnOrCacnel" in error_msg or "网络中断" in error_msg: raise FutuNetworkError(error_msg)
+                logger.error(f"Non-retryable error for field: {field.lower()}: {error_msg}")
+                break
+            print(f"data = {data}")
             is_last_page, _, stock_list_chunk = data
             for stock_data in stock_list_chunk:
-                stock_code = stock_data.stock_code.split('.')[1]
+                stock_code = stock_data.stock_code
+                stock_code = stock_code.split('.')[1] if '.' in stock_code else stock_code
                 stock_vars = vars(stock_data)
                 value = None
 
