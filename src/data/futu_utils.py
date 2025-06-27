@@ -2,6 +2,7 @@ import futu as ft
 from typing import List, Dict, Any
 import logging
 from datetime import date, datetime, timedelta
+from pydantic import ValidationError
 
 from src.data.models import FinancialProfile
 
@@ -54,38 +55,23 @@ FUTU_FIELD_MAPPING = {
     'sum_of_business': 'revenue',
 }
 
-def futu_data_to_financial_profile(data: dict, report_date: str, period: str) -> List[FinancialProfile]:
-    """从Futu API返回的字典数据创建FinancialProfile对象列表"""
+def futu_data_to_financial_profile(data: dict, report_date_str: str, quarter: str) -> List[FinancialProfile]:
+    """Converts a dictionary of Futu data into a list of FinancialProfile Pydantic models."""
     profiles = []
-    if not data:
-        return profiles
-
-    for stock_code, stock_data in data.items():
-        # 1. Clean the ticker
-        ticker_only = stock_code.split('.')[1] if '.' in stock_code else stock_code
-
-        # 2. Rename keys based on mapping
-        mapped_data = {}
-        for futu_key, model_key in FUTU_FIELD_MAPPING.items():
-            if futu_key in stock_data and stock_data[futu_key] is not None:
-                mapped_data[model_key] = stock_data[futu_key]
-
-        # Include any other fields that have direct 1:1 name mapping
-        for key, value in stock_data.items():
-            if key not in FUTU_FIELD_MAPPING and hasattr(FinancialProfile, key) and value is not None:
-                mapped_data[key] = value
-
-        # 3. Create the FinancialProfile object
-        profile = FinancialProfile(
-            ticker=ticker_only,
-            name=stock_data.get('stock_name', ticker_only),  # Use ticker as fallback for name
-            report_period=report_date,
-            period=period,
-            currency="HKD",  # This might need to be dynamic based on the market
-            **mapped_data
-        )
-        profiles.append(profile)
+    for stock_code, values in data.items():
+        # Ensure the ticker includes the market prefix (e.g., 'US.MSFT')
+        values['ticker'] = stock_code
+        values['report_period'] = report_date_str
+        values['period'] = quarter
         
+        # Map the 'stock_name' from the raw data to the 'name' field in the model
+        if 'stock_name' in values:
+            values['name'] = values.pop('stock_name')
+
+        try:
+            profiles.append(FinancialProfile(**values))
+        except ValidationError as e:
+            logger.error(f"Pydantic validation error for stock {stock_code}: {e}")
     return profiles
 
 

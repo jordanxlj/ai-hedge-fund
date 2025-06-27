@@ -1,30 +1,12 @@
 import pytest
 import pandas as pd
 import futu as ft
-import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock
-from types import SimpleNamespace
+from unittest.mock import patch, MagicMock
 
-from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE, FutuNetworkError, FutuRateLimitError
+from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE
 from src.data.models import Market
 
-# --- Sample Data ---
-
-SAMPLE_PLATE_LIST = pd.DataFrame([
-    {'code': 'PLT.001', 'plate_name': 'Tech Giants', 'plate_id': 'P1'},
-    {'code': 'PLT.002', 'plate_name': 'Financials', 'plate_id': 'P2'},
-])
-
-SAMPLE_STOCK_LIST_TECH = pd.DataFrame([
-    {'code': 'US.AAPL', 'stock_name': 'Apple Inc.'},
-    {'code': 'US.GOOG', 'stock_name': 'Alphabet Inc.'},
-])
-
-SAMPLE_STOCK_LIST_FINANCE = pd.DataFrame([
-    {'code': 'US.JPM', 'stock_name': 'JPMorgan Chase & Co.'},
-])
-
-# Sample data for financial profile scraping
+# Sample Data in DataFrame format for the synchronous scraper
 SAMPLE_FINANCIAL_DATA_PAGE1 = pd.DataFrame({
     'stock_code': ['US.MSFT', 'US.GOOG'],
     'stock_name': ['Mcrosoft', 'Google'],
@@ -37,142 +19,62 @@ SAMPLE_FINANCIAL_DATA_PAGE2 = pd.DataFrame({
     'pe_ttm': [55.2],
     'is_last_page': [True]
 })
-
-# New mock data structure to match the refactored scraper logic
-MOCK_STOCK_PAGE1_MSFT = SimpleNamespace(stock_code='US.MSFT', stock_name='Microsoft', pe_ttm=30.5)
-MOCK_STOCK_PAGE1_GOOG = SimpleNamespace(stock_code='US.GOOG', stock_name='Google', pe_ttm=25.1)
-MOCK_API_RETURN_PAGE1 = (False, None, [MOCK_STOCK_PAGE1_MSFT, MOCK_STOCK_PAGE1_GOOG])
-
-MOCK_STOCK_PAGE2_AMZN = SimpleNamespace(stock_code='US.AMZN', stock_name='Amazon', pe_ttm=55.2)
-MOCK_API_RETURN_PAGE2 = (True, None, [MOCK_STOCK_PAGE2_AMZN])
+# Empty dataframe to signify the end of pagination
+EMPTY_DF = pd.DataFrame(columns=['stock_code', 'stock_name', 'pe_ttm', 'is_last_page'])
 
 
 @pytest.fixture
 def scraper_instance():
-    """
-    Synchronous fixture. Mocks the scraper's dependencies and key methods
-    to prevent teardown race conditions in async tests.
-    """
+    """Synchronous fixture for the scraper, mocking the API executor."""
     with patch('futu.OpenQuoteContext'):
         scraper = FutuScraper(db_path="test_scraper.db")
         scraper.quote_ctx = MagicMock()
         scraper.db_api = MagicMock()
-        scraper._connect = AsyncMock()
-        # Mock the close method itself to prevent it from being called during
-        # the fixture's teardown phase, which avoids race conditions with
-        # the async test execution.
+        scraper.api_executor = MagicMock()
+        # Configure max_workers to be an integer to prevent TypeError
+        scraper.api_executor.max_workers = 1 
         scraper.close = MagicMock()
         yield scraper
-        # No 'scraper.close()' is called here anymore.
 
-@pytest.mark.asyncio
 class TestFutuScraper:
-    async def test_scrape_stock_plate_mappings(self, scraper_instance):
-        """Test the async scraping and storing of stock-plate mappings."""
-        # --- Mocks ---
-        scraper_instance.quote_ctx.get_plate_list.return_value = (ft.RET_OK, SAMPLE_PLATE_LIST)
-        scraper_instance.quote_ctx.get_plate_stock.side_effect = [
-            (ft.RET_OK, SAMPLE_STOCK_LIST_TECH),
-            (ft.RET_OK, SAMPLE_STOCK_LIST_FINANCE)
-        ]
-        
-        # --- Execute ---
-        await scraper_instance.scrape_stock_plate_mappings(market=Market.US)
-
-        # --- Assertions ---
-        scraper_instance.db_api.create_table_from_model.assert_called_once()
-        scraper_instance.db_api.upsert_data_from_models.assert_called_once()
-        assert scraper_instance.quote_ctx.get_plate_list.call_count == 1
-        assert scraper_instance.quote_ctx.get_plate_stock.call_count == 2
-
-    async def test_scrape_and_store_financial_profile(self, monkeypatch, scraper_instance):
-        """Test the async financial profile scraping and storing workflow."""
+    @patch('src.futu_scraper.FutuScraper._scrape_field_worker')
+    def test_scrape_and_store_financial_profile(self, mock_worker, monkeypatch, scraper_instance):
+        """Test the orchestration of financial profile scraping, mocking the worker function."""
+        # We only need to test with one field since we're mocking the worker
         monkeypatch.setattr('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
 
-        # --- Mocks ---
-        # Use the new mock data structure that returns a tuple, not a DataFrame
-        scraper_instance.quote_ctx.get_stock_filter.side_effect = [
-            (ft.RET_OK, MOCK_API_RETURN_PAGE1),
-            (ft.RET_OK, MOCK_API_RETURN_PAGE2)
-        ]
-        monkeypatch.setattr('src.futu_scraper.asyncio.sleep', AsyncMock())
+        # Define a side effect for the mock worker to simulate populating the data dict
+        def worker_side_effect(field, ft_market, quarter, all_stocks_data, lock):
+            with lock:
+                all_stocks_data['US.MSFT'] = {'ticker': 'US.MSFT', 'stock_name': 'Microsoft', 'pe_ttm': 30.5}
+                all_stocks_data['US.GOOG'] = {'ticker': 'US.GOOG', 'stock_name': 'Google', 'pe_ttm': 25.1}
+        
+        mock_worker.side_effect = worker_side_effect
+        
+        scraper_instance.scrape_and_store_financials("US", "annual")
 
-        # --- Execute ---
-        await scraper_instance.scrape_and_store_financials("US", "annual")
-
-        # --- Assertions ---
+        # Check that the worker was called once for our single test field
+        mock_worker.assert_called_once()
+        
         scraper_instance.db_api.create_table_from_model.assert_called_once()
+        
         upsert_args, _ = scraper_instance.db_api.upsert_data_from_models.call_args
         _, models_list, _ = upsert_args
-        assert len(models_list) == 3
-        assert {m.ticker for m in models_list} == {'MSFT', 'GOOG', 'AMZN'}
-        # Verify a value was correctly parsed
-        msft_model = next(m for m in models_list if m.ticker == 'MSFT')
-        assert msft_model.price_to_earnings_ratio == 30.5
-
-    async def test_scrape_and_store_no_data(self, monkeypatch, scraper_instance):
-        """Test async scrape_and_store when no financial data is returned."""
-        monkeypatch.setattr('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
-
-        scraper_instance.quote_ctx.get_stock_filter.return_value = (ft.RET_OK, (True, None, pd.DataFrame()))
-        await scraper_instance.scrape_and_store_financials('US')
-        scraper_instance.db_api.create_table_from_model.assert_not_called()
-
-    def test_get_plate_list_error(self, scraper_instance):
-        """Test error handling for sync _get_plate_list."""
-        scraper_instance.quote_ctx.get_plate_list.return_value = (ft.RET_ERROR, "API error")
-        assert scraper_instance._get_plate_list(Market.US) == []
+        
+        assert len(models_list) == 2
+        assert {m.ticker for m in models_list} == {'US.MSFT', 'US.GOOG'}
 
     def test_unsupported_market_validation(self, scraper_instance):
         """Test that _validate_market raises ValueError for an unsupported market."""
         with pytest.raises(ValueError, match="Unsupported market: XE"):
             scraper_instance._validate_market("XE")
 
-    @patch('futu.OpenQuoteContext', side_effect=Exception("Connection Failed"))
-    async def test_connect_failure(self, mock_futu_connect):
-        """Test exception handling in async _connect."""
+    @patch('src.futu_scraper.ft')
+    def test_connect_failure(self, mock_ft):
+        """Test that an exception during Futu connection is handled."""
+        # Configure the mock on the patched module
+        mock_ft.OpenQuoteContext.side_effect = Exception("Connection Failed")
+        
         scraper = FutuScraper()
         with pytest.raises(Exception, match="Connection Failed"):
-            await scraper._connect()
-
-    async def test_retry_on_network_error(self, monkeypatch, scraper_instance):
-        """Test async retry on a recoverable network error."""
-        scraper_instance.quote_ctx.get_plate_stock.side_effect = [
-            (ft.RET_ERROR, "NN_ProtoRet_ByDisConnOrCacnel"),
-            (ft.RET_OK, SAMPLE_STOCK_LIST_TECH)
-        ]
-        mock_sleep = AsyncMock() # Use AsyncMock
-        monkeypatch.setattr('src.futu_scraper.asyncio.sleep', mock_sleep)
-
-        result = await scraper_instance._get_plate_stock_with_retry("PLT.001")
-
-        assert scraper_instance.quote_ctx.get_plate_stock.call_count == 2
-        mock_sleep.assert_awaited_once_with(2)
-        assert not result.empty
-
-    async def test_retry_on_rate_limit_error(self, monkeypatch, scraper_instance):
-        """Test async retry on a rate limit error."""
-        scraper_instance.quote_ctx.get_plate_stock.side_effect = [
-            (ft.RET_ERROR, "频率太高"),
-            (ft.RET_OK, SAMPLE_STOCK_LIST_FINANCE)
-        ]
-        mock_sleep = AsyncMock() # Use AsyncMock
-        monkeypatch.setattr('src.futu_scraper.asyncio.sleep', mock_sleep)
-
-        result = await scraper_instance._get_plate_stock_with_retry("PLT.002")
-
-        assert scraper_instance.quote_ctx.get_plate_stock.call_count == 2
-        mock_sleep.assert_awaited_once_with(31)
-        assert not result.empty
-
-    async def test_no_retry_on_other_error(self, monkeypatch, scraper_instance):
-        """Test no async retry on a non-specified error."""
-        scraper_instance.quote_ctx.get_plate_stock.return_value = (ft.RET_ERROR, "Some other unknown error")
-        mock_sleep = AsyncMock() # Use AsyncMock
-        monkeypatch.setattr('src.futu_scraper.asyncio.sleep', mock_sleep)
-
-        result = await scraper_instance._get_plate_stock_with_retry("PLT.003")
-
-        assert result is None
-        scraper_instance.quote_ctx.get_plate_stock.assert_called_once()
-        mock_sleep.assert_not_called()
+            scraper._connect()

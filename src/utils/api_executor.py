@@ -8,7 +8,7 @@ from threading import Lock
 logger = logging.getLogger(__name__)
 
 class FutuAPIExecutor:
-    def __init__(self, batch_size: int = 10, wait_time: int = 30, max_workers: int = 5):
+    def __init__(self, batch_size: int = 10, wait_time: int = 30, max_workers: int = 1):
         """Initializes the executor, setting up batch size, wait time, and thread safety."""
         self.batch_size = batch_size
         self.wait_time = wait_time
