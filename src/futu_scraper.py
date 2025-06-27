@@ -82,10 +82,20 @@ class FutuScraper:
     def __init__(self, db_path: str = "data/futu_financials.duckdb"):
         self.host = os.getenv("FUTU_HOST", "127.0.0.1")
         self.port = 11111
+        self.db_path = db_path
         self.quote_ctx: Optional[ft.OpenQuoteContext] = None
-        self.db_api: DatabaseAPI = get_database_api("duckdb", db_path=db_path)
+        self.db_api: Optional[DatabaseAPI] = None  # Initialize as None
         self.req_freq = 3.1
         self.rate_limit_timestamps = deque(maxlen=10)
+
+    async def __aenter__(self):
+        """Asynchronous context manager entry point. Connects to resources."""
+        await self._connect()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Asynchronous context manager exit point. Closes connections."""
+        self.close()
 
     async def _connect(self):
         """Asynchronously connects to the Futu API and the database."""
@@ -114,12 +124,9 @@ class FutuScraper:
         if self.quote_ctx:
             self.quote_ctx.close()
             self.quote_ctx = None
-        self.db_api.close()
-
-    async def _ensure_connection(self):
-        """Ensures the Futu API connection is active."""
-        if self.quote_ctx is None or self.quote_ctx.status != ft.RET_OK:
-            await self._connect()
+        if self.db_api:
+            self.db_api.close()
+            self.db_api = None
 
     async def scrape_and_store_financials(self, market: str, quarter: str = "annual"):
         """Scrapes financial data for a specific report period and stores it."""
@@ -141,15 +148,13 @@ class FutuScraper:
 
     async def scrape_financial_profile(self, market: str, quarter: str, end_date: str) -> List[FinancialProfile]:
         """Asynchronously scrapes financial profiles for all stocks in a given market."""
-        await self._ensure_connection()
+        await self._connect()
         try:
             ft_market = self._validate_market(market)
             logger.info(f"Using report period end date: {end_date} for quarter '{quarter}'")
 
             all_stocks_data = {}
-            quarter_enum = self._get_quarter_enum(quarter)
-
-            tasks = [self._scrape_field(field, ft_market, quarter_enum, all_stocks_data) for field in ALL_FIELDS_TO_SCRAPE]
+            tasks = [self._scrape_field(field, ft_market, quarter, all_stocks_data) for field in ALL_FIELDS_TO_SCRAPE]
             await asyncio.gather(*tasks)
 
             return self._process_scraped_data(all_stocks_data, end_date, quarter)
@@ -157,11 +162,13 @@ class FutuScraper:
             logger.error(f"Failed to scrape financial profiles for market {market}: {e}", exc_info=True)
             return []
 
-    async def _scrape_field(self, field, ft_market, quarter_enum, all_stocks_data):
+    async def _scrape_field(self, field, ft_market, quarter, all_stocks_data):
         """Asynchronously scrapes data for a single financial field."""
         logger.info(f"Scraping field: {field}")
         begin_index = 0
         num_per_req = 200
+        quarter_enum = self._get_quarter_enum(quarter)
+
         while True:
             filter_instance = self._create_filter(field, quarter_enum)
             ret, data = self.quote_ctx.get_stock_filter(market=ft_market, filter_list=[filter_instance], begin=begin_index, num=num_per_req)
@@ -170,16 +177,28 @@ class FutuScraper:
             if ret != ft.RET_OK:
                 logger.error(f"Futu API error for field {field}: {data}")
                 break
-            if data is None or data.empty:
+            if data is None:
                 break
-            
-            for _, row in data.iterrows():
-                stock_code = row['stock_code']
+
+            is_last_page, _, stock_list_chunk = data
+            for stock_data in stock_list_chunk:
+                stock_code = stock_data.stock_code.split('.')[1]
+                stock_vars = vars(stock_data)
+                value = None
+
                 if stock_code not in all_stocks_data:
                     all_stocks_data[stock_code] = {'ticker': stock_code}
-                all_stocks_data[stock_code][field.lower()] = row[field.lower()]
+                    all_stocks_data[stock_code]['stock_name'] = stock_data.stock_name
 
-            if data.iloc[0]['is_last_page']:
+                # FinancialFilter returns a tuple key, SimpleFilter returns a string key
+                if field in SIMPLE_FILTER_FIELDS:
+                    value = stock_vars.get(field.lower())
+                else:
+                    value = stock_vars.get((field.lower(), quarter))
+
+                all_stocks_data[stock_code][field.lower()] = value
+
+            if is_last_page:
                 break
             begin_index += num_per_req
 
@@ -214,7 +233,7 @@ class FutuScraper:
 
     async def scrape_stock_plate_mappings(self, market: Market = Market.HK):
         """Scrapes and stores stock-to-plate mappings."""
-        await self._ensure_connection()
+        await self._connect()
         try:
             plate_list = self._get_plate_list(market)
             if not plate_list:
@@ -250,7 +269,7 @@ class FutuScraper:
     @retry(stop=stop_after_attempt(5), wait=wait_based_on_error, retry=retry_if_exception_type((FutuNetworkError, FutuRateLimitError)))
     async def _get_plate_stock_with_retry(self, plate_code: str) -> Optional[pd.DataFrame]:
         """A retry-enabled async method to fetch stocks in a given plate."""
-        await self._ensure_connection()
+        await self._connect()
         logger.info(f"Fetching stocks for plate: {plate_code}")
         ret, data = self.quote_ctx.get_plate_stock(plate_code)
         
@@ -261,13 +280,6 @@ class FutuScraper:
             logger.error(f"Non-retryable error for plate {plate_code}: {error_msg}")
             return None
         return data
-
-    def __enter__(self):
-        asyncio.run(self._connect())
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._disconnect()
 
     def close(self):
         """Closes both Futu and database connections."""
