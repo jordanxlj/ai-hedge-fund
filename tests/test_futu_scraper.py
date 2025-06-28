@@ -2,9 +2,11 @@ import pytest
 import pandas as pd
 import futu as ft
 from unittest.mock import patch, MagicMock
+from datetime import date
 
 from src.futu_scraper import FutuScraper, ALL_FIELDS_TO_SCRAPE
-from src.data.models import Market
+from src.data.models import Market, FinancialProfile
+from src.data.futu_utils import get_report_period_date
 
 # Sample Data in DataFrame format for the synchronous scraper
 SAMPLE_FINANCIAL_DATA_PAGE1 = pd.DataFrame({
@@ -37,32 +39,36 @@ def scraper_instance():
         yield scraper
 
 class TestFutuScraper:
-    @patch('src.futu_scraper.FutuScraper._scrape_field_worker')
-    def test_scrape_and_store_financial_profile(self, mock_worker, monkeypatch, scraper_instance):
-        """Test the orchestration of financial profile scraping, mocking the worker function."""
-        # We only need to test with one field since we're mocking the worker
-        monkeypatch.setattr('src.futu_scraper.ALL_FIELDS_TO_SCRAPE', [ft.StockField.PE_TTM])
+    @patch('src.futu_scraper.FutuScraper.scrape_financial_profile')
+    def test_scrape_and_store_financial_profile(self, mock_scrape_financial_profile, scraper_instance):
+        """Test the orchestration of financial profile scraping, mocking the scrape_financial_profile method."""
+        report_date = get_report_period_date(date.today(), "annual")
+        report_date_str = report_date.strftime('%Y-%m-%d')
 
-        # Define a side effect for the mock worker to simulate populating the data dict
-        def worker_side_effect(field, ft_market, quarter, all_stocks_data, lock):
-            with lock:
-                all_stocks_data['US.MSFT'] = {'ticker': 'US.MSFT', 'stock_name': 'Microsoft', 'pe_ttm': 30.5}
-                all_stocks_data['US.GOOG'] = {'ticker': 'US.GOOG', 'stock_name': 'Google', 'pe_ttm': 25.1}
-        
-        mock_worker.side_effect = worker_side_effect
-        
+        # Configure the mock to return some data
+        mock_profiles = [
+            FinancialProfile(ticker='US.MSFT', name='Microsoft', pe_ttm=30.5, currency='USD', report_period=report_date_str, period='annual'),
+            FinancialProfile(ticker='US.GOOG', name='Google', pe_ttm=25.1, currency='USD', report_period=report_date_str, period='annual')
+        ]
+        mock_scrape_financial_profile.return_value = mock_profiles
+
         scraper_instance.scrape_and_store_financials("US", "annual")
 
-        # Check that the worker was called once for our single test field
-        mock_worker.assert_called_once()
-        
+        # Check that scrape_financial_profile was called correctly
+        mock_scrape_financial_profile.assert_called_once_with("US", "annual", report_date_str)
+
+        # Now, this assertion should pass
         scraper_instance.db_api.create_table_from_model.assert_called_once()
         
+        # Check that upsert is called with the correct data
+        scraper_instance.db_api.upsert_data_from_models.assert_called_once()
         upsert_args, _ = scraper_instance.db_api.upsert_data_from_models.call_args
-        _, models_list, _ = upsert_args
+        _, models_list, primary_keys = upsert_args
         
         assert len(models_list) == 2
         assert {m.ticker for m in models_list} == {'US.MSFT', 'US.GOOG'}
+        assert models_list == mock_profiles
+        assert primary_keys == ["ticker", "report_period", "period"]
 
     def test_unsupported_market_validation(self, scraper_instance):
         """Test that _validate_market raises ValueError for an unsupported market."""
