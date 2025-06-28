@@ -119,9 +119,20 @@ class FutuScraper:
 
             all_stocks_data = {}
             data_lock = Lock()
+            currency = self._get_currency(ft_market)
 
             with ThreadPoolExecutor(max_workers=self.api_executor.max_workers) as executor:
-                futures = {executor.submit(self._scrape_field_worker, field, ft_market, quarter, all_stocks_data, data_lock): field for field in ALL_FIELDS_TO_SCRAPE}
+                futures = {
+                    executor.submit(
+                        self._scrape_field_worker,
+                        field,
+                        ft_market,
+                        quarter,
+                        currency,
+                        all_stocks_data,
+                        data_lock
+                    ): field for field in ALL_FIELDS_TO_SCRAPE
+                }
                 for future in futures:
                     future.result()
 
@@ -130,7 +141,7 @@ class FutuScraper:
             logger.error(f"Failed to scrape financial profiles for market {market}: {e}", exc_info=True)
             return []
 
-    def _scrape_field_worker(self, field, ft_market, quarter, all_stocks_data, lock):
+    def _scrape_field_worker(self, field, ft_market, quarter, currency, all_stocks_data, lock):
         """Worker function to scrape all pages for a single financial field."""
         logger.info(f"Starting scrape for field: {field}")
         begin_index = 0
@@ -164,6 +175,7 @@ class FutuScraper:
                     if stock_code not in all_stocks_data:
                         all_stocks_data[stock_code] = {'ticker': stock_code}
                         all_stocks_data[stock_code]['name'] = stock_data.stock_name
+                        all_stocks_data[stock_code]['currency'] = currency
 
                     # FinancialFilter returns a tuple key, SimpleFilter returns a string key
                     if field in SIMPLE_FILTER_FIELDS:
@@ -184,6 +196,14 @@ class FutuScraper:
         if not ft_market:
             raise ValueError(f"Unsupported market: {market}. Please use 'HK' or 'US'.")
         return ft_market
+
+    def _get_currency(self, market: ft.Market) -> str:
+        # Determine currency from market
+        if market == ft.Market.HK:
+            return "HKD"
+        elif market == ft.Market.US:
+            return "USD"
+        return "HKD" #default
 
     def _get_quarter_enum(self, quarter: str) -> ft.FinancialQuarter:
         """Gets the Futu API quarter enum."""
@@ -206,9 +226,57 @@ class FutuScraper:
         logger.info(f"Finished scraping. Total unique stocks found: {len(all_stocks_data)}")
         return futu_data_to_financial_profile(all_stocks_data, end_date, quarter)
 
+    def scrape_stock_plate_mappings(self, market: Market = Market.HK):
+        """Scrapes and stores stock-to-plate mappings synchronously."""
+        self._connect()
+        try:
+            plate_list = self._get_plate_list(market)
+            if not plate_list:
+                logger.warning(f"No plates found for market: {market.value}")
+                return
+
+            all_mappings = []
+            for plate in plate_list:
+                stocks_df = self._get_plate_stock(plate['code'])
+                if stocks_df is not None and not stocks_df.empty:
+                    for _, stock in stocks_df.iterrows():
+                        # The ticker in the plate data does not have a market prefix
+                        ticker = stock['code']
+                        ticker = ticker.split('.')[1] if '.' in ticker else ticker
+                        all_mappings.append(StockPlateMapping(ticker=ticker, stock_name=stock['stock_name'], plate_code=plate['plate_id'], plate_name=plate['plate_name'], market=market.value))
+
+            if all_mappings:
+                table_name = "stock_plate_mappings"
+                primary_keys = ["ticker", "plate_code"]
+                self.db_api.create_table_from_model(table_name, StockPlateMapping, primary_keys)
+                self.db_api.upsert_data_from_models(table_name, all_mappings, primary_keys)
+                logger.info(f"Upserted {len(all_mappings)} stock-plate mappings.")
+        except Exception as e:
+            logger.error(f"Failed to scrape stock plate mappings: {e}", exc_info=True)
+
+    def _get_plate_list(self, market: Market):
+        """Fetches the list of all plates for a given market."""
+        ft_market = self._validate_market(market.value)
+        ret, data = self.api_executor.execute("get_plate_list", self.quote_ctx.get_plate_list, ft_market, ft.Plate.ALL)
+        if ret == ft.RET_OK:
+            return data.to_dict('records')
+        logger.error(f"Failed to get plate list for {market.value}: {data}")
+        return []
+
+    def _get_plate_stock(self, plate_code: str) -> Optional[pd.DataFrame]:
+        """Fetches stocks in a given plate using the API executor."""
+        self._connect()
+        logger.info(f"Fetching stocks for plate: {plate_code}")
+        ret, data = self.api_executor.execute("get_plate_stock", self.quote_ctx.get_plate_stock, plate_code)
+        
+        if ret != ft.RET_OK:
+            logger.error(f"API error for plate {plate_code}: {data}")
+            return None
+        return data
+
 if __name__ == "__main__":
     logger.info("------------- ai hedge fund start ---------------")
-    with FutuScraper(db_path="data/futu_financials.duckdb") as scraper:
-        scraper.scrape_and_store_financials("HK", "annual")
-        # scraper.scrape_stock_plate_mappings(Market.HK) # This will be refactored next
+    with FutuScraper(db_path="data/test.duckdb") as scraper:
+        # scraper.scrape_and_store_financials("HK", "annual")
+        scraper.scrape_stock_plate_mappings(Market.HK)
     logger.info("------------- ai hedge fund finish --------------")

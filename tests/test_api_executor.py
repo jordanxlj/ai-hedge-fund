@@ -15,7 +15,7 @@ class TestFutuAPIExecutor(unittest.TestCase):
         executor_default = FutuAPIExecutor()
         self.assertEqual(executor_default.batch_size, 10)
         self.assertEqual(executor_default.wait_time, 30)
-        self.assertEqual(executor_default.max_workers, 5)
+        self.assertEqual(executor_default.max_workers, 1)
 
         # Test custom initialization
         executor_custom = FutuAPIExecutor(batch_size=5, wait_time=10, max_workers=2)
