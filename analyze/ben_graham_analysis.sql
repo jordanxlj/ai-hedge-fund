@@ -9,24 +9,45 @@
 --    For example: financial_profile_2023_12_31
 -- 2. Run the query in your DuckDB environment.
 
-WITH source_data AS (
-    SELECT * FROM {{table_name}}
+WITH
+-- Step 1: Calculate the size of each plate (number of stocks in it)
+plate_sizes AS (
+    SELECT
+        plate_code,
+        COUNT(ticker) AS num_stocks
+    FROM stock_plate_mappings
+    GROUP BY plate_code
 ),
 
-plate_data AS (
+-- Step 2: For each stock, rank its plates by size (smallest first)
+ranked_plates AS (
+    SELECT
+        sm.ticker,
+        sm.plate_name,
+        -- Rank plates by size ascending. Use plate_name as a tie-breaker for consistent results.
+        ROW_NUMBER() OVER(PARTITION BY sm.ticker ORDER BY ps.num_stocks ASC, sm.plate_name ASC) as rnk
+    FROM stock_plate_mappings sm
+    JOIN plate_sizes ps ON sm.plate_code = ps.plate_code
+),
+
+-- Step 3: Select only the smallest plate (rank = 1) for each stock
+smallest_plate_data AS (
     SELECT
         ticker,
-        -- Aggregate all plate names for each stock into a single string
-        STRING_AGG(plate_name, ', ') AS plates
-    FROM stock_plate_mappings
-    GROUP BY ticker
+        plate_name AS smallest_plate
+    FROM ranked_plates
+    WHERE rnk = 1
+),
+
+source_data AS (
+    SELECT * FROM {{table_name}}
 ),
 
 graham_checks AS (
     SELECT
         s.ticker,
         s.name,
-        p.plates,
+        p.smallest_plate,
         s.price_to_earnings_ratio,
         s.price_to_book_ratio,
         s.current_ratio,
@@ -34,50 +55,27 @@ graham_checks AS (
         s.dividend_yield,
 
         -- Criterion 1: P/E Ratio should be moderate (e.g., < 15)
-        CASE
-            WHEN s.price_to_earnings_ratio > 0 AND s.price_to_earnings_ratio < 15 THEN 1
-            ELSE 0
-        END AS pe_ratio_check,
-
+        CASE WHEN s.price_to_earnings_ratio > 0 AND s.price_to_earnings_ratio < 15 THEN 1 ELSE 0 END AS pe_ratio_check,
         -- Criterion 2: P/B Ratio should be moderate (e.g., < 1.5)
-        CASE
-            WHEN s.price_to_book_ratio > 0 AND s.price_to_book_ratio < 1.5 THEN 1
-            ELSE 0
-        END AS pb_ratio_check,
-
+        CASE WHEN s.price_to_book_ratio > 0 AND s.price_to_book_ratio < 1.5 THEN 1 ELSE 0 END AS pb_ratio_check,
         -- Criterion 3: Graham Number check (P/E * P/B < 22.5)
-        CASE
-            WHEN (s.price_to_earnings_ratio * s.price_to_book_ratio) < 22.5 THEN 1
-            ELSE 0
-        END AS graham_number_check,
-
+        CASE WHEN (s.price_to_earnings_ratio * s.price_to_book_ratio) < 22.5 THEN 1 ELSE 0 END AS graham_number_check,
         -- Criterion 4: Strong financial position (Current Ratio > 2)
-        CASE
-            WHEN s.current_ratio > 2.0 THEN 1
-            ELSE 0
-        END AS current_ratio_check,
-
+        CASE WHEN s.current_ratio > 2.0 THEN 1 ELSE 0 END AS current_ratio_check,
         -- Criterion 5: Consistent profitability (Positive Net Income)
-        CASE
-            WHEN s.net_income > 0 THEN 1
-            ELSE 0
-        END AS profitability_check,
-
+        CASE WHEN s.net_income > 0 THEN 1 ELSE 0 END AS profitability_check,
         -- Criterion 6: History of paying dividends
-        CASE
-            WHEN s.dividend_yield > 0 THEN 1
-            ELSE 0
-        END AS dividend_check
+        CASE WHEN s.dividend_yield > 0 THEN 1 ELSE 0 END AS dividend_check
 
     FROM source_data s
     -- Use a LEFT JOIN to ensure all stocks are included, even if they have no plate mapping
-    LEFT JOIN plate_data p ON s.ticker = p.ticker
+    LEFT JOIN smallest_plate_data p ON s.ticker = p.ticker
 )
 
 SELECT
     ticker,
     name,
-    plates,
+    smallest_plate,
     price_to_earnings_ratio,
     price_to_book_ratio,
     current_ratio,
