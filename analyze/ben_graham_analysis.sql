@@ -13,58 +13,71 @@ WITH source_data AS (
     SELECT * FROM {{table_name}}
 ),
 
-graham_checks AS (
+plate_data AS (
     SELECT
         ticker,
-        name,
-        price_to_earnings_ratio,
-        price_to_book_ratio,
-        current_ratio,
-        net_income,
-        dividend_yield,
+        -- Aggregate all plate names for each stock into a single string
+        STRING_AGG(plate_name, ', ') AS plates
+    FROM stock_plate_mappings
+    GROUP BY ticker
+),
+
+graham_checks AS (
+    SELECT
+        s.ticker,
+        s.name,
+        p.plates,
+        s.price_to_earnings_ratio,
+        s.price_to_book_ratio,
+        s.current_ratio,
+        s.net_income,
+        s.dividend_yield,
 
         -- Criterion 1: P/E Ratio should be moderate (e.g., < 15)
         CASE
-            WHEN price_to_earnings_ratio > 0 AND price_to_earnings_ratio < 15 THEN 1
+            WHEN s.price_to_earnings_ratio > 0 AND s.price_to_earnings_ratio < 15 THEN 1
             ELSE 0
         END AS pe_ratio_check,
 
         -- Criterion 2: P/B Ratio should be moderate (e.g., < 1.5)
         CASE
-            WHEN price_to_book_ratio > 0 AND price_to_book_ratio < 1.5 THEN 1
+            WHEN s.price_to_book_ratio > 0 AND s.price_to_book_ratio < 1.5 THEN 1
             ELSE 0
         END AS pb_ratio_check,
 
         -- Criterion 3: Graham Number check (P/E * P/B < 22.5)
         CASE
-            WHEN (price_to_earnings_ratio * price_to_book_ratio) < 22.5 THEN 1
+            WHEN (s.price_to_earnings_ratio * s.price_to_book_ratio) < 22.5 THEN 1
             ELSE 0
         END AS graham_number_check,
 
         -- Criterion 4: Strong financial position (Current Ratio > 2)
         CASE
-            WHEN current_ratio > 2.0 THEN 1
+            WHEN s.current_ratio > 2.0 THEN 1
             ELSE 0
         END AS current_ratio_check,
 
         -- Criterion 5: Consistent profitability (Positive Net Income)
         CASE
-            WHEN net_income > 0 THEN 1
+            WHEN s.net_income > 0 THEN 1
             ELSE 0
         END AS profitability_check,
 
         -- Criterion 6: History of paying dividends
         CASE
-            WHEN dividend_yield > 0 THEN 1
+            WHEN s.dividend_yield > 0 THEN 1
             ELSE 0
         END AS dividend_check
 
-    FROM source_data
+    FROM source_data s
+    -- Use a LEFT JOIN to ensure all stocks are included, even if they have no plate mapping
+    LEFT JOIN plate_data p ON s.ticker = p.ticker
 )
 
 SELECT
     ticker,
     name,
+    plates,
     price_to_earnings_ratio,
     price_to_book_ratio,
     current_ratio,
