@@ -106,6 +106,12 @@ def futu_data_to_financial_profile(data: dict, report_date_str: str, quarter: st
         if 'stock_name' in values:
             values['name'] = values.pop('stock_name')
 
+        if 'equity_multiplier' in values:
+            values['debt_to_equity'] = values.pop('equity_multiplier') - 1
+
+        if 'free_cash_flow_yield' in values and values['free_cash_flow_yield'] is not None and values['price_to_cashflow_ratio']:
+            values['free_cash_flow_yield'] = 1 / values.pop('price_to_cashflow_ratio')
+
         try:
             profiles.append(FinancialProfile(**values))
         except ValidationError as e:
