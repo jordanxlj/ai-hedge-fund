@@ -109,13 +109,13 @@ def futu_data_to_financial_profile(data: dict, report_date_str: str, quarter: st
         if 'equity_multiplier' in values:
             values['debt_to_equity'] = values.pop('equity_multiplier') - 1
 
-        if 'free_cash_flow_yield' in values and values['free_cash_flow_yield'] is not None and values['price_to_cashflow_ratio']:
-            values['free_cash_flow_yield'] = 1 / values.pop('price_to_cashflow_ratio')
+        if 'free_cash_flow_yield' in values and values['free_cash_flow_yield'] is None and values['price_to_cashflow_ratio']:
+            values['free_cash_flow_yield'] = 1 / values['price_to_cashflow_ratio']
 
         if (('peg_ratio' not in values or values['peg_ratio'] is None) and
            ('price_to_earnings_ratio' in values and values['price_to_earnings_ratio']) and
            ('earnings_per_share_growth' in values and values['earnings_per_share_growth'])):
-            values['peg_ratio'] = values.pop('price_to_earnings_ratio') / values.pop('earnings_per_share_growth')
+            values['peg_ratio'] = values['price_to_earnings_ratio'] / values['earnings_per_share_growth']
 
         try:
             profiles.append(FinancialProfile(**values))
