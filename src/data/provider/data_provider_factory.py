@@ -3,10 +3,10 @@ import logging
 from typing import Optional, Dict, Type
 from enum import Enum
 
-from src.data.abstract_data_provider import AbstractDataProvider
-from src.data.financial_datasets_provider import FinancialDatasetsProvider
-from src.data.tushare_provider import TushareProvider
-from src.data.futu_provider import FutuDataProvider
+from src.data.provider.abstract_data_provider import AbstractDataProvider
+from src.data.provider.financial_datasets_provider import FinancialDatasetsProvider
+from src.data.provider.tushare_provider import TushareProvider
+from src.data.provider.futu_provider import FutuDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class DataProviderFactory:
     def _check_futu_availability(cls) -> dict:
         """检查 Futu 数据提供商可用性"""
         try:
-            from src.data.futu_provider import FutuDataProvider
+            from src.data.provider.futu_provider import FutuDataProvider
             provider = FutuDataProvider()
             is_available = provider.is_available()
             return {

@@ -3,7 +3,7 @@ import requests
 from typing import List, Optional
 import logging
 
-from src.data.abstract_data_provider import AbstractDataProvider
+from src.data.provider.abstract_data_provider import AbstractDataProvider
 from src.data.models import (
     Price,
     PriceResponse,

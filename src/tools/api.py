@@ -5,7 +5,7 @@ import pandas as pd
 from src.data.cache import get_cache
 from src.data.persistent_cache import get_persistent_cache
 from src.data.data_config import get_data_config
-from src.data.data_provider_factory import DataProviderFactory, DataProviderType, AbstractDataProvider
+from src.data.provider.data_provider_factory import DataProviderFactory, DataProviderType, AbstractDataProvider
 from src.data.models import (
     Price,
     FinancialMetrics,
@@ -15,7 +15,6 @@ from src.data.models import (
     CompanyNews,
     TransactionType
 )
-from src.utils.financial_utils import reconstruct_financial_metrics
 
 logger = logging.getLogger(__name__)
 

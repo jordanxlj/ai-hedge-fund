@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta
 import tushare as ts
 
-from src.data.abstract_data_provider import AbstractDataProvider
+from src.data.provider.abstract_data_provider import AbstractDataProvider
 from src.utils.config_utils import load_yaml_config
 from src.data.models import (
     Price,
@@ -17,7 +17,7 @@ from src.data.models import (
     TransactionType,
 )
 from src.utils.timeout_retry import with_timeout_retry
-from src.data.tushare_mapping import get_tushare_fields, apply_field_mapping
+from src.data.provider.tushare_mapping import get_tushare_fields, apply_field_mapping
 
 logger = logging.getLogger(__name__)
 

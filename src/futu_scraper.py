@@ -277,6 +277,6 @@ class FutuScraper:
 if __name__ == "__main__":
     logger.info("------------- ai hedge fund start ---------------")
     with FutuScraper(db_path="data/test.duckdb") as scraper:
-        # scraper.scrape_and_store_financials("HK", "annual")
+        scraper.scrape_and_store_financials("HK", "annual")
         scraper.scrape_stock_plate_mappings(Market.HK)
     logger.info("------------- ai hedge fund finish --------------")

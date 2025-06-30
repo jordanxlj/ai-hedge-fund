@@ -1,7 +1,7 @@
 import futu as ft
 import os
 from typing import List, Optional
-from src.data.abstract_data_provider import AbstractDataProvider
+from src.data.provider.abstract_data_provider import AbstractDataProvider
 from src.data.models import Price, FinancialProfile, InsiderTrade, CompanyNews, LineItem
 from src.data.futu_utils import get_report_period_date
 import logging
