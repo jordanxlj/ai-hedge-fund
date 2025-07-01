@@ -147,7 +147,8 @@ class TushareProvider(AbstractDataProvider):
         self,
         ticker: str,
         start_date: str,
-        end_date: str
+        end_date: str,
+        freq: str = '1d'
     ) -> List[Price]:
         """获取股价数据，支持A股和港股"""
         try:
@@ -161,19 +162,21 @@ class TushareProvider(AbstractDataProvider):
             
             # 根据股票类型选择不同的API
             if self._is_hk_stock(ticker):
-                # 港股使用hk_daily
-                df = self.pro.hk_daily(
-                    ts_code=ts_code,
-                    start_date=start_date_ts,
-                    end_date=end_date_ts
-                )
+                if freq == '1d':
+                    # 日频率，使用hk_daily
+                    df = self.pro.daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
+                elif freq == '1m':
+                    # 分钟频率，hk_mins
+                    df = self.pro.hk_mins(ts_code=ts_code,
+                                          start_date=start_date_ts + ' 09:00:00',
+                                          end_date=end_date_ts + ' 16:00:00',
+                                          freq=freq)
             else:
-                # A股使用daily
-                df = self.pro.daily(
-                    ts_code=ts_code,
-                    start_date=start_date_ts,
-                    end_date=end_date_ts
-                )
+                if freq == '1d':
+                    # A股使用daily
+                    df = self.pro.daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
+                else: # unsupported
+                    return []
             
             if df is None or df.empty:
                 return []

@@ -23,7 +23,8 @@ class AbstractDataProvider(ABC):
         self,
         ticker: str,
         start_date: str,
-        end_date: str
+        end_date: str,
+        freq: str = '1d'  # e.g., '1m', '5m', '1d', '1w', '1M'
     ) -> List[Price]:
         """获取股价数据"""
         pass

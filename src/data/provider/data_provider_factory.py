@@ -7,6 +7,7 @@ from src.data.provider.abstract_data_provider import AbstractDataProvider
 from src.data.provider.financial_datasets_provider import FinancialDatasetsProvider
 from src.data.provider.tushare_provider import TushareProvider
 from src.data.provider.futu_provider import FutuDataProvider
+from src.data.provider.yfinance_provider import YFinanceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ class DataProviderType(Enum):
     FINANCIAL_DATASETS = "financial_datasets"
     TUSHARE = "tushare"
     FUTU = "futu"
+    YFINANCE = "yfinance"
 
 
 class DataProviderFactory:
@@ -25,6 +27,7 @@ class DataProviderFactory:
         DataProviderType.FINANCIAL_DATASETS: FinancialDatasetsProvider,
         DataProviderType.TUSHARE: TushareProvider,
         DataProviderType.FUTU: FutuDataProvider,
+        DataProviderType.YFINANCE: YFinanceProvider,
     }
     
     _instances: Dict[DataProviderType, AbstractDataProvider] = {}
@@ -117,4 +120,11 @@ class DataProviderFactory:
                 "requires_opend": True,
                 "status": "error",
                 "error": str(e)
-            } 
+            }
+
+SUPPORTED_PROVIDERS = {
+    "futu": FutuDataProvider,
+    "tushare": TushareProvider,
+    "yfinance": YFinanceProvider,
+    "financial_datasets": FinancialDatasetsProvider,
+} 
