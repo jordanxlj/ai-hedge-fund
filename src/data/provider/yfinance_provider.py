@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import List, Optional
 
 import pandas as pd
@@ -32,11 +32,29 @@ class YFinanceProvider(AbstractDataProvider):
         """
         Fetches historical stock data for a given ticker and date range.
         Handles chunking for 1-minute data which is limited to 7-day fetches.
+        Proactively checks if the request for 1m data is within the 30-day limit.
         """
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            # yfinance 'end' is exclusive, so add one day for daily, but not for minute chunks
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+            # Proactive check for 1-minute data limitation
+            if freq == '1m':
+                thirty_days_ago = date.today() - timedelta(days=30)
+                if start_dt < thirty_days_ago:
+                    logger.warning(
+                        f"Request for 1-minute data for {ticker} starts at {start_date}, "
+                        f"which is more than 30 days ago. yfinance does not support this. Skipping."
+                    )
+                    return []
+                # Adjust start_date if it's within the valid window but the user requested an older date
+                if end_dt < thirty_days_ago:
+                     logger.warning(
+                        f"Request for 1-minute data for {ticker} ends at {end_date}, "
+                        f"which is more than 30 days ago. No data will be fetched."
+                    )
+                     return []
+
 
             all_data = []
 

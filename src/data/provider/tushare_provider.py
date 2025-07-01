@@ -28,7 +28,6 @@ class TushareProvider(AbstractDataProvider):
     def __init__(self, api_key: Optional[str] = None):
         super().__init__("Tushare", api_key or os.environ.get("TUSHARE_API_KEY"))
         self.pro = None
-        # 初始化时加载H股到A股映射
         self.h2a_mapping = self._load_h2a_mapping('conf/H2A_mapping.yaml')
         
         if self.api_key:
@@ -40,108 +39,43 @@ class TushareProvider(AbstractDataProvider):
                 self.pro = None
     
     def _convert_ticker(self, ticker: str) -> str:
-        """转换股票代码格式，支持A股和港股"""
-        # 如果已经有后缀，直接返回
         if '.' in ticker:
             return ticker
-        
-        # A股代码转换（6位数字）
         if len(ticker) == 6 and ticker.isdigit():
-            # 判断是上交所还是深交所
-            if ticker.startswith(('60', '68')):
-                return f"{ticker}.SH"
-            else:
-                return f"{ticker}.SZ"
-        
-        # 港股代码转换 (5位数字，如 00700)
-        if len(ticker) == 5 and ticker.isdigit():
-            return f"{ticker}.HK"
-        
-        # 港股代码转换 (1-4位数字，如 700，补齐到5位)
-        if len(ticker) <= 4 and ticker.isdigit():
-            ticker_padded = ticker.zfill(5)  # 补齐到5位
-            return f"{ticker_padded}.HK"
-        
-        # 对于其他格式，直接返回
+            return f"{ticker}.SH" if ticker.startswith(('60', '68')) else f"{ticker}.SZ"
+        if len(ticker) <= 5 and ticker.isdigit():
+            return f"{ticker.zfill(5)}.HK"
         return ticker
     
     def _is_hk_stock(self, ticker: str) -> bool:
-        """判断是否为港股代码"""
         return ticker.endswith('.HK')
     
     def _load_h2a_mapping(self, config_file) -> dict:
-        """从YAML配置文件加载H股到A股的代码映射，在初始化时调用
-        
-        Returns:
-            dict: H股代码到A股代码的映射字典，如果文件不存在或加载失败则返回空字典
-        """
         try:
-            # 获取配置文件路径 - 使用pathlib
             config_path = Path(config_file)
-            
-            # 检查文件是否存在
             if not config_path.exists():
-                logger.info(f"H2A_mapping.yaml 文件不存在: {config_path}，将不使用H股到A股映射")
+                logger.info(f"H2A_mapping.yaml not found: {config_path}")
                 return {}
-            
-            # 使用配置工具加载YAML文件
             config = load_yaml_config(config_path, {})
-            
-            # 获取映射数据
             hk_to_a_mapping = config.get('h2a_mapping', {})
-            
-            logger.info(f"成功加载H股到A股映射配置，共 {len(hk_to_a_mapping)} 个映射关系")
+            logger.info(f"Loaded H->A mapping: {len(hk_to_a_mapping)} entries.")
             return hk_to_a_mapping
-            
         except Exception as e:
-            logger.warning(f"加载H股到A股映射配置失败: {e}，将不使用H股到A股映射")
+            logger.warning(f"Failed to load H->A mapping: {e}")
             return {}
-    
-    def reload_h2a_mapping(self) -> bool:
-        """重新加载H股到A股映射配置
-        
-        Returns:
-            bool: 加载是否成功
-        """
-        try:
-            old_count = len(self.h2a_mapping)
-            self.h2a_mapping = self._load_h2a_mapping()
-            new_count = len(self.h2a_mapping)
-            logger.info(f"重新加载H股到A股映射配置成功，映射关系从 {old_count} 个更新为 {new_count} 个")
-            return True
-        except Exception as e:
-            logger.error(f"重新加载H股到A股映射配置失败: {e}")
-            return False
-    
+
     def _get_corresponding_a_stock(self, hk_ticker: str) -> str:
-        """获取H股对应的A股代码
-        
-        Args:
-            hk_ticker: H股代码 (如 "00700.HK")
-            
-        Returns:
-            str: 对应的A股代码，如果没有对应则返回原H股代码
-        """
         if not self._is_hk_stock(hk_ticker):
             return hk_ticker
-        
-        # 使用初始化时加载的映射数据
         a_stock_code = self.h2a_mapping.get(hk_ticker)
-        
         if a_stock_code:
-            logger.info(f"H股 {hk_ticker} 找到对应A股代码: {a_stock_code}")
+            logger.info(f"H-share {hk_ticker} found corresponding A-share: {a_stock_code}")
             return a_stock_code
-        else:
-            logger.info(f"H股 {hk_ticker} 未找到对应A股代码，将使用原H股代码")
-            return hk_ticker
+        return hk_ticker
     
     def _convert_date_format(self, date_str: str) -> str:
-        """转换日期格式 (YYYY-MM-DD -> YYYYMMDD)"""
-        try:
-            return date_str.replace('-', '')
-        except:
-            return date_str
-    
+        return date_str.replace('-', '')
+
     @with_timeout_retry("get_prices")
     def get_prices(
         self,
@@ -150,58 +84,67 @@ class TushareProvider(AbstractDataProvider):
         end_date: str,
         freq: str = '1d'
     ) -> List[Price]:
-        """获取股价数据，支持A股和港股"""
+        """获取股价数据，支持A股和港股，并支持不同频率 (1d, 1m)"""
         try:
-            if self.pro is None:
-                logger.error("Tushare API未初始化")
+            if not self.is_available():
+                logger.error("Tushare API not initialized")
                 return []
                 
             ts_code = self._convert_ticker(ticker)
             start_date_ts = self._convert_date_format(start_date)
             end_date_ts = self._convert_date_format(end_date)
             
-            # 根据股票类型选择不同的API
-            if self._is_hk_stock(ticker):
-                if freq == '1d':
-                    # 日频率，使用hk_daily
-                    df = self.pro.daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
-                elif freq == '1m':
-                    # 分钟频率，hk_mins
-                    df = self.pro.hk_mins(ts_code=ts_code,
-                                          start_date=start_date_ts + ' 09:00:00',
-                                          end_date=end_date_ts + ' 16:00:00',
-                                          freq=freq)
-            else:
-                if freq == '1d':
-                    # A股使用daily
-                    df = self.pro.daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
-                else: # unsupported
+            df = None
+            is_hk = self._is_hk_stock(ts_code)
+
+            if freq == '1m':
+                if not is_hk:
+                    logger.warning(f"Tushare minute data is only supported for HK stocks. Skipping {ticker}.")
                     return []
-            
+                df = self.pro.hk_mins(
+                    ts_code=ts_code,
+                    freq='1min',
+                    start_date=start_date_ts + ' 09:00:00',
+                    end_date=end_date_ts + ' 16:00:00'
+                )
+            elif freq == '1d':
+                if is_hk:
+                    df = self.pro.hk_daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
+                else:
+                    df = self.pro.daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
+            else:
+                logger.error(f"Unsupported frequency '{freq}' for TushareProvider.")
+                return []
+
             if df is None or df.empty:
                 return []
             
             prices = []
+            time_col = 'trade_time' if freq == '1m' else 'trade_date'
+            vol_col = 'vol'
+            
             for _, row in df.iterrows():
-                price = Price(
-                    time=row['trade_date'][:4] + '-' + row['trade_date'][4:6] + '-' + row['trade_date'][6:8],
+                time_str = str(row[time_col])
+                if freq == '1d' and len(time_str) == 8:
+                    time_str = f"{time_str[:4]}-{time_str[4:6]}-{time_str[6:8]}"
+
+                prices.append(Price(
+                    time=time_str,
                     open=float(row['open']),
                     high=float(row['high']),
                     low=float(row['low']),
                     close=float(row['close']),
-                    volume=int(row['vol'] * 100) if pd.notna(row['vol']) else 0,  # 转换为股数
+                    volume=int(row[vol_col] * 100) if not is_hk and freq == '1d' else int(row[vol_col]),
                     ticker=ticker
-                )
-                prices.append(price)
+                ))
             
-            # 按时间排序
             prices.sort(key=lambda x: x.time)
             return prices
             
         except Exception as e:
-            logger.error(f"获取股价数据失败 {ticker}: {e}")
+            logger.error(f"Failed to get Tushare price data for {ticker}: {e}", exc_info=True)
             return []
-    
+
     @with_timeout_retry("get_financial_metrics")
     def get_financial_metrics(
         self,
