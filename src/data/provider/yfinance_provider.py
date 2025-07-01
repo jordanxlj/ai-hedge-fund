@@ -85,43 +85,62 @@ class YFinanceProvider(AbstractDataProvider):
             
             df = pd.concat(all_data)
             df.reset_index(inplace=True)
-            
-            prices = [
-                Price(
+
+            # Add extensive debugging to inspect the DataFrame structure
+            logger.debug(f"DataFrame for {ticker} received. Columns: {df.columns}")
+            if not df.empty:
+                logger.debug(f"First row of data: \n{df.iloc[0]}")
+
+            # The columns are a MultiIndex of tuples: (ticker, PriceType), e.g., ('0700.HK', 'Open').
+            # The Datetime column is a specific tuple: ('Datetime', '').
+            ticker_upper = ticker.upper()
+
+            prices = []
+            for _, row in df.iterrows():
+                if pd.isna(row.get((ticker_upper, 'Open'))):
+                    continue
+                #logger.debug(f"{row.get((ticker_upper, 'Volume'))}")
+                price = Price(
                     ticker=ticker,
-                    time=str(row.Datetime),
-                    open=row.Open,
-                    close=row.Close,
-                    high=row.High,
-                    low=row.Low,
-                    volume=int(row.Volume)
+                    time=str(row[('Datetime', '')]),
+                    # Access column with (ticker, PriceType) tuple, checking for case variations
+                    open=row.get((ticker_upper, 'Open')),
+                    close=row.get((ticker_upper, 'Close')),
+                    high=row.get((ticker_upper, 'High')),
+                    low=row.get((ticker_upper, 'Low')),
+                    volume=int(row.get((ticker_upper, 'Volume')))
                 )
-                for row in df.itertuples() if pd.notna(row.Open) # Ensure row contains valid data
-            ]
-            
+                prices.append(price)
+
             prices.sort(key=lambda x: x.time)
-            logger.info(f"Successfully fetched {len(prices)} data points for {ticker}.")
+            logger.info(f"Successfully processed {len(prices)} data points for {ticker}.")
             return prices
 
         except Exception as e:
-            logger.error(f"Error fetching data for {ticker} from yfinance: {e}", exc_info=True)
+            logger.error(f"Error processing data for {ticker} from yfinance: {e}", exc_info=True)
+            if 'df' in locals() and isinstance(df.columns, pd.MultiIndex):
+                 logger.error(f"Error accessing MultiIndex column for {ticker}. "
+                              f"Columns available: {df.columns.values}. Attempted key may be incorrect.", exc_info=True)
+            else:
+                logger.error(f"Error processing data for {ticker} from yfinance: {e}", exc_info=True)
             return []
 
     def _download_chunk(self, ticker: str, start: datetime, end: datetime, interval: str) -> pd.DataFrame:
         logger.debug(f"yf downloading: {ticker}, start={start}, end={end}, interval={interval}")
         try:
+            # Use group_by='ticker' to ensure a consistent MultiIndex is returned
             return yf.download(
                 tickers=ticker, start=start, end=end, interval=interval,
-                progress=False, auto_adjust=True, ignore_tz=True
+                progress=False, auto_adjust=True, ignore_tz=True, group_by='ticker'
             )
         except YFTzMissingError:
             logger.warning(f"Could not download data for ticker '{ticker}'. It may be an invalid ticker or delisted.")
             return pd.DataFrame()
         except YFPricesMissingError:
-            logger.warning(f"Could not download price data for '{ticker}' for the requested range. For minute data, yfinance only supports fetching data within the last 30 days.")
+            logger.warning(f"Could not download price data for '{ticker}' for the requested range. "
+                           f"For minute data, yfinance only supports fetching data within the last 30 days.")
             return pd.DataFrame()
         except Exception:
-            # For other unexpected errors during download, log it and return empty.
             logger.error(f"An unexpected error occurred while downloading data for {ticker}.", exc_info=True)
             return pd.DataFrame()
 
@@ -147,7 +166,6 @@ class YFinanceProvider(AbstractDataProvider):
         return None
 
     def convert_period(self, period: str) -> str:
-        # This method is simple and can be implemented directly
         return "annual" if period == 'ttm' else period
 
     def is_available(self) -> bool:

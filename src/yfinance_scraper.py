@@ -34,7 +34,7 @@ class YFinanceScraper:
         
         Returns:
             A list of tuples: [(original_ticker, yfinance_query_ticker), ...]
-            e.g., [('00700', '700.HK')]
+            e.g., [('00700', '0700.HK')]
         """
         try:
             query = "SELECT DISTINCT ticker FROM stock_plate_mappings"
