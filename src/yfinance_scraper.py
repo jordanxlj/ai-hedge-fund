@@ -1,7 +1,7 @@
 import argparse
 import logging
 import time
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from dotenv import load_dotenv
 
 from src.data.db import get_database_api, DatabaseAPI
@@ -27,7 +27,15 @@ class YFinanceScraper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.db.close()
 
-    def get_hk_stock_tickers(self) -> list[str]:
+    def get_hk_stock_tickers(self) -> List[Tuple[str, str]]:
+        """
+        Retrieves HK stock tickers from DB and formats them for yfinance.
+        Strips leading zeros for the query ticker but keeps the original for DB consistency.
+        
+        Returns:
+            A list of tuples: [(original_ticker, yfinance_query_ticker), ...]
+            e.g., [('00700', '700.HK')]
+        """
         try:
             query = "SELECT DISTINCT ticker FROM stock_plate_mappings"
             df = self.db.query_to_dataframe(query)
@@ -35,18 +43,19 @@ class YFinanceScraper:
                 logger.warning("No HK stock tickers found in 'stock_plate_mappings'.")
                 return []
             
-            tickers = []
+            ticker_map = []
             for _, row in df.iterrows():
+                original_ticker = row['ticker']
                 try:
-                    ticker_num_str = row['ticker']
-                    ticker_num_int = int(ticker_num_str)
-                    yfinance_ticker = f"{ticker_num_int:04d}.HK"
-                    tickers.append(yfinance_ticker)
+                    # '00700' -> '0700'
+                    yfinance_ticker_base = original_ticker[1:] if original_ticker.startswith('0') else original_ticker
+                    yfinance_ticker = f"{yfinance_ticker_base}.HK"
+                    ticker_map.append((original_ticker, yfinance_ticker))
                 except (ValueError, IndexError) as e:
-                    logger.warning(f"Could not parse ticker {row['ticker']}: {e}")
+                    logger.warning(f"Could not parse ticker {original_ticker}: {e}")
 
-            logger.info(f"Found {len(tickers)} HK tickers.")
-            return tickers
+            logger.info(f"Found and formatted {len(ticker_map)} HK tickers.")
+            return ticker_map
         except Exception as e:
             logger.error(f"Error fetching HK stock tickers: {e}")
             return []
@@ -57,32 +66,37 @@ class YFinanceScraper:
         return self.provider.get_prices(ticker, start_date=start_date, end_date=end_date, freq='1m')
 
     def run(self, start_date: str, end_date: str):
-        tickers = self.get_hk_stock_tickers()
-        if not tickers:
-            logger.error("Could not retrieve stock tickers. Aborting.")
+        ticker_map = self.get_hk_stock_tickers()
+        if not ticker_map:
+            logger.error("Could not retrieve tickers. Aborting.")
             return
-        tickers = ['AAPL']
+
+        ticker_map = [('00700', '0700.HK')]
 
         table_name = "hk_stock_minute_price"
         primary_keys = ["ticker", "time"]
         self.db.create_table_from_model(table_name, Price, primary_keys)
 
-        total_tickers = len(tickers)
-        for i, ticker in enumerate(tickers):
+        total_tickers = len(ticker_map)
+        for i, (original_ticker, query_ticker) in enumerate(ticker_map):
             try:
-                logger.info(f"Processing {ticker} ({i + 1}/{total_tickers})...")
+                logger.info(f"Processing {query_ticker} ({i + 1}/{total_tickers}) for original ticker {original_ticker}...")
                 
-                price_objects = self.fetch_price_data(ticker, start_date, end_date)
+                price_objects = self.fetch_price_data(query_ticker, start_date, end_date)
 
                 if not price_objects:
-                    logger.warning(f"No data found for {ticker}.")
+                    logger.warning(f"No data found for {query_ticker}.")
                     continue
                 
+                # Set the ticker to the original DB format before saving
+                for p in price_objects:
+                    p.ticker = original_ticker
+                
                 self.db.upsert_data_from_models(table_name, price_objects, primary_keys)
-                logger.info(f"Successfully stored {len(price_objects)} records for {ticker}.")
+                logger.info(f"Successfully stored {len(price_objects)} records for {original_ticker}.")
 
             except Exception as e:
-                logger.error(f"Failed to process {ticker}: {e}", exc_info=True)
+                logger.error(f"Failed to process {query_ticker}: {e}", exc_info=True)
             
             time.sleep(1)
 
