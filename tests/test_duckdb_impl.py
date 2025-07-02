@@ -1,3 +1,4 @@
+
 import pytest
 import os
 import duckdb
@@ -7,6 +8,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from src.data.db.duckdb_impl import DuckDBAPI, _get_pydantic_sql_type
+from src.data.models import Price
 
 class _TestModel(BaseModel):
     id: int
@@ -24,6 +26,15 @@ def db_api():
     api.close()
     if os.path.exists(db_path):
         os.remove(db_path)
+
+@pytest.fixture
+def in_memory_db_api():
+    """Fixture for a DuckDBAPI instance with an in-memory database."""
+    db_path = ":memory:"
+    db = DuckDBAPI(db_path)
+    db.connect()
+    yield db
+    db.close()
 
 class TestDuckDBAPI:
     def test_create_and_table_exists(self, db_api: DuckDBAPI):
@@ -212,6 +223,39 @@ class TestDuckDBAPI:
         
         result = db_api.query_to_dataframe(f"SELECT * FROM {table_name}")
         assert len(result) == 1
+
+    def test_price_storage_and_retrieval(self, in_memory_db_api: DuckDBAPI):
+        """
+        Tests that price data is correctly converted to integers for storage
+        and back to floats upon retrieval.
+        """
+        # Arrange
+        db_api = in_memory_db_api
+        table_name = "hk_stock_minute_price"
+        primary_keys = ["ticker", "time"]
+        db_api.create_table_from_model(table_name, Price, primary_keys)
+
+        original_prices = [
+            Price(ticker='AAPL', time='2025-01-01 10:00:00', open=123.45, close=124.56, high=125.67, low=122.34, volume=1000),
+            Price(ticker='GOOG', time='2025-01-01 10:00:00', open=2345.67, close=2356.78, high=2367.89, low=2334.56, volume=2000)
+        ]
+
+        # Act
+        db_api.upsert_data_from_models(table_name, original_prices, primary_keys)
+
+        # Assert (Storage)
+        # Check the raw stored data to ensure it's integers
+        stored_df = db_api.query_to_dataframe(f"SELECT open, close, high, low FROM {table_name}")
+        assert stored_df['open'].iloc[0] == 12345
+        assert stored_df['close'].iloc[0] == 12456
+
+        # Assert (Retrieval)
+        # Check that the data is correctly converted back to floats
+        retrieved_prices = db_api.query_to_models(f"SELECT * FROM {table_name}", Price)
+        
+        assert len(retrieved_prices) == 2
+        assert retrieved_prices[0].open == 123.45
+        assert retrieved_prices[1].close == 2356.78
 
 @pytest.mark.parametrize("input_type, expected_sql", [
     (str, "VARCHAR"),
