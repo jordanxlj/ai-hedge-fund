@@ -65,7 +65,7 @@ class YFinanceScraper:
         logger.debug(f"Fetching minute data for {tickers} from {start_date} to {end_date}")
         return self.provider.get_prices(tickers, start_date=start_date, end_date=end_date, freq='1m')
 
-    def run(self, start_date: str, end_date: str):
+    def run(self, start_date: str, end_date: str, batch_size: int = 100):
         ticker_map = self.get_hk_stock_tickers()
         if not ticker_map:
             logger.error("Could not retrieve tickers. Aborting.")
@@ -75,42 +75,45 @@ class YFinanceScraper:
         primary_keys = ["ticker", "time"]
         self.db.create_table_from_model(table_name, Price, primary_keys)
 
-        original_tickers = [item[0] for item in ticker_map]
-        query_tickers = [item[1] for item in ticker_map]
+        total_records = 0
+        ticker_batches = [ticker_map[i:i + batch_size] for i in range(0, len(ticker_map), batch_size)]
 
-        try:
-            logger.info(f"Processing {len(query_tickers)} tickers...")
+        for i, batch in enumerate(ticker_batches):
+            logger.info(f"Processing batch {i+1}/{len(ticker_batches)} with {len(batch)} tickers...")
+            
+            original_tickers = [item[0] for item in batch]
+            query_tickers = [item[1] for item in batch]
+            
+            try:
+                price_objects = self.fetch_price_data(query_tickers, start_date, end_date)
 
-            price_objects = self.fetch_price_data(query_tickers, start_date, end_date)
+                if not price_objects:
+                    logger.warning(f"No data found for batch {i+1}.")
+                    continue
 
-            if not price_objects:
-                logger.warning(f"No data found for any tickers.")
-                return
+                query_to_original_map = {qt: ot for ot, qt in batch}
 
-            # Create a mapping from query_ticker (e.g., '0700.HK') back to original_ticker (e.g., '00700')
-            query_to_original_map = {qt: ot for ot, qt in ticker_map}
+                for p in price_objects:
+                    if p.ticker in query_to_original_map:
+                        p.ticker = query_to_original_map[p.ticker]
+                    else:
+                        logger.warning(f"Could not find original ticker for {p.ticker}. Using it as is.")
 
-            # Set the ticker to the original DB format before saving
-            for p in price_objects:
-                if p.ticker in query_to_original_map:
-                    p.ticker = query_to_original_map[p.ticker]
-                else:
-                    logger.warning(f"Could not find original ticker for {p.ticker}. Using it as is.")
+                self.db.upsert_data_from_models(table_name, price_objects, primary_keys)
+                total_records += len(price_objects)
+                logger.info(f"Successfully stored {len(price_objects)} records for batch {i+1}.")
 
+            except Exception as e:
+                logger.error(f"Failed to process batch {i+1}: {e}", exc_info=True)
 
-            self.db.upsert_data_from_models(table_name, price_objects, primary_keys)
-            logger.info(f"Successfully stored {len(price_objects)} records for {len(original_tickers)} tickers.")
-
-        except Exception as e:
-            logger.error(f"Failed to process tickers: {e}", exc_info=True)
-
-        logger.info("YFinance minute data scraping finished.")
+        logger.info(f"YFinance minute data scraping finished. Total records stored: {total_records}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Scrape minute-level stock data from yfinance.")
     parser.add_argument("--start_date", required=True, help="Start date in YYYY-MM-DD format.")
     parser.add_argument("--end_date", required=True, help="End date in YYYY-MM-DD format.")
     parser.add_argument("--db_path", default="data/test.duckdb", help="Path to database.")
+    parser.add_argument("--batch_size", type=int, default=100, help="Number of tickers to process in each batch.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -118,4 +121,4 @@ if __name__ == "__main__":
     db_api = get_database_api("duckdb", db_path=args.db_path)
     
     with YFinanceScraper(db_api) as scraper:
-        scraper.run(args.start_date, args.end_date)
+        scraper.run(args.start_date, args.end_date, args.batch_size)
