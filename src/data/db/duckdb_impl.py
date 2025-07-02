@@ -73,7 +73,13 @@ class DuckDBAPI(DatabaseAPI):
         columns_sql = []
         for name, field_type in fields.items():
             if name == 'model_config': continue
-            sql_type = _get_pydantic_sql_type(field_type)
+            
+            # Special handling for price table to use INTEGER for storage optimization
+            if table_name == 'hk_stock_minute_price' and name in ['open', 'close', 'high', 'low']:
+                sql_type = 'INTEGER'
+            else:
+                sql_type = _get_pydantic_sql_type(field_type)
+            
             columns_sql.append(f'"{name}" {sql_type}')
         
         if primary_keys:
@@ -97,8 +103,20 @@ class DuckDBAPI(DatabaseAPI):
             return
 
         model = data[0].__class__
+        
+        # Special handling for price data to convert floats to integers
+        if table_name == 'hk_stock_minute_price' and model.__name__ == 'Price':
+            data_dicts = []
+            for m in data:
+                d = m.model_dump(exclude_none=True)
+                for key in ['open', 'close', 'high', 'low']:
+                    if key in d and isinstance(d[key], float):
+                        d[key] = int(d[key] * 100)
+                data_dicts.append(d)
+        else:
+            data_dicts = [m.model_dump(exclude_none=True) for m in data]
+
         model_fields = list(model.model_fields.keys())
-        data_dicts = [m.model_dump(exclude_none=True) for m in data]
         df = pd.DataFrame(data_dicts)
         
         for col in model_fields:
@@ -177,6 +195,13 @@ class DuckDBAPI(DatabaseAPI):
         df = self.query_to_dataframe(query, params)
         if df.empty:
             return []
+        
+        # Special handling for price data to convert integers back to floats
+        if model.__name__ == 'Price':
+            for key in ['open', 'close', 'high', 'low']:
+                if key in df.columns:
+                    df[key] = df[key] / 100.0
+
         records = df.to_dict('records')
         return [model(**record) for record in records]
 
