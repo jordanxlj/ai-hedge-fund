@@ -1,14 +1,21 @@
 import futu as ft
 import os
 from typing import List, Optional
-from src.data.provider.abstract_data_provider import AbstractDataProvider
-from src.data.models import Price, FinancialProfile, InsiderTrade, CompanyNews, LineItem
-from src.data.futu_utils import get_report_period_date
 import logging
 from datetime import datetime, date
 import duckdb
 from pathlib import Path
+from futu import KLType
 from src.utils.timeout_retry import with_timeout_retry
+from src.data.provider.abstract_data_provider import AbstractDataProvider
+from src.data.models import (
+    Price,
+    FinancialProfile,
+    InsiderTrade,
+    CompanyNews,
+    LineItem
+)
+from src.data.futu_utils import get_report_period_date
 
 logger = logging.getLogger(__name__)
 
@@ -32,41 +39,74 @@ class FutuDataProvider(AbstractDataProvider):
             self.quote_ctx.close()
             self.quote_ctx = None
 
-    def get_prices(self, ticker: str, start_date: str, end_date: str) -> List[Price]:
+    def get_prices(
+        self,
+        tickers: List[str],
+        start_date: str,
+        end_date: str,
+        freq: str = '1d'
+    ) -> List[Price]:
         self._connect()
+        all_prices = []
         try:
-            futu_ticker = self._convert_ticker_format(ticker)
-            
-            ret, data, _ = self.quote_ctx.request_history_kline(
-                futu_ticker,
-                start=start_date,
-                end=end_date,
-                ktype=ft.KLType.K_DAY,
-                autype=ft.AuType.QFQ
-            )
+            for ticker in tickers:
+                try:
+                    futu_ticker = self._convert_ticker_format(ticker)
+                    
+                    # Map freq to Futu's KLType
+                    ktype = self._map_freq_to_kltype(freq)
+                    if not ktype:
+                        logger.warning(f"Unsupported frequency '{freq}' for Futu provider. Skipping ticker {ticker}.")
+                        continue
 
-            if ret == ft.RET_OK:
-                prices = []
-                for _, row in data.iterrows():
-                    prices.append(Price(
-                        open=float(row['open']),
-                        close=float(row['close']),
-                        high=float(row['high']),
-                        low=float(row['low']),
-                        volume=int(row['volume']),
-                        time=str(row['time_key']),
-                        ticker=ticker
-                    ))
-                return prices
-            else:
-                logger.error(f"Futu API error for get_prices('{ticker}'): {data}")
-                return []
+                    ret, data, _ = self.quote_ctx.request_history_kline(
+                        futu_ticker,
+                        start=start_date,
+                        end=end_date,
+                        ktype=ktype
+                    )
+
+                    if ret == ft.RET_OK:
+                        prices = [
+                            Price(
+                                open=float(row['open']),
+                                close=float(row['close']),
+                                high=float(row['high']),
+                                low=float(row['low']),
+                                volume=int(row['volume']),
+                                time=str(row['time_key']),
+                                ticker=ticker  # Use the original ticker
+                            )
+                            for _, row in data.iterrows()
+                        ]
+                        all_prices.extend(prices)
+                    else:
+                        logger.error(f"Futu API error for get_prices('{ticker}'): {data}")
+                except Exception as e:
+                    logger.error(f"An exception occurred in get_prices for ticker '{ticker}': {e}", exc_info=True)
+            
+            return all_prices
+
         except Exception as e:
-            logger.error(f"An exception occurred in get_prices('{ticker}'): {e}")
+            logger.error(f"An exception occurred in get_prices for tickers '{tickers}': {e}", exc_info=True)
             return []
         finally:
-            self._disconnect()
-            
+            # self.close() # Usually, we don't close the connection here to allow reuse.
+            pass
+
+    def _map_freq_to_kltype(self, freq: str):
+        mapping = {
+            '1m': KLType.K_1M,
+            '5m': KLType.K_5M,
+            '15m': KLType.K_15M,
+            '30m': KLType.K_30M,
+            '60m': KLType.K_60M,
+            '1d': KLType.K_DAY,
+            '1w': KLType.K_WEEK,
+            '1M': KLType.K_MON,
+        }
+        return mapping.get(freq)
+
     def _convert_ticker_format(self, ticker: str) -> str:
         if '.' in ticker:
             parts = ticker.split('.')

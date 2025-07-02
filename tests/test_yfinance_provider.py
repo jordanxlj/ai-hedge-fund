@@ -37,7 +37,7 @@ def test_get_prices_daily_success(provider, monkeypatch):
     mock_download = MagicMock(return_value=mock_df)
     monkeypatch.setattr("yfinance.download", mock_download)
 
-    prices = provider.get_prices(ticker='AAPL', start_date='2025-01-01', end_date='2025-01-02', freq='1d')
+    prices = provider.get_prices(tickers=['AAPL'], start_date='2025-01-01', end_date='2025-01-02', freq='1d')
 
     assert len(prices) == 2
     assert isinstance(prices[0], Price)
@@ -78,7 +78,7 @@ def test_get_prices_minute_success(provider, monkeypatch):
     mock_download = MagicMock(return_value=mock_df)
     monkeypatch.setattr("yfinance.download", mock_download)
 
-    prices = provider.get_prices(ticker='0700.HK', start_date=start_date, end_date=end_date, freq='1m')
+    prices = provider.get_prices(tickers=['0700.HK'], start_date=start_date, end_date=end_date, freq='1m')
 
     assert len(prices) == 2
     assert prices[0].open == 493.0
@@ -101,7 +101,7 @@ def test_get_prices_minute_chunking(provider, monkeypatch):
     monkeypatch.setattr("yfinance.download", mock_download)
 
     prices = provider.get_prices(
-        ticker='0700.HK',
+        tickers=['0700.HK'],
         start_date=start_date_obj.strftime('%Y-%m-%d'),
         end_date=end_date_obj.strftime('%Y-%m-%d'),
         freq='1m'
@@ -121,7 +121,7 @@ def test_get_prices_minute_outside_30_day_window(provider, monkeypatch):
     monkeypatch.setattr("yfinance.download", mock_download)
 
     with patch('src.data.provider.yfinance_provider.logger') as mock_logger:
-        prices = provider.get_prices(ticker='0700.HK', start_date=start_date, end_date=end_date, freq='1m')
+        prices = provider.get_prices(tickers=['0700.HK'], start_date=start_date, end_date=end_date, freq='1m')
         
         assert prices == []
         # Proactive check should prevent any API call
@@ -146,8 +146,8 @@ def test_get_prices_invalid_ticker(provider, monkeypatch):
     monkeypatch.setattr("yfinance.download", mock_download)
 
     with patch('src.data.provider.yfinance_provider.logger') as mock_logger:
-        prices = provider.get_prices(ticker='INVALID.HK', start_date=start_date, end_date=end_date, freq='1m')
+        prices = provider.get_prices(tickers=['INVALID.HK'], start_date=start_date, end_date=end_date, freq='1m')
         assert prices == []
         mock_logger.warning.assert_called_once_with(
-            "No data returned for INVALID.HK for freq '1m'"
+            "No data returned for ['INVALID.HK'] for freq '1m'"
         )

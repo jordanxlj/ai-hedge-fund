@@ -61,9 +61,9 @@ class YFinanceScraper:
             return []
 
     @retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
-    def fetch_price_data(self, ticker: str, start_date: str, end_date: str) -> Optional[List[Price]]:
-        logger.debug(f"Fetching minute data for {ticker} from {start_date} to {end_date}")
-        return self.provider.get_prices(ticker, start_date=start_date, end_date=end_date, freq='1m')
+    def fetch_price_data(self, tickers: List[str], start_date: str, end_date: str) -> Optional[List[Price]]:
+        logger.debug(f"Fetching minute data for {tickers} from {start_date} to {end_date}")
+        return self.provider.get_prices(tickers, start_date=start_date, end_date=end_date, freq='1m')
 
     def run(self, start_date: str, end_date: str):
         ticker_map = self.get_hk_stock_tickers()
@@ -75,28 +75,34 @@ class YFinanceScraper:
         primary_keys = ["ticker", "time"]
         self.db.create_table_from_model(table_name, Price, primary_keys)
 
-        total_tickers = len(ticker_map)
-        for i, (original_ticker, query_ticker) in enumerate(ticker_map):
-            try:
-                logger.info(f"Processing {query_ticker} ({i + 1}/{total_tickers}) for original ticker {original_ticker}...")
-                
-                price_objects = self.fetch_price_data(query_ticker, start_date, end_date)
+        original_tickers = [item[0] for item in ticker_map]
+        query_tickers = [item[1] for item in ticker_map]
 
-                if not price_objects:
-                    logger.warning(f"No data found for {query_ticker}.")
-                    continue
-                
-                # Set the ticker to the original DB format before saving
-                for p in price_objects:
-                    p.ticker = original_ticker
-                
-                self.db.upsert_data_from_models(table_name, price_objects, primary_keys)
-                logger.info(f"Successfully stored {len(price_objects)} records for {original_ticker}.")
+        try:
+            logger.info(f"Processing {len(query_tickers)} tickers...")
 
-            except Exception as e:
-                logger.error(f"Failed to process {query_ticker}: {e}", exc_info=True)
-            
-            time.sleep(1)
+            price_objects = self.fetch_price_data(query_tickers, start_date, end_date)
+
+            if not price_objects:
+                logger.warning(f"No data found for any tickers.")
+                return
+
+            # Create a mapping from query_ticker (e.g., '0700.HK') back to original_ticker (e.g., '00700')
+            query_to_original_map = {qt: ot for ot, qt in ticker_map}
+
+            # Set the ticker to the original DB format before saving
+            for p in price_objects:
+                if p.ticker in query_to_original_map:
+                    p.ticker = query_to_original_map[p.ticker]
+                else:
+                    logger.warning(f"Could not find original ticker for {p.ticker}. Using it as is.")
+
+
+            self.db.upsert_data_from_models(table_name, price_objects, primary_keys)
+            logger.info(f"Successfully stored {len(price_objects)} records for {len(original_tickers)} tickers.")
+
+        except Exception as e:
+            logger.error(f"Failed to process tickers: {e}", exc_info=True)
 
         logger.info("YFinance minute data scraping finished.")
 

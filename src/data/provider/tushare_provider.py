@@ -79,71 +79,73 @@ class TushareProvider(AbstractDataProvider):
     @with_timeout_retry("get_prices")
     def get_prices(
         self,
-        ticker: str,
+        tickers: List[str],
         start_date: str,
         end_date: str,
         freq: str = '1d'
     ) -> List[Price]:
         """获取股价数据，支持A股和港股，并支持不同频率 (1d, 1m)"""
-        try:
-            if not self.is_available():
-                logger.error("Tushare API not initialized")
-                return []
-                
-            ts_code = self._convert_ticker(ticker)
-            start_date_ts = self._convert_date_format(start_date)
-            end_date_ts = self._convert_date_format(end_date)
-            
-            df = None
-            is_hk = self._is_hk_stock(ts_code)
-
-            if freq == '1m':
-                if not is_hk:
-                    logger.warning(f"Tushare minute data is only supported for HK stocks. Skipping {ticker}.")
-                    return []
-                df = self.pro.hk_mins(
-                    ts_code=ts_code,
-                    freq='1min',
-                    start_date=start_date_ts + ' 09:00:00',
-                    end_date=end_date_ts + ' 16:00:00'
-                )
-            elif freq == '1d':
-                if is_hk:
-                    df = self.pro.hk_daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
-                else:
-                    df = self.pro.daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
-            else:
-                logger.error(f"Unsupported frequency '{freq}' for TushareProvider.")
-                return []
-
-            if df is None or df.empty:
-                return []
-            
-            prices = []
-            time_col = 'trade_time' if freq == '1m' else 'trade_date'
-            vol_col = 'vol'
-            
-            for _, row in df.iterrows():
-                time_str = str(row[time_col])
-                if freq == '1d' and len(time_str) == 8:
-                    time_str = f"{time_str[:4]}-{time_str[4:6]}-{time_str[6:8]}"
-
-                prices.append(Price(
-                    time=time_str,
-                    open=float(row['open']),
-                    high=float(row['high']),
-                    low=float(row['low']),
-                    close=float(row['close']),
-                    volume=int(row[vol_col] * 100) if not is_hk and freq == '1d' else int(row[vol_col]),
-                    ticker=ticker
-                ))
-            
-            prices.sort(key=lambda x: x.time)
-            return prices
-            
-        except Exception as e:
-            logger.error(f"Failed to get Tushare price data for {ticker}: {e}", exc_info=True)
+        if not self.is_available():
+            logger.error("Tushare API not initialized")
             return []
+            
+        all_prices = []
+        start_date_ts = self._convert_date_format(start_date)
+        end_date_ts = self._convert_date_format(end_date)
+
+        for ticker in tickers:
+            try:
+                ts_code = self._convert_ticker(ticker)
+                
+                df = None
+                is_hk = self._is_hk_stock(ts_code)
+
+                if freq == '1m':
+                    if not is_hk:
+                        logger.warning(f"Tushare minute data is only supported for HK stocks. Skipping {ticker}.")
+                        continue
+                    df = self.pro.hk_mins(
+                        ts_code=ts_code,
+                        freq='1min',
+                        start_date=start_date_ts + ' 09:00:00',
+                        end_date=end_date_ts + ' 16:00:00'
+                    )
+                elif freq == '1d':
+                    if is_hk:
+                        df = self.pro.hk_daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
+                    else:
+                        df = self.pro.daily(ts_code=ts_code, start_date=start_date_ts, end_date=end_date_ts)
+                else:
+                    logger.error(f"Unsupported frequency '{freq}' for TushareProvider for ticker {ticker}.")
+                    continue
+
+                if df is None or df.empty:
+                    continue
+                
+                time_col = 'trade_time' if freq == '1m' else 'trade_date'
+                vol_col = 'vol'
+                
+                for _, row in df.iterrows():
+                    time_str = str(row[time_col])
+                    if freq == '1d' and len(time_str) == 8:
+                        time_str = f"{time_str[:4]}-{time_str[4:6]}-{time_str[6:8]}"
+
+                    all_prices.append(Price(
+                        time=time_str,
+                        open=float(row['open']),
+                        high=float(row['high']),
+                        low=float(row['low']),
+                        close=float(row['close']),
+                        volume=int(row[vol_col] * 100) if not is_hk and freq == '1d' else int(row[vol_col]),
+                        ticker=ticker
+                    ))
+            
+            except Exception as e:
+                logger.error(f"Failed to get Tushare price data for {ticker}: {e}", exc_info=True)
+                continue
+        
+        all_prices.sort(key=lambda x: x.time)
+        return all_prices
 
     @with_timeout_retry("get_financial_metrics")
     def get_financial_metrics(

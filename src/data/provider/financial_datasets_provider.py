@@ -94,21 +94,37 @@ class FinancialDatasetsProvider(AbstractDataProvider):
     @with_http_timeout_retry("get_prices")
     def get_prices(
         self,
-        ticker: str,
+        tickers: List[str],
         start_date: str,
-        end_date: str
+        end_date: str,
+        freq: str = '1d'
     ) -> List[Price]:
-        """获取股价数据"""
+        """获取多个股票的股价数据"""
         try:
-            url = f"{self.base_url}/prices/?ticker={ticker}&interval=day&interval_multiplier=1&start_date={start_date}&end_date={end_date}"
-            response = self._make_request("GET", url)
+            # The backend API likely supports multiple tickers via query parameters
+            params = [("ticker", ticker) for ticker in tickers]
+            params.extend([
+                ("interval", "day"), # Assuming 'day' for '1d', need mapping for others
+                ("interval_multiplier", "1"),
+                ("start_date", start_date),
+                ("end_date", end_date)
+            ])
             
-            # 解析响应
-            price_response = PriceResponse(**response.json())
+            # Use requests' built-in parameter handling
+            url = f"{self.base_url}/prices/"
+            response = self._make_request("GET", url, params=params)
+            
+            # The response should contain a list of Price objects for all requested tickers
+            data = response.json()
+            # Assuming the response is a list of Price objects directly or under a 'prices' key
+            if isinstance(data, list):
+                return [Price(**p) for p in data]
+            
+            price_response = PriceResponse(**data)
             return price_response.prices or []
             
         except Exception as e:
-            logger.error(f"获取股价数据失败 {ticker}: {e}")
+            logger.error(f"获取股价数据失败 for tickers {tickers}: {e}")
             return []
     
     @with_http_timeout_retry("get_financial_metrics")
