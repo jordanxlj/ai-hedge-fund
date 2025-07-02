@@ -32,74 +32,72 @@ class YFinanceProvider(AbstractDataProvider):
     def get_prices(self, tickers: List[str], start_date: str, end_date: str, freq: str = '1d') -> List[Price]:
         """
         Fetches historical stock data for a given list of tickers and date range.
-        Handles chunking for 1-minute data which is limited to 7-day fetches.
-        Proactively checks if the request for 1m data is within the 30-day limit.
         """
         try:
             start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
             end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
 
-            all_dataframes = []
+            dataframes = self._fetch_data_for_period(tickers, start_dt, end_dt, freq)
 
-            if freq == '1m':
-                thirty_days_ago = date.today() - timedelta(days=30)
-                if start_dt < thirty_days_ago:
-                    ticker_str = ", ".join(tickers)
-                    logger.warning(
-                        f"Request for 1-minute data for {ticker_str} starts at {start_date}, "
-                        f"which is more than 30 days ago. yfinance does not support this. Skipping."
-                    )
-                    return []
-
-                # Chunking logic for ALL tickers together
-                current_start = start_dt
-                while current_start <= end_dt:
-                    chunk_end = min(current_start + timedelta(days=6), end_dt)
-                    fetch_end_date = chunk_end + timedelta(days=1)
-                    
-                    data_chunk = self._download_data(tickers, current_start, fetch_end_date, freq)
-                    if data_chunk is not None and not data_chunk.empty:
-                        all_dataframes.append(data_chunk)
-                    
-                    # Correctly advance the loop to prevent infinite loops
-                    current_start = chunk_end + timedelta(days=1)
-            else:
-                fetch_end_date = end_dt + timedelta(days=1)
-                data = self._download_data(tickers, start_dt, fetch_end_date, freq)
-                if data is not None and not data.empty:
-                    all_dataframes.append(data)
-
-            if not all_dataframes:
+            if not dataframes:
                 logger.warning(f"No data returned for {tickers} for freq '{freq}'")
                 return []
 
-            df = pd.concat(all_dataframes)
-            df.reset_index(inplace=True)
+            df = pd.concat(dataframes)
+            prices = self._process_dataframe(df, tickers)
             
-            prices = []
-            # The time column is reliably the first column after reset_index()
-            time_col = df.columns[0]
+            prices.sort(key=lambda x: x.time)
+            logger.info(f"Successfully processed {len(prices)} total data points for {len(tickers)} tickers.")
+            return prices
 
-            # Multi-ticker downloads result in a MultiIndex DataFrame
-            if isinstance(df.columns, pd.MultiIndex):
-                for ticker in tickers:
-                    if ('Open', ticker) in df.columns and df[('Open', ticker)].notna().any():
-                        ticker_df = df[df[('Open', ticker)].notna()]
-                        for _, row in ticker_df.iterrows():
-                            prices.append(Price(
-                                ticker=ticker,
-                                time=str(row[time_col]),
-                                open=row[('Open', ticker)],
-                                close=row[('Close', ticker)],
-                                high=row[('High', ticker)],
-                                low=row[('Low', ticker)],
-                                volume=int(row[('Volume', ticker)])
-                            ))
-            # Single-ticker downloads result in a standard DataFrame
-            else:
-                if len(tickers) == 1:
-                    ticker = tickers[0]
-                    for _, row in df.iterrows():
+        except Exception as e:
+            logger.error(f"Error processing data for tickers {tickers} from yfinance: {e}", exc_info=True)
+            return []
+
+    def _fetch_data_for_period(self, tickers: List[str], start_dt: date, end_dt: date, freq: str) -> List[pd.DataFrame]:
+        """Fetches data, handling 1-minute frequency chunking."""
+        dataframes = []
+        if freq == '1m':
+            thirty_days_ago = date.today() - timedelta(days=30)
+            if start_dt < thirty_days_ago:
+                ticker_str = ", ".join(tickers)
+                logger.warning(
+                    f"Request for 1-minute data for {ticker_str} starts at {start_dt}, "
+                    f"which is more than 30 days ago. yfinance does not support this. Skipping."
+                )
+                return []
+
+            current_start = start_dt
+            while current_start <= end_dt:
+                chunk_end = min(current_start + timedelta(days=6), end_dt)
+                fetch_end_date = chunk_end + timedelta(days=1)
+                
+                data_chunk = self._download_data(tickers, current_start, fetch_end_date, freq)
+                if data_chunk is not None and not data_chunk.empty:
+                    dataframes.append(data_chunk)
+                
+                current_start = chunk_end + timedelta(days=1)
+        else:
+            fetch_end_date = end_dt + timedelta(days=1)
+            data = self._download_data(tickers, start_dt, fetch_end_date, freq)
+            if data is not None and not data.empty:
+                dataframes.append(data)
+        return dataframes
+
+    def _process_dataframe(self, df: pd.DataFrame, tickers: List[str]) -> List[Price]:
+        """Processes the downloaded DataFrame into a list of Price objects."""
+        prices = []
+        df.reset_index(inplace=True)
+        time_col = df.columns[0]
+
+        if isinstance(df.columns, pd.MultiIndex):
+            for ticker in tickers:
+                if ('Open', ticker) in df.columns and df[('Open', ticker)].notna().any():
+                    # Extract all columns for the current ticker and create a new DataFrame
+                    ticker_df = df[[time_col, ('Open', ticker), ('Close', ticker), ('High', ticker), ('Low', ticker), ('Volume', ticker)]].copy()
+                    # Rename columns for easier access
+                    ticker_df.columns = [time_col, 'Open', 'Close', 'High', 'Low', 'Volume']
+                    for _, row in ticker_df.iterrows():
                         if pd.notna(row.get('Open')):
                             prices.append(Price(
                                 ticker=ticker,
@@ -110,19 +108,26 @@ class YFinanceProvider(AbstractDataProvider):
                                 low=row['Low'],
                                 volume=int(row['Volume'])
                             ))
-                else:
-                    logger.warning(
-                        "YFinanceProvider received a non-multi-index dataframe for a multi-ticker request. "
-                        "This can happen if only one of the tickers was valid. Data cannot be reliably assigned."
-                    )
-
-            prices.sort(key=lambda x: x.time)
-            logger.info(f"Successfully processed {len(prices)} total data points for {len(tickers)} tickers.")
-            return prices
-
-        except Exception as e:
-            logger.error(f"Error processing data for tickers {tickers} from yfinance: {e}", exc_info=True)
-            return []
+        else:
+            if len(tickers) == 1:
+                ticker = tickers[0]
+                for _, row in df.iterrows():
+                    if pd.notna(row.get('Open')):
+                        prices.append(Price(
+                            ticker=ticker,
+                            time=str(row[time_col]),
+                            open=row['Open'],
+                            close=row['Close'],
+                            high=row['High'],
+                            low=row['Low'],
+                            volume=int(row['Volume'])
+                        ))
+            else:
+                logger.warning(
+                    "YFinanceProvider received a non-multi-index dataframe for a multi-ticker request. "
+                    "This can happen if only one of the tickers was valid. Data cannot be reliably assigned."
+                )
+        return prices
 
     def _download_data(self, tickers: List[str], start: datetime, end: datetime, interval: str) -> Optional[pd.DataFrame]:
         ticker_str = " ".join(tickers)
@@ -172,3 +177,4 @@ class YFinanceProvider(AbstractDataProvider):
 
     def is_available(self) -> bool:
         return True
+

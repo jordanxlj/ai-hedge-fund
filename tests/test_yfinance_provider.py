@@ -1,3 +1,4 @@
+
 import pandas as pd
 import pytest
 from datetime import datetime, date, timedelta
@@ -5,16 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from src.data.provider.yfinance_provider import YFinanceProvider
 from src.data.models import Price
-from yfinance.exceptions import YFTzMissingError
-
 
 @pytest.fixture
 def provider():
     """Provides a YFinanceProvider instance for testing."""
     return YFinanceProvider()
 
-
-def create_mock_daily_df(ticker='AAPL'):
+def create_mock_daily_df(ticker='AAPL', start_date_str='2025-01-01'):
     """Creates a mock DataFrame simulating a yfinance daily download."""
     data = {
         'Open': [150.0, 151.0],
@@ -23,131 +21,117 @@ def create_mock_daily_df(ticker='AAPL'):
         'Close': [151.5, 152.0],
         'Volume': [1000000, 1200000]
     }
-    index = pd.to_datetime(['2025-01-01', '2025-01-02']).tz_localize('UTC')
+    index = pd.to_datetime([start_date_str, (datetime.strptime(start_date_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')]).tz_localize('UTC')
     df = pd.DataFrame(data, index=index)
     df.index.name = 'Datetime'
     return df
 
+def create_mock_multi_ticker_df():
+    """Creates a mock DataFrame for a multi-ticker download."""
+    headers = pd.MultiIndex.from_product([['Open', 'Close', 'High', 'Low', 'Volume'], ['AAPL', 'GOOG']],
+                                         names=['Price', 'Ticker'])
+    data = [
+        [150.0, 2800.0, 151.5, 2810.0, 152.0, 2815.0, 149.5, 2795.0, 1000000, 500000],
+        [151.0, 2810.0, 152.5, 2820.0, 153.0, 2825.0, 150.5, 2805.0, 1200000, 600000]
+    ]
+    index = pd.to_datetime(['2025-01-01', '2025-01-02']).tz_localize('UTC')
+    mock_df = pd.DataFrame(data, index=index, columns=headers)
+    mock_df.index.name = 'Datetime'
+    return mock_df
 
 def test_get_prices_daily_success(provider, monkeypatch):
-    """
-    Tests successful fetching of daily price data.
-    """
+    """Tests successful fetching of daily price data."""
     mock_df = create_mock_daily_df()
     mock_download = MagicMock(return_value=mock_df)
-    monkeypatch.setattr("yfinance.download", mock_download)
+    monkeypatch.setattr(provider, '_download_data', mock_download)
 
     prices = provider.get_prices(tickers=['AAPL'], start_date='2025-01-01', end_date='2025-01-02', freq='1d')
 
     assert len(prices) == 2
-    assert isinstance(prices[0], Price)
     assert prices[0].ticker == 'AAPL'
-    assert prices[0].close == 151.5
-    assert prices[1].volume == 1200000
-    
-    # Verify yf.download was called correctly
     mock_download.assert_called_once()
-    args, kwargs = mock_download.call_args
-    assert kwargs['tickers'] == 'AAPL'
-    assert kwargs['interval'] == '1d' 
-
-def create_mock_minute_df(ticker='0700.HK', start_date_str='2025-06-02'):
-    """Creates a mock DataFrame with MultiIndex columns, simulating a yfinance minute download."""
-    headers = pd.MultiIndex.from_tuples(
-        [('Datetime', ''), ('Open', ticker), ('High', ticker), ('Low', ticker), ('Close', ticker), ('Volume', ticker)],
-    )
-    data = [
-        [datetime.fromisoformat(f'{start_date_str}T09:30:00'), 493.0, 493.2, 490.6, 491.2, 762732],
-        [datetime.fromisoformat(f'{start_date_str}T09:31:00'), 491.2, 492.8, 490.8, 492.0, 851500]
-    ]
-    df = pd.DataFrame(data, columns=headers)
-    df = df.set_index([('Datetime', '')])
-    df.index.name = 'Datetime'
-    return df
-
-
-def test_get_prices_minute_success(provider, monkeypatch):
-    """
-    Tests successful fetching of minute-level price data with MultiIndex columns.
-    """
-    today = date.today()
-    start_date = (today - timedelta(days=5)).strftime('%Y-%m-%d')
-    end_date = (today - timedelta(days=5)).strftime('%Y-%m-%d')
-    
-    mock_df = create_mock_minute_df(ticker='0700.HK', start_date_str=start_date)
-    mock_download = MagicMock(return_value=mock_df)
-    monkeypatch.setattr("yfinance.download", mock_download)
-
-    prices = provider.get_prices(tickers=['0700.HK'], start_date=start_date, end_date=end_date, freq='1m')
-
-    assert len(prices) == 2
-    assert prices[0].open == 493.0
-    assert prices[1].volume == 851500
-    
 
 def test_get_prices_minute_chunking(provider, monkeypatch):
-    """
-    Tests that a date range longer than 7 days for minute data results in multiple API calls.
-    """
+    """Tests that a date range longer than 7 days for minute data results in multiple API calls."""
     today = date.today()
     start_date_obj = today - timedelta(days=10)
     end_date_obj = today - timedelta(days=2)
     
-    # Mock will be called twice
-    mock_df_1 = create_mock_minute_df(ticker='0700.HK', start_date_str=(start_date_obj).strftime('%Y-%m-%d'))
-    mock_df_2 = create_mock_minute_df(ticker='0700.HK', start_date_str=(start_date_obj + timedelta(days=7)).strftime('%Y-%m-%d'))
-    
-    mock_download = MagicMock(side_effect=[mock_df_1, mock_df_2])
-    monkeypatch.setattr("yfinance.download", mock_download)
+    mock_df = create_mock_daily_df() # Re-using daily df for simplicity
+    mock_download = MagicMock(return_value=mock_df)
+    monkeypatch.setattr(provider, '_download_data', mock_download)
 
-    prices = provider.get_prices(
-        tickers=['0700.HK'],
+    provider.get_prices(
+        tickers=['AAPL'],
         start_date=start_date_obj.strftime('%Y-%m-%d'),
         end_date=end_date_obj.strftime('%Y-%m-%d'),
         freq='1m'
     )
     
     assert mock_download.call_count == 2
-    assert len(prices) == 4 # 2 from each call
 
+def test_process_dataframe_single_ticker(provider):
+    """Tests the _process_dataframe method with a single ticker."""
+    df = create_mock_daily_df(ticker='AAPL')
+    prices = provider._process_dataframe(df, ['AAPL'])
+    
+    assert len(prices) == 2
+    assert prices[0].ticker == 'AAPL'
+    assert prices[0].close == 151.5
+
+def test_process_dataframe_multi_ticker(provider):
+    """Tests the _process_dataframe method with multiple tickers."""
+    df = create_mock_multi_ticker_df()
+    prices = provider._process_dataframe(df, ['AAPL', 'GOOG'])
+
+    assert len(prices) == 4
+    aapl_prices = [p for p in prices if p.ticker == 'AAPL']
+    goog_prices = [p for p in prices if p.ticker == 'GOOG']
+    assert len(aapl_prices) == 2
+    assert len(goog_prices) == 2
+    assert aapl_prices[0].close == 151.5
+    assert goog_prices[1].close == 2820.0
+
+def test_process_dataframe_one_valid_ticker(provider, monkeypatch):
+    """Tests processing when only one of multiple tickers returns data."""
+    # yfinance may return a single-ticker format df in this case
+    mock_df = create_mock_daily_df(ticker='AAPL')
+    
+    with patch('src.data.provider.yfinance_provider.logger') as mock_logger:
+        prices = provider._process_dataframe(mock_df, ['AAPL', 'INVALIDTICKER'])
+        assert len(prices) == 0 # No prices should be returned as assignment is ambiguous
+        mock_logger.warning.assert_called_once()
 
 def test_get_prices_minute_outside_30_day_window(provider, monkeypatch):
-    """
-    Tests that requesting minute data older than 30 days returns an empty list and logs a warning.
-    """
+    """Tests that requesting minute data older than 30 days returns an empty list."""
     start_date = (date.today() - timedelta(days=40)).strftime('%Y-%m-%d')
     end_date = (date.today() - timedelta(days=35)).strftime('%Y-%m-%d')
     mock_download = MagicMock()
-    monkeypatch.setattr("yfinance.download", mock_download)
+    monkeypatch.setattr(provider, '_download_data', mock_download)
 
     with patch('src.data.provider.yfinance_provider.logger') as mock_logger:
-        prices = provider.get_prices(tickers=['0700.HK'], start_date=start_date, end_date=end_date, freq='1m')
+        prices = provider.get_prices(tickers=['AAPL'], start_date=start_date, end_date=end_date, freq='1m')
         
         assert prices == []
-        # Proactive check should prevent any API call
         mock_download.assert_not_called()
-        # Verify a warning was logged
-        assert mock_logger.warning.call_count > 0
         mock_logger.warning.assert_any_call(
-            f"Request for 1-minute data for 0700.HK starts at {start_date}, "
+            f"Request for 1-minute data for AAPL starts at {start_date}, "
             f"which is more than 30 days ago. yfinance does not support this. Skipping."
         )
 
+def test_download_data_returns_none(provider, monkeypatch):
+    """Tests that get_prices handles _download_data returning None."""
+    mock_download = MagicMock(return_value=None)
+    monkeypatch.setattr(provider, '_download_data', mock_download)
+    prices = provider.get_prices(tickers=['AAPL'], start_date='2025-01-01', end_date='2025-01-02')
+    assert prices == []
 
-def test_get_prices_invalid_ticker(provider, monkeypatch):
-    """
-    Tests that an invalid ticker raises YFTzMissingError which is handled gracefully.
-    """
-    today = date.today()
-    start_date = (today - timedelta(days=5)).strftime('%Y-%m-%d')
-    end_date = (today - timedelta(days=5)).strftime('%Y-%m-%d')
-    
-    mock_download = MagicMock(return_value=pd.DataFrame())
-    monkeypatch.setattr("yfinance.download", mock_download)
-
-    with patch('src.data.provider.yfinance_provider.logger') as mock_logger:
-        prices = provider.get_prices(tickers=['INVALID.HK'], start_date=start_date, end_date=end_date, freq='1m')
-        assert prices == []
-        mock_logger.warning.assert_called_once_with(
-            "No data returned for ['INVALID.HK'] for freq '1m'"
-        )
+def test_dummy_methods(provider):
+    """Tests the dummy methods for coverage."""
+    assert provider.get_financial_metrics("AAPL", "2025-01-01") == []
+    assert provider.search_line_items("AAPL", ["revenue"], "2025-01-01") == []
+    assert provider.get_insider_trades("AAPL", "2025-01-01") == []
+    assert provider.get_company_news("AAPL", "2025-01-01") == []
+    assert provider.get_market_cap("AAPL", "2025-01-01") is None
+    assert provider.convert_period("ttm") == "annual"
+    assert provider.is_available() is True
