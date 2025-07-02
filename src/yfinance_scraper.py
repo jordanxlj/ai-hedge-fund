@@ -71,8 +71,6 @@ class YFinanceScraper:
             logger.error("Could not retrieve tickers. Aborting.")
             return
 
-        ticker_map = [('00700', '0700.HK')]
-
         table_name = "hk_stock_minute_price"
         primary_keys = ["ticker", "time"]
         self.db.create_table_from_model(table_name, Price, primary_keys)

@@ -5,6 +5,7 @@ from typing import List, Optional
 import pandas as pd
 import yfinance as yf
 from yfinance.exceptions import YFTzMissingError, YFPricesMissingError
+from pandas.api.types import is_list_like
 
 from src.data.models import (
     Price,
@@ -84,33 +85,43 @@ class YFinanceProvider(AbstractDataProvider):
                 return []
             
             df = pd.concat(all_data)
+            
+            # Handle both MultiIndex and simple Index columns
             df.reset_index(inplace=True)
-
-            # Add extensive debugging to inspect the DataFrame structure
-            logger.debug(f"DataFrame for {ticker} received. Columns: {df.columns}")
-            if not df.empty:
-                logger.debug(f"First row of data: \n{df.iloc[0]}")
-
-            # The columns are a MultiIndex of tuples: (ticker, PriceType), e.g., ('0700.HK', 'Open').
-            # The Datetime column is a specific tuple: ('Datetime', '').
-            ticker_upper = ticker.upper()
-
-            prices = []
-            for _, row in df.iterrows():
-                if pd.isna(row.get((ticker_upper, 'Open'))):
-                    continue
-                #logger.debug(f"{row.get((ticker_upper, 'Volume'))}")
-                price = Price(
-                    ticker=ticker,
-                    time=str(row[('Datetime', '')]),
-                    # Access column with (ticker, PriceType) tuple, checking for case variations
-                    open=row.get((ticker_upper, 'Open')),
-                    close=row.get((ticker_upper, 'Close')),
-                    high=row.get((ticker_upper, 'High')),
-                    low=row.get((ticker_upper, 'Low')),
-                    volume=int(row.get((ticker_upper, 'Volume')))
-                )
-                prices.append(price)
+            
+            if isinstance(df.columns, pd.MultiIndex):
+                # Case 1: MultiIndex columns, e.g., ('Open', '0700.HK')
+                # Find the correct ticker case from the columns
+                actual_ticker = next((col[1] for col in df.columns if is_list_like(col) and len(col) > 1 and col[0] == 'Open'), ticker)
+                
+                prices = [
+                    Price(
+                        ticker=ticker, # Store with the original requested ticker
+                        time=str(row[('Datetime', '')]),
+                        open=row[('Open', actual_ticker)],
+                        close=row[('Close', actual_ticker)],
+                        high=row[('High', actual_ticker)],
+                        low=row[('Low', actual_ticker)],
+                        volume=int(row[('Volume', actual_ticker)])
+                    )
+                    for _, row in df.iterrows() if pd.notna(row.get(('Open', actual_ticker)))
+                ]
+            else:
+                # Case 2: Simple Index columns, e.g., 'Open'
+                df.columns = [str(col) for col in df.columns] # Ensure all columns are strings
+                
+                prices = [
+                    Price(
+                        ticker=ticker,
+                        time=str(row['Datetime']),
+                        open=row['Open'],
+                        close=row['Close'],
+                        high=row['High'],
+                        low=row['Low'],
+                        volume=int(row['Volume'])
+                    )
+                    for _, row in df.iterrows() if pd.notna(row.get('Open'))
+                ]
 
             prices.sort(key=lambda x: x.time)
             logger.info(f"Successfully processed {len(prices)} data points for {ticker}.")
@@ -118,20 +129,15 @@ class YFinanceProvider(AbstractDataProvider):
 
         except Exception as e:
             logger.error(f"Error processing data for {ticker} from yfinance: {e}", exc_info=True)
-            if 'df' in locals() and isinstance(df.columns, pd.MultiIndex):
-                 logger.error(f"Error accessing MultiIndex column for {ticker}. "
-                              f"Columns available: {df.columns.values}. Attempted key may be incorrect.", exc_info=True)
-            else:
-                logger.error(f"Error processing data for {ticker} from yfinance: {e}", exc_info=True)
             return []
 
     def _download_chunk(self, ticker: str, start: datetime, end: datetime, interval: str) -> pd.DataFrame:
         logger.debug(f"yf downloading: {ticker}, start={start}, end={end}, interval={interval}")
         try:
-            # Use group_by='ticker' to ensure a consistent MultiIndex is returned
+            # Don't use group_by='ticker' as it can cause issues with single ticker downloads
             return yf.download(
                 tickers=ticker, start=start, end=end, interval=interval,
-                progress=False, auto_adjust=True, ignore_tz=True, group_by='ticker'
+                progress=False, auto_adjust=True, ignore_tz=True
             )
         except YFTzMissingError:
             logger.warning(f"Could not download data for ticker '{ticker}'. It may be an invalid ticker or delisted.")
