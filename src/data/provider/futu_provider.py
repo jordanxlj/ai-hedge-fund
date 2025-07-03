@@ -184,6 +184,9 @@ class FutuDataProvider(AbstractDataProvider):
         finally:
             self._disconnect()
 
+    def get_financial_profile(self, ticker: str, end_date: str, period: str = "annual", limit: int = 1) -> List[FinancialProfile]:
+        return []
+
     def is_available(self) -> bool:
         """检查数据提供商是否可用（通过尝试连接数据库）。"""
         try:

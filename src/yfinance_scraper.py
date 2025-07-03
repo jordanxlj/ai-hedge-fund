@@ -109,7 +109,7 @@ class YFinanceScraper:
         return all_profiles
 
     def run(self, scrape_type: str, start_date: str, end_date: str, batch_size: int = 50, **kwargs):
-        logger.info("Starting price scraping run...")
+        logger.info("Starting scraping run...")
         all_tickers = self.get_hk_stock_tickers()
         if not all_tickers:
             logger.warning("No tickers found to scrape. Exiting.")
@@ -153,14 +153,13 @@ class YFinanceScraper:
             else:
                 logger.error(f"Invalid scrape_type: '{scrape_type}'. Choose 'price' or 'financials'.")
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="YFinance Scraper for stock data.")
     parser.add_argument("--db_path", type=str, required=True, help="Path to the DuckDB database file.")
     parser.add_argument("--scrape_type", type=str, required=True, choices=['price', 'financials'], help="Type of data to scrape.")
     parser.add_argument("--start_date", type=str, default=(datetime.date.today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d'), help="Start date for price scraping (YYYY-MM-DD).")
     parser.add_argument("--end_date", type=str, default=datetime.date.today().strftime('%Y-%m-%d'), help="End date for price scraping (YYYY-MM-DD).")
     parser.add_argument("--batch_size", type=int, default=100, help="Batch size for fetching price data.")
-    parser.add_argument("--tickers", nargs='+', default=["AAPL", "MSFT", "GOOGL"], help="List of tickers for financial profile scraping.")
     parser.add_argument("--period", type=str, default="annual", choices=['annual', 'quarterly'], help="Period for financials (annual or quarterly).")
     parser.add_argument("--limit", type=int, default=10, help="Number of past periods for financials.")
     parser.add_argument("--max_workers", type=int, default=10, help="Maximum number of threads for concurrent scraping.")
@@ -179,7 +178,6 @@ if __name__ == "__main__":
                 scrape_type=args.scrape_type, 
                 start_date=None, 
                 end_date=args.end_date,
-                tickers=args.tickers, 
                 period=args.period, 
                 limit=args.limit,
                 max_workers=args.max_workers
@@ -191,3 +189,6 @@ if __name__ == "__main__":
                 end_date=args.end_date, 
                 batch_size=args.batch_size
             )
+
+if __name__ == "__main__":
+    main()

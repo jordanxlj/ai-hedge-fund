@@ -11,6 +11,7 @@ from src.data.models import (
     FinancialMetricsResponse,
     LineItem,
     LineItemResponse,
+    FinancialProfile,
     InsiderTrade,
     InsiderTradeResponse,
     CompanyNews,
