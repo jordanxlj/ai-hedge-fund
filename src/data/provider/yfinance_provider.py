@@ -200,7 +200,8 @@ class YFinanceProvider(AbstractDataProvider):
             }
             for key, col in growth_mapping.items():
                 if col in df_sorted.columns:
-                    financials_df[key] = df_sorted[col].pct_change()
+                    numeric_col = pd.to_numeric(df_sorted[col], errors='coerce')
+                    financials_df[key] = numeric_col.pct_change()
 
             profiles = []
             for index, row in financials_df.iterrows():
