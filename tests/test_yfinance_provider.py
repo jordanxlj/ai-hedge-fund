@@ -126,6 +126,58 @@ def test_download_data_returns_none(provider, monkeypatch):
     prices = provider.get_prices(tickers=['AAPL'], start_date='2025-01-01', end_date='2025-01-02')
     assert prices == []
 
+def test_get_financial_profile_success(provider, monkeypatch):
+    """Tests successful fetching of financial profile data."""
+    mock_ticker = MagicMock()
+    mock_ticker.info = {'longName': 'Apple Inc.', 'currency': 'USD'}
+    
+    # Mock financial statements
+    mock_income_stmt = pd.DataFrame({
+        'Total Revenue': [383285000000],
+        'Gross Profit': [169148000000],
+        'Operating Income': [114301000000],
+        'Net Income': [96995000000],
+        'EBIT': [115301000000],
+        'EBITDA': [125821000000],
+        'Basic EPS': [6.16]
+    }, index=[pd.to_datetime('2023-09-30')])
+    
+    mock_balance_sheet = pd.DataFrame({
+        'Total Assets': [352583000000],
+        'Total Liab': [290437000000],
+        'Stockholders Equity': [62146000000],
+        'Cash': [29965000000]
+    }, index=[pd.to_datetime('2023-09-30')])
+    
+    mock_cash_flow = pd.DataFrame({
+        'Total Cash From Operating Activities': [110543000000],
+        'Capital Expenditures': [-10959000000]
+    }, index=[pd.to_datetime('2023-09-30')])
+
+    mock_earnings = pd.DataFrame({
+        'Revenue': [383285000000],
+        'Earnings': [96995000000]
+    }, index=[pd.to_datetime('2023-09-30')])
+
+    mock_ticker.income_stmt = mock_income_stmt.T
+    mock_ticker.balance_sheet = mock_balance_sheet.T
+    mock_ticker.cash_flow = mock_cash_flow.T
+    mock_ticker.earnings = mock_earnings.T
+    
+    mock_yfinance_ticker = MagicMock(return_value=mock_ticker)
+    monkeypatch.setattr('yfinance.Ticker', mock_yfinance_ticker)
+
+    profiles = provider.get_financial_profile(ticker='AAPL', end_date='2025-01-01', period='annual', limit=1)
+
+    assert len(profiles) == 1
+    profile = profiles[0]
+    assert profile.ticker == 'AAPL'
+    assert profile.name == 'Apple Inc.'
+    assert profile.revenue == 383285000000
+    assert profile.net_income == 96995000000
+    assert profile.free_cash_flow == 99584000000
+
+
 def test_dummy_methods(provider):
     """Tests the dummy methods for coverage."""
     assert provider.get_financial_metrics("AAPL", "2025-01-01") == []

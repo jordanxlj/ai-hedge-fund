@@ -6,6 +6,7 @@ from src.data.models import (
     Price,
     FinancialMetrics,
     LineItem,
+    FinancialProfile,
     InsiderTrade,
     CompanyNews,
 )

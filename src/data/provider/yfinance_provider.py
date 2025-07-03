@@ -10,12 +10,14 @@ from pandas.api.types import is_list_like
 from src.data.models import (
     Price,
     FinancialMetrics,
+    FinancialProfile,
     LineItem,
     InsiderTrade,
     CompanyNews,
 )
 from src.data.provider.abstract_data_provider import AbstractDataProvider
 from src.utils.timeout_retry import with_timeout_retry
+from src.utils.financial_utils import reconstruct_financial_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -153,8 +155,131 @@ class YFinanceProvider(AbstractDataProvider):
 
     # --- Dummy implementations for other abstract methods ---
     def get_financial_profile(self, ticker: str, end_date: str, period: str = "annual", limit: int = 1) -> List[FinancialProfile]:
-        logger.warning("get_financial_profile is not implemented for YFinanceProvider.")
-        return []
+        """
+        Retrieves a comprehensive financial profile for a given ticker.
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            
+            # Fetching data based on the period
+            if period == "annual":
+                income_stmt = stock.income_stmt.T
+                balance_sheet = stock.balance_sheet.T
+                cash_flow = stock.cash_flow.T
+            else: # quarterly
+                income_stmt = stock.quarterly_income_stmt.T
+                balance_sheet = stock.quarterly_balance_sheet.T
+                cash_flow = stock.quarterly_cash_flow.T
+
+            if income_stmt.empty or balance_sheet.empty or cash_flow.empty:
+                logger.warning(f"No financial data available for {ticker} for the specified period.")
+                return []
+
+            # Combine all financial data into a single DataFrame
+            financials_df = pd.concat([income_stmt, balance_sheet, cash_flow], axis=1)
+            financials_df = financials_df.loc[:, ~financials_df.columns.duplicated()] # Remove duplicate columns
+            financials_df.index = pd.to_datetime(financials_df.index)
+            
+            # Filter by end_date and limit
+            logger.debug(f"end_date: {end_date}, limit: {limit}, financials_df.index: {financials_df.index}")
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            financials_df = financials_df[financials_df.index <= end_dt].head(limit)
+
+            if financials_df.empty:
+                logger.info(f"No financial data found for {ticker} before or on {end_date}.")
+                return []
+
+            # Calculate growth metrics
+            df_sorted = financials_df.sort_index(ascending=True)
+            growth_mapping = {
+                'revenue_growth': 'Total Revenue', 'earnings_growth': 'Net Income',
+                'operating_income_growth': 'Operating Income', 'ebitda_growth': 'EBITDA',
+                'total_assets_growth': 'Total Assets', 'book_value_growth': 'Stockholders Equity',
+                'earnings_per_share_growth': 'Basic EPS'
+            }
+            for key, col in growth_mapping.items():
+                if col in df_sorted.columns:
+                    financials_df[key] = df_sorted[col].pct_change()
+
+            profiles = []
+            for index, row in financials_df.iterrows():
+                data = row.to_dict()
+                
+                # Start with fundamental data
+                profile_data = {
+                    'ticker': ticker, 'name': info.get('longName', ''),
+                    'report_period': index.strftime('%Y-%m-%d'), 'period': period,
+                    'currency': info.get('currency', 'USD'),
+                    'revenue': data.get('Total Revenue'), 'gross_profit': data.get('Gross Profit'),
+                    'operating_income': data.get('Operating Income'), 'operating_expense': data.get('Operating Expense'),
+                    'selling_expenses': data.get('Selling General And Administration'),
+                    'research_and_development': data.get('Research And Development'),
+                    'net_income': data.get('Net Income'), 'ebit': data.get('EBIT'), 'ebitda': data.get('EBITDA'),
+                    'profit_before_tax': data.get('Pretax Income'), 'income_tax_expense': data.get('Tax Provision'),
+                    'total_assets': data.get('Total Assets'), 'current_assets': data.get('Current Assets'),
+                    'total_liabilities': data.get('Total Liab'), 'current_liabilities': data.get('Current Liabilities'),
+                    'working_capital': data.get('Working Capital'), 'shareholders_equity': data.get('Stockholders Equity'),
+                    'goodwill': data.get('Goodwill'), 'intangible_assets': data.get('Other Intangible Assets'),
+                    'goodwill_and_intangible_assets': data.get('Goodwill And Other Intangible Assets'),
+                    'inventories': data.get('Inventory'), 'accounts_receivable': data.get('Net Receivables'),
+                    'cash_and_equivalents': data.get('Cash'),
+                    'operating_cash_flow': data.get('Total Cash From Operating Activities'),
+                    'capital_expenditure': data.get('Capital Expenditures'),
+                    'depreciation_and_amortization': data.get('Depreciation And Amortization'),
+                    'issuance_or_purchase_of_equity_shares': data.get('Net Common Stock Issuance'),
+                    'earnings_per_share': data.get('Basic EPS'), 'tax_rate': data.get('Tax Rate For Calcs'),
+                    'short_term_debt': data.get('Current Debt'), 'long_term_debt': data.get('Long Term Debt'),
+                    'total_debt': data.get('Total Debt'), 'invested_capital': data.get('Invested Capital'),
+                }
+                
+                # Add growth metrics
+                for key in growth_mapping:
+                    profile_data[key] = data.get(key)
+
+                # Use directly provided Free Cash Flow if available, otherwise calculate it
+                if 'Free Cash Flow' in data and pd.notna(data['Free Cash Flow']):
+                    profile_data['free_cash_flow'] = data.get('Free Cash Flow')
+                else:
+                    op_cash = data.get('Total Cash From Operating Activities', 0)
+                    cap_ex = data.get('Capital Expenditures', 0)
+                    profile_data['free_cash_flow'] = (op_cash or 0) + (cap_ex or 0)
+                
+                # Create initial profile and reconstruct it to get calculated ratios
+                temp_profile = reconstruct_financial_metrics(FinancialProfile(**profile_data))
+                
+                # Add metrics from stock.info and per-share calculations
+                market_cap = info.get('marketCap')
+                shares_outstanding = info.get('sharesOutstanding')
+                
+                temp_profile.market_cap = market_cap
+                temp_profile.outstanding_shares = shares_outstanding
+                temp_profile.enterprise_value = info.get('enterpriseValue')
+                temp_profile.payout_ratio = info.get('payoutRatio')
+                temp_profile.peg_ratio = info.get('pegRatio')
+                temp_profile.price_to_book_ratio = info.get('priceToBook')
+                temp_profile.price_to_sales_ratio = info.get('priceToSalesTrailing12Months')
+                temp_profile.enterprise_value_to_ebitda_ratio = info.get('enterpriseToEbitda')
+                temp_profile.enterprise_value_to_revenue_ratio = info.get('enterpriseToRevenue')
+                temp_profile.price_to_earnings_ratio = info.get('trailingPE')
+
+                if shares_outstanding and shares_outstanding > 0:
+                    if temp_profile.shareholders_equity is not None:
+                        temp_profile.book_value_per_share = temp_profile.shareholders_equity / shares_outstanding
+                    if temp_profile.free_cash_flow is not None:
+                        temp_profile.free_cash_flow_per_share = temp_profile.free_cash_flow / shares_outstanding
+
+                if market_cap and temp_profile.operating_cash_flow and temp_profile.operating_cash_flow > 0:
+                    temp_profile.price_to_cashflow_ratio = market_cap / temp_profile.operating_cash_flow
+
+                profiles.append(temp_profile)
+
+            logger.info(f"Successfully retrieved {len(profiles)} financial profiles for {ticker}.")
+            return profiles
+
+        except Exception as e:
+            logger.error(f"Error fetching financial profile for {ticker} from yfinance: {e}", exc_info=True)
+            return []
 
     def get_financial_metrics(self, ticker: str, end_date: str, period: str = "ttm", limit: int = 10) -> List[FinancialMetrics]:
         logger.warning("get_financial_metrics is not implemented for YFinanceProvider.")
