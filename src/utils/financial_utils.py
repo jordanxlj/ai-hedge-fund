@@ -58,6 +58,23 @@ def reconstruct_financial_metrics(v: FinancialProfile) -> FinancialProfile:
         v.operating_margin = v.operating_income / v.revenue
         logger.debug(f"operating margin: {v.operating_margin}")
 
+    # --- Operational Efficiency Ratios ---
+    # Asset Turnover
+    if v.asset_turnover is None and v.revenue is not None and v.total_assets is not None and v.total_assets > 0:
+        v.asset_turnover = v.revenue / v.total_assets
+        logger.debug(f"asset turnover: {v.asset_turnover}")
+
+    # Inventory Turnover
+    if v.inventory_turnover is None and v.revenue is not None and v.gross_profit is not None and v.inventories is not None and v.inventories > 0:
+        cogs = v.revenue - v.gross_profit
+        v.inventory_turnover = cogs / v.inventories
+        logger.debug(f"inventory turnover: {v.inventory_turnover}")
+
+    # Working Capital Turnover
+    if v.working_capital_turnover is None and v.revenue is not None and v.working_capital is not None and v.working_capital > 0:
+        v.working_capital_turnover = v.revenue / v.working_capital
+        logger.debug(f"working capital turnover: {v.working_capital_turnover}")
+
     # Sales Expense Ratio
     if v.sales_expense_ratio is None and v.selling_expenses is not None and v.revenue is not None and v.revenue > 0:
         v.sales_expense_ratio = v.selling_expenses / v.revenue

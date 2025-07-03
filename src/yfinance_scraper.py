@@ -130,7 +130,6 @@ class YFinanceScraper:
                     logger.warning(f"No price data returned for batch {i//batch_size + 1}.")
                 logger.info("Price scraping run completed.")
             elif scrape_type == 'financials':
-                batch_tickers = ['1810.HK', '0700.HK']
                 all_profiles = self.scrape_financial_profiles(batch_tickers, end_date, kwargs['period'], kwargs['limit'])
                 if all_profiles:
                     # Map ticker names back if needed

@@ -205,6 +205,15 @@ class YFinanceProvider(AbstractDataProvider):
             profiles = []
             for index, row in financials_df.iterrows():
                 data = row.to_dict()
+
+                # Discard data with excessive NaN values
+                nan_count = sum(1 for v in data.values() if pd.isna(v))
+                if len(data) > 0 and (nan_count / len(data)) > 0.5:
+                    logger.warning(
+                        f"Discarding data for {ticker} for period {index.strftime('%Y-%m-%d')} "
+                        f"due to excessive NaN values ({nan_count}/{len(data)})."
+                    )
+                    continue
                 
                 # Start with fundamental data
                 profile_data = {
@@ -223,7 +232,7 @@ class YFinanceProvider(AbstractDataProvider):
                     'goodwill': data.get('Goodwill'), 'intangible_assets': data.get('Other Intangible Assets'),
                     'goodwill_and_intangible_assets': data.get('Goodwill And Other Intangible Assets'),
                     'inventories': data.get('Inventory'), 'accounts_receivable': data.get('Net Receivables'),
-                    'cash_and_equivalents': data.get('Cash'),
+                    'cash_and_equivalents': data.get('Cash And Cash Equivalents'),
                     'operating_cash_flow': data.get('Total Cash From Operating Activities'),
                     'capital_expenditure': data.get('Capital Expenditures'),
                     'depreciation_and_amortization': data.get('Depreciation And Amortization'),
