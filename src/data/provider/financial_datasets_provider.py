@@ -184,7 +184,16 @@ class FinancialDatasetsProvider(AbstractDataProvider):
         except Exception as e:
             logger.error(f"搜索财务报表项目失败 {ticker}: {e}")
             return []
-    
+
+    def get_financial_profile(
+            self,
+            ticker: str,
+            end_date: str,
+            period: str = "annual",
+            limit: int = 1
+    ) -> List[FinancialProfile]:
+        return []
+
     @with_http_timeout_retry("get_insider_trades")
     def get_insider_trades(
         self,

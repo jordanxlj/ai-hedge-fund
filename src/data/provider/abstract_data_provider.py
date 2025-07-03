@@ -51,7 +51,20 @@ class AbstractDataProvider(ABC):
     ) -> List[LineItem]:
         """搜索财务报表项目"""
         pass
-    
+
+    @abstractmethod
+    def get_financial_profile(
+        self,
+        ticker: str,
+        end_date: str,
+        period: str = "annual",
+        limit: int = 1
+    ) -> List[FinancialProfile]:
+        """
+        Retrieves the financial profile for a given ticker.
+        """
+        pass
+
     @abstractmethod
     def get_insider_trades(
         self,

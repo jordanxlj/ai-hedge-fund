@@ -147,6 +147,16 @@ class TushareProvider(AbstractDataProvider):
         all_prices.sort(key=lambda x: x.time)
         return all_prices
 
+    def get_financial_profile(
+        self,
+        ticker: str,
+        end_date: str,
+        period: str = "annual",
+        limit: int = 1
+    ) -> List[FinancialProfile]:
+        logger.warning("get_financial_profile is not implemented for TushareProvider.")
+        return []
+
     @with_timeout_retry("get_financial_metrics")
     def get_financial_metrics(
         self,

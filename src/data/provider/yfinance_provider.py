@@ -152,6 +152,10 @@ class YFinanceProvider(AbstractDataProvider):
             return None
 
     # --- Dummy implementations for other abstract methods ---
+    def get_financial_profile(self, ticker: str, end_date: str, period: str = "annual", limit: int = 1) -> List[FinancialProfile]:
+        logger.warning("get_financial_profile is not implemented for YFinanceProvider.")
+        return []
+
     def get_financial_metrics(self, ticker: str, end_date: str, period: str = "ttm", limit: int = 10) -> List[FinancialMetrics]:
         logger.warning("get_financial_metrics is not implemented for YFinanceProvider.")
         return []
