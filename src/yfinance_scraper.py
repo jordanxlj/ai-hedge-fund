@@ -82,24 +82,30 @@ class YFinanceScraper:
             logger.error(f"Error fetching ticker-name map: {e}", exc_info=True)
             return {}
 
-    def scrape_financial_profiles(self, tickers: List[str], end_date: str, period: str = "annual", limit: int = 10):
+    def scrape_financial_profiles(self, tickers: List[str], end_date: str, period: str = "annual", limit: int = 10, max_workers: int = 10):
         """
-        Scrapes financial profiles for a list of tickers in batch and stores them in the database.
+        Scrapes financial profiles for a list of tickers in parallel and stores them in the database.
         """
-        logger.info(f"Starting batch scrape for {len(tickers)} financial profiles. Period: {period}, Limit: {limit}")
+        logger.info(f"Starting parallel scrape for {len(tickers)} financial profiles. Period: {period}, Limit: {limit}")
         
         all_profiles = []
 
-        for ticker in tickers:
-            try:
-                profiles = self.provider.get_financial_profile(ticker, end_date, period, limit)
-                if profiles:
-                    all_profiles.extend(profiles)
-                    logger.debug(f"Successfully fetched financial profile for {ticker}.")
-                else:
-                    logger.warning(f"No profiles returned for {ticker}.")
-            except Exception as exc:
-                logger.error(f"Ticker {ticker} generated an exception: {exc}", exc_info=True)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Map each ticker to a future
+            future_to_ticker = {executor.submit(self.provider.get_financial_profile, ticker, end_date, period, limit): ticker for ticker in tickers}
+            
+            for future in as_completed(future_to_ticker):
+                ticker = future_to_ticker[future]
+                try:
+                    profiles = future.result()
+                    if profiles:
+                        all_profiles.extend(profiles)
+                        logger.debug(f"Successfully fetched financial profile for {ticker}.")
+                    else:
+                        logger.warning(f"No profiles returned for {ticker}.")
+                except Exception as exc:
+                    logger.error(f"Ticker {ticker} generated an exception: {exc}", exc_info=True)
+        
         return all_profiles
 
     def run(self, scrape_type: str, start_date: str, end_date: str, batch_size: int = 50, **kwargs):
@@ -110,19 +116,21 @@ class YFinanceScraper:
             return
 
         ticker_name_map = self._get_ticker_name_map()
+        batch_tickers = [item[1] for item in all_tickers]
+        query_to_original_map = {qt: ot for ot, qt in all_tickers}
 
-        for i in range(0, len(all_tickers), batch_size):
-            batch = all_tickers[i:i + batch_size]
-            batch_tickers = [item[0] for item in batch]
-            logger.info(f"Processing batch {i//batch_size + 1}: {len(batch_tickers)} tickers")
+        for i in range(0, len(batch_tickers), batch_size):
+            batch = batch_tickers[i:i + batch_size]
+            logger.info(f"Processing batch {i//batch_size + 1}: {len(batch)} tickers")
 
             if scrape_type == 'price':
-                price_objects = self._scrape_prices(batch_tickers, start_date, end_date)
+                price_objects = self._scrape_prices(batch, start_date, end_date)
                 
                 if price_objects:
                     # Map ticker names back if needed
                     for p in price_objects:
-                        p.name = ticker_name_map.get(p.ticker.split('.')[0], p.ticker)
+                        if p.ticker in query_to_original_map:
+                            p.ticker = query_to_original_map[p.ticker]
                     
                     self.db_api.upsert_data_from_models("hk_stock_minute_price", price_objects, ["ticker", "time"])
                     logger.info(f"Successfully stored {len(price_objects)} records for batch {i//batch_size + 1}.")
@@ -130,11 +138,13 @@ class YFinanceScraper:
                     logger.warning(f"No price data returned for batch {i//batch_size + 1}.")
                 logger.info("Price scraping run completed.")
             elif scrape_type == 'financials':
-                all_profiles = self.scrape_financial_profiles(batch_tickers, end_date, kwargs['period'], kwargs['limit'])
+                all_profiles = self.scrape_financial_profiles(batch, end_date, kwargs['period'], kwargs['limit'], kwargs.get('max_workers', 10))
                 if all_profiles:
                     # Map ticker names back if needed
                     for p in all_profiles:
-                        p.name = ticker_name_map.get(p.ticker.split('.')[0], p.ticker)
+                        if p.ticker in query_to_original_map:
+                            p.ticker = query_to_original_map[p.ticker]
+                        p.name = ticker_name_map.get(p.ticker)
 
                     self.db_api.upsert_data_from_models("financial_profile", all_profiles, ["ticker", "report_period", "period"])
                     logger.info(f"Successfully stored {len(all_profiles)} records for batch {i//batch_size + 1}.")
@@ -152,7 +162,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=100, help="Batch size for fetching price data.")
     parser.add_argument("--tickers", nargs='+', default=["AAPL", "MSFT", "GOOGL"], help="List of tickers for financial profile scraping.")
     parser.add_argument("--period", type=str, default="annual", choices=['annual', 'quarterly'], help="Period for financials (annual or quarterly).")
-    parser.add_argument("--limit", type=int, default=5, help="Number of past periods for financials.")
+    parser.add_argument("--limit", type=int, default=10, help="Number of past periods for financials.")
+    parser.add_argument("--max_workers", type=int, default=10, help="Maximum number of threads for concurrent scraping.")
     
     args = parser.parse_args()
 
@@ -170,7 +181,8 @@ if __name__ == "__main__":
                 end_date=args.end_date,
                 tickers=args.tickers, 
                 period=args.period, 
-                limit=args.limit
+                limit=args.limit,
+                max_workers=args.max_workers
             )
         else: # price
             scraper.run(
