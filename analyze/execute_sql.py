@@ -4,7 +4,7 @@ import argparse
 import sys
 import os
 
-def execute_analysis(db_path, table_name, sql_file, output_csv, common_logic_file='analysize/common_logic.sql'):
+def execute_analysis(db_path, table_name, sql_file, output_csv, common_logic_file='analyze/common_logic.sql'):
     """
     Executes a SQL query from a file against a DuckDB database and saves the results to a CSV.
 

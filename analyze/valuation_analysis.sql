@@ -6,14 +6,52 @@
 --
 -- How to use:
 -- 1. Replace '{{table_name}}' with the name of your financial profile table.
--- 2. Run this query using the updated Python script.
+-- 2. The table {{table_name}} should contain historical data with 'ticker', 'report_period', 'revenue', and 'net_income'.
+-- 3. Run this query using the updated Python script.
 
 WITH
 -- This placeholder will be replaced by the content of 'common_logic.sql'
 {{common_logic}},
 
-source_data AS (
+all_financial_data AS (
     SELECT * FROM {{table_name}}
+),
+
+-- Use the latest data for each ticker as the source for scoring
+source_data AS (
+    SELECT *
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER(PARTITION BY ticker ORDER BY report_period DESC) as rn
+        FROM all_financial_data
+    )
+    WHERE rn = 1
+),
+
+-- Calculate 3-year revenue CAGR
+revenue_cagr AS (
+    SELECT
+        ticker,
+        -- Using ABS on the denominator to avoid errors with negative or zero start-year revenue
+        (POWER(
+            (SELECT revenue FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period DESC LIMIT 1) / 
+            NULLIF(ABS((SELECT revenue FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period ASC LIMIT 1)), 0),
+            1.0/3
+        ) - 1) * 100 AS revenue_cagr_3y
+    FROM (SELECT DISTINCT ticker FROM all_financial_data) fd
+),
+
+-- Calculate 3-year net income CAGR
+net_income_cagr AS (
+    SELECT
+        ticker,
+        -- Using ABS on the denominator to avoid errors with negative or zero start-year net income
+        (POWER(
+            (SELECT net_income FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period DESC LIMIT 1) / 
+            NULLIF(ABS((SELECT net_income FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period ASC LIMIT 1)), 0),
+            1.0/3
+        ) - 1) * 100 AS net_income_cagr_3y
+    FROM (SELECT DISTINCT ticker FROM all_financial_data) fd
 ),
 
 -- Score for Undervalued strategy (Ben Graham, Michael Burry)
@@ -36,16 +74,22 @@ high_growth_scores AS (
     SELECT
         s.ticker,
         (
-            (CASE WHEN s.revenue_growth > 15 THEN 1 ELSE 0 END) +
+            (CASE WHEN s.revenue_growth > 0.15 THEN 1 ELSE 0 END) +
+            (CASE WHEN rc.revenue_cagr_3y > 15 THEN 2 WHEN rc.revenue_cagr_3y > 10 THEN 1 ELSE 0 END) +
             (CASE WHEN s.earnings_per_share_growth > 15 THEN 1 ELSE 0 END) +
+            (CASE WHEN nic.net_income_cagr_3y > 15 THEN 2 WHEN nic.net_income_cagr_3y > 10 THEN 1 ELSE 0 END) +
             (CASE WHEN s.revenue > 0 AND (s.research_and_development / s.revenue) > 0.05 THEN 1 ELSE 0 END) +
             (CASE WHEN p.plate_cluster IN ('Technology', 'Healthcare', 'Communication Services') THEN 1 ELSE 0 END) +
-            (CASE WHEN s.gross_margin > 40 THEN 1 ELSE 0 END) +
-            (CASE WHEN s.net_margin > 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN s.peg_ratio < 1.5 AND s.peg_ratio > 0 THEN 1 ELSE 0 END)
+            (CASE WHEN s.gross_margin > 0.40 THEN 1 ELSE 0 END) +
+            (CASE WHEN s.net_margin > 0.10 THEN 1 ELSE 0 END) +
+            (CASE WHEN s.peg_ratio < 1.5 AND s.peg_ratio > 0 THEN 1 ELSE 0 END) +
+            -- Profitability quality check
+            (CASE WHEN s.net_income > 0 AND s.free_cash_flow / s.net_income > 1 THEN 1 ELSE 0 END)
         ) AS high_growth_score
     FROM source_data s
     LEFT JOIN clustered_plate_data p ON s.ticker = p.ticker
+    LEFT JOIN revenue_cagr rc ON s.ticker = rc.ticker
+    LEFT JOIN net_income_cagr nic ON s.ticker = nic.ticker
 ),
 
 -- Score for High Cash Return strategy (Warren Buffett, Bill Ackman)
@@ -53,10 +97,10 @@ high_cash_return_scores AS (
     SELECT
         ticker,
         (
-            (CASE WHEN return_on_equity > 15 THEN 1 ELSE 0 END) +
-            (CASE WHEN net_margin > 15 THEN 1 ELSE 0 END) +
+            (CASE WHEN return_on_equity > 0.15 THEN 1 ELSE 0 END) +
+            (CASE WHEN net_margin > 0.15 THEN 1 ELSE 0 END) +
             (CASE WHEN debt_to_equity < 0.5 AND debt_to_equity > 0 THEN 1 ELSE 0 END) +
-            (CASE WHEN return_on_invested_capital > 12 THEN 1 ELSE 0 END) +
+            (CASE WHEN return_on_invested_capital > 0.12 THEN 1 ELSE 0 END) +
             (CASE WHEN free_cash_flow_yield > 0.05 THEN 1 ELSE 0 END) +
             (CASE WHEN dividend_yield > 0 THEN 1 ELSE 0 END)
         ) AS high_cash_return_score
@@ -75,6 +119,8 @@ SELECT
     ROUND(s.current_ratio, 3) AS current_ratio,
     ROUND(s.revenue_growth, 3) AS revenue_growth,
     ROUND(s.earnings_per_share_growth, 3) AS earnings_per_share_growth,
+    ROUND(nic.net_income_cagr_3y, 2) AS net_income_cagr_3y,
+    ROUND(rc.revenue_cagr_3y, 2) AS revenue_cagr_3y,
     ROUND(s.gross_margin, 3) AS gross_profit_margin,
     ROUND(s.net_margin, 3) AS net_profit_margin,
     ROUND(s.peg_ratio, 3) AS peg_ratio,
@@ -96,6 +142,8 @@ LEFT JOIN clustered_plate_data p ON s.ticker = p.ticker
 LEFT JOIN undervalued_scores u ON s.ticker = u.ticker
 LEFT JOIN high_growth_scores g ON s.ticker = g.ticker
 LEFT JOIN high_cash_return_scores c ON s.ticker = c.ticker
+LEFT JOIN revenue_cagr rc ON s.ticker = rc.ticker
+LEFT JOIN net_income_cagr nic ON s.ticker = nic.ticker
 WHERE
     COALESCE(u.undervalued_score, 0) +
     COALESCE(g.high_growth_score, 0) +
