@@ -76,7 +76,7 @@ high_growth_scores AS (
         (
             (CASE WHEN s.revenue_growth > 0.15 THEN 1 ELSE 0 END) +
             (CASE WHEN rc.revenue_cagr_3y > 15 THEN 2 WHEN rc.revenue_cagr_3y > 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN s.earnings_per_share_growth > 15 THEN 1 ELSE 0 END) +
+            (CASE WHEN s.earnings_per_share_growth > 0.15 THEN 1 ELSE 0 END) +
             (CASE WHEN nic.net_income_cagr_3y > 15 THEN 2 WHEN nic.net_income_cagr_3y > 10 THEN 1 ELSE 0 END) +
             (CASE WHEN s.revenue > 0 AND (s.research_and_development / s.revenue) > 0.05 THEN 1 ELSE 0 END) +
             (CASE WHEN p.plate_cluster IN ('Technology', 'Healthcare', 'Communication Services') THEN 1 ELSE 0 END) +

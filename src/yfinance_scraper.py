@@ -26,6 +26,7 @@ class YFinanceScraper:
         
         # Ensure tables are created
         self.db_api.create_table_from_model("hk_stock_minute_price", Price, ["ticker", "time"])
+        self.db_api.create_table_from_model("hk_stock_daily_price", Price, ["ticker", "time"])
         self.db_api.create_table_from_model("financial_profile", FinancialProfile, ["ticker", "report_period", "period"])
 
     def __enter__(self):
@@ -123,7 +124,21 @@ class YFinanceScraper:
             batch = batch_tickers[i:i + batch_size]
             logger.info(f"Processing batch {i//batch_size + 1}: {len(batch)} tickers")
 
-            if scrape_type == 'price':
+            if scrape_type == 'kline1d':
+                price_objects = self.scrape_prices(batch, start_date, end_date)
+                
+                if price_objects:
+                    # Map ticker names back if needed
+                    for p in price_objects:
+                        if p.ticker in query_to_original_map:
+                            p.ticker = query_to_original_map[p.ticker]
+                    
+                    self.db_api.upsert_data_from_models("hk_stock_daily_price", price_objects, ["ticker", "time"])
+                    logger.info(f"Successfully stored {len(price_objects)} records for batch {i//batch_size + 1}.")
+                else:
+                    logger.warning(f"No price data returned for batch {i//batch_size + 1}.")
+                logger.info("Price scraping run completed.")
+            elif scrape_type == 'kline1m':
                 price_objects = self._scrape_prices(batch, start_date, end_date)
                 
                 if price_objects:
@@ -137,7 +152,7 @@ class YFinanceScraper:
                 else:
                     logger.warning(f"No price data returned for batch {i//batch_size + 1}.")
                 logger.info("Price scraping run completed.")
-            elif scrape_type == 'financials':
+            elif scrape_type == 'financial':
                 all_profiles = self.scrape_financial_profiles(batch, end_date, kwargs['period'], kwargs['limit'], kwargs.get('max_workers', 10))
                 if all_profiles:
                     # Map ticker names back if needed
@@ -151,12 +166,16 @@ class YFinanceScraper:
                 else:
                     logger.warning(f"No financial profile data returned for batch {i//batch_size + 1}.")
             else:
-                logger.error(f"Invalid scrape_type: '{scrape_type}'. Choose 'price' or 'financials'.")
+                logger.error(f"Invalid scrape_type: '{scrape_type}'. Choose 'kline1d', 'kline1m' or 'financial'.")
+
+    def scrape_prices(self, tickers: List[str], start_date: str, end_date: str, freq: str = '1d'):
+        logger.debug(f"Fetching daily data for {tickers} from {start_date} to {end_date}")
+        return self.provider.get_prices(tickers, start_date, end_date, freq)
 
 def main():
     parser = argparse.ArgumentParser(description="YFinance Scraper for stock data.")
     parser.add_argument("--db_path", type=str, required=True, help="Path to the DuckDB database file.")
-    parser.add_argument("--scrape_type", type=str, required=True, choices=['price', 'financials'], help="Type of data to scrape.")
+    parser.add_argument("--scrape_type", type=str, required=True, choices=['kline1d', 'kline1m', 'financial'], help="Type of data to scrape.")
     parser.add_argument("--start_date", type=str, default=(datetime.date.today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d'), help="Start date for price scraping (YYYY-MM-DD).")
     parser.add_argument("--end_date", type=str, default=datetime.date.today().strftime('%Y-%m-%d'), help="End date for price scraping (YYYY-MM-DD).")
     parser.add_argument("--batch_size", type=int, default=100, help="Batch size for fetching price data.")
@@ -173,7 +192,7 @@ def main():
 
     with db_api:
         scraper = YFinanceScraper(db_api, yf_provider)
-        if args.scrape_type == 'financials':
+        if args.scrape_type == 'financial':
             scraper.run(
                 scrape_type=args.scrape_type, 
                 start_date=None, 
@@ -182,7 +201,7 @@ def main():
                 limit=args.limit,
                 max_workers=args.max_workers
             )
-        else: # price
+        else: # kline1d or kline1m
             scraper.run(
                 scrape_type=args.scrape_type, 
                 start_date=args.start_date, 

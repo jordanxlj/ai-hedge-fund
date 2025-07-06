@@ -75,7 +75,7 @@ class DuckDBAPI(DatabaseAPI):
             if name == 'model_config': continue
             
             # Special handling for price table to use INTEGER for storage optimization
-            if table_name == 'hk_stock_minute_price' and name in ['open', 'close', 'high', 'low']:
+            if name in ['open', 'close', 'high', 'low']:
                 sql_type = 'INTEGER'
             else:
                 sql_type = _get_pydantic_sql_type(field_type)
@@ -105,7 +105,7 @@ class DuckDBAPI(DatabaseAPI):
         model = data[0].__class__
         
         # Special handling for price data to convert floats to integers
-        if table_name == 'hk_stock_minute_price' and model.__name__ == 'Price':
+        if model.__name__ == 'Price':
             data_dicts = []
             for m in data:
                 d = m.model_dump(exclude_none=True)

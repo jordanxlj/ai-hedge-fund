@@ -35,7 +35,7 @@ def test_run_batching(scraper, mock_db_api):
     scraper._scrape_prices = MagicMock(return_value=mock_prices)
 
     # Act
-    scraper.run(scrape_type='price', start_date='2025-01-01', end_date='2025-01-01', batch_size=2)
+    scraper.run(scrape_type='kline1m', start_date='2025-01-01', end_date='2025-01-01', batch_size=2)
 
     # Assert
     assert scraper._scrape_prices.call_count == 3
@@ -46,6 +46,25 @@ def test_run_batching(scraper, mock_db_api):
     assert call_args_list[0].args[0] == ['1.HK', '2.HK']
     assert call_args_list[1].args[0] == ['3.HK', '4.HK']
     assert call_args_list[2].args[0] == ['5.HK']
+
+
+def test_run_kline_scraping(scraper, mock_db_api):
+    """
+    Tests that the scraper's run method correctly calls the scrape_prices method for kline data.
+    """
+    # Arrange
+    ticker_map = [('00001', '1.HK')]
+    scraper.get_hk_stock_tickers = MagicMock(return_value=ticker_map)
+    
+    mock_prices = [Price(ticker='1.HK', time='2025-01-01', open=100, close=100, high=100, low=100, volume=1000)]
+    scraper.scrape_prices = MagicMock(return_value=mock_prices)
+
+    # Act
+    scraper.run(scrape_type='kline1d', start_date='2025-01-01', end_date='2025-01-01')
+
+    # Assert
+    scraper.scrape_prices.assert_called_once_with(['1.HK'], '2025-01-01', '2025-01-01')
+    mock_db_api.upsert_data_from_models.assert_called_once_with("hk_stock_daily_price", mock_prices, ["ticker", "time"])
 
 
 def test_run_financials_scraping(scraper, mock_db_api):
@@ -60,7 +79,7 @@ def test_run_financials_scraping(scraper, mock_db_api):
     scraper.scrape_financial_profiles = MagicMock(return_value=mock_profiles)
 
     # Act
-    scraper.run(scrape_type='financials', start_date=None, end_date='2025-01-01', period='annual', limit=1)
+    scraper.run(scrape_type='financial', start_date=None, end_date='2025-01-01', period='annual', limit=1)
 
     # Assert
     scraper.scrape_financial_profiles.assert_called_once_with(['1.HK', '2.HK'], '2025-01-01', 'annual', 1, 10)
@@ -106,7 +125,7 @@ def test_main(mock_scraper, mock_provider, mock_db_api, mock_argparse):
     """
     # Arrange
     mock_args = MagicMock()
-    mock_args.scrape_type = 'financials'
+    mock_args.scrape_type = 'financial'
     mock_args.db_path = 'test.db'
     mock_args.end_date = '2025-01-01'
     mock_args.period = 'annual'
@@ -123,7 +142,7 @@ def test_main(mock_scraper, mock_provider, mock_db_api, mock_argparse):
     mock_provider.assert_called_once()
     mock_scraper.assert_called_once()
     mock_scraper.return_value.run.assert_called_once_with(
-        scrape_type='financials',
+        scrape_type='financial',
         start_date=None,
         end_date='2025-01-01',
         period='annual',
