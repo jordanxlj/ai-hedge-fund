@@ -3118,6 +3118,29 @@ url = "https://mirrors.aliyun.com/pypi/simple"
 reference = "aliyun"
 
 [[package]]
+name = "pandas-ta"
+version = "0.3.14b"
+description = "An easy to use Python 3 Pandas Extension with 130+ Technical Analysis Indicators. Can be called from a Pandas DataFrame or standalone like TA-Lib. Correlation tested with TA-Lib."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pandas_ta-0.3.14b.tar.gz", hash = "sha256:0fa35aec831d2815ea30b871688a8d20a76b288a7be2d26cc00c35cd8c09a993"},
+]
+
+[package.dependencies]
+pandas = "*"
+
+[package.extras]
+dev = ["alphaVantage-api", "matplotlib", "mplfinance", "scipy", "sklearn", "statsmodels", "stochastic", "talib", "tqdm", "vectorbt", "yfinance"]
+test = ["ta-lib"]
+
+[package.source]
+type = "legacy"
+url = "https://mirrors.aliyun.com/pypi/simple"
+reference = "aliyun"
+
+[[package]]
 name = "pathspec"
 version = "0.12.1"
 description = "Utility library for gitignore style pattern matching of file paths."
@@ -5270,4 +5293,4 @@ reference = "aliyun"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "74b37cc52ee876d0629ca8f1165bac829d5a3de41eaa326bcc0d2b7eddac282c"
+content-hash = "1023666df41b0c3e68510b1588217206c7abf81693b3c1fa05aa6bb18fc57c28"
