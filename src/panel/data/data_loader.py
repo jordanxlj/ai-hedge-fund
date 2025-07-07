@@ -1,4 +1,3 @@
-
 import pandas as pd
 from src.data.db import get_database_api, DatabaseAPI
 
@@ -8,40 +7,57 @@ class DataLoader:
 
     def load_daily_prices(self, tickers: list = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         query = "SELECT * FROM hk_stock_daily_price"
-        params = {}
+        conditions = []
+        params = []
+
         if tickers:
-            query += " WHERE ticker IN :tickers"
-            params['tickers'] = tuple(tickers)
+            conditions.append(f"ticker IN ({','.join(['?'] * len(tickers))})")
+            params.extend(tickers)
         if start_date:
-            query += " AND time >= :start_date"
-            params['start_date'] = start_date
+            conditions.append("time >= ?")
+            params.append(start_date)
         if end_date:
-            query += " AND time <= :end_date"
-            params['end_date'] = end_date
+            conditions.append("time <= ?")
+            params.append(end_date)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
         return self.db_api.query_to_dataframe(query, params)
 
     def load_minute_prices(self, tickers: list = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         query = "SELECT * FROM hk_stock_minute_price"
-        params = {}
+        conditions = []
+        params = []
+
         if tickers:
-            query += " WHERE ticker IN :tickers"
-            params['tickers'] = tuple(tickers)
+            conditions.append(f"ticker IN ({','.join(['?'] * len(tickers))})")
+            params.extend(tickers)
         if start_date:
-            query += " AND time >= :start_date"
-            params['start_date'] = start_date
+            conditions.append("time >= ?")
+            params.append(start_date)
         if end_date:
-            query += " AND time <= :end_date"
-            params['end_date'] = end_date
+            conditions.append("time <= ?")
+            params.append(end_date)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
         return self.db_api.query_to_dataframe(query, params)
 
     def load_financial_profiles(self, tickers: list = None, period: str = None) -> pd.DataFrame:
         query = "SELECT * FROM financial_profile"
-        params = {}
-        if tickers:
-            query += " WHERE ticker IN :tickers"
-            params['tickers'] = tuple(tickers)
-        if period:
-            query += " AND period = :period"
-            params['period'] = period
-        return self.db_api.query_to_dataframe(query, params)
+        conditions = []
+        params = []
 
+        if tickers:
+            conditions.append(f"ticker IN ({','.join(['?'] * len(tickers))})")
+            params.extend(tickers)
+        if period:
+            conditions.append("period = ?")
+            params.append(period)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        return self.db_api.query_to_dataframe(query, params)

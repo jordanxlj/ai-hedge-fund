@@ -1,5 +1,10 @@
+
 import pandas as pd
 import pandas_ta as ta
+import argparse
+from src.panel.data.data_loader import DataLoader
+from src.panel.viz.plotter import Plotter
+from src.data.db import get_database_api
 
 class FeatureEngine:
     """
@@ -10,19 +15,9 @@ class FeatureEngine:
     def __init__(self):
         pass
 
-    def _process_in_groups(self, df: pd.DataFrame, func, **kwargs) -> pd.DataFrame:
-        """Helper to apply a function to each ticker group."""
-        return df.groupby('ticker', group_keys=False).apply(func, **kwargs)
-
     def add_moving_average(self, df: pd.DataFrame, window: int, ma_type: str = 'sma', price_col: str = 'close') -> pd.DataFrame:
         """
-        Adds a moving average column to the DataFrame.
-
-        :param df: DataFrame with financial data.
-        :param window: The rolling window size.
-        :param ma_type: Type of moving average ('sma', 'ema', 'wma').
-        :param price_col: The price column to use.
-        :return: DataFrame with the added moving average column.
+        Adds a moving average column to the DataFrame using a robust transform.
         """
         if price_col not in df.columns:
             raise ValueError(f"Price column '{price_col}' not found in DataFrame.")
@@ -36,30 +31,26 @@ class FeatureEngine:
         if not ma_func:
             raise ValueError(f"Invalid moving average type: {ma_type}")
 
-        ma_series = self._process_in_groups(df, lambda x: ma_func(x[price_col], length=window))
-        df[f'{ma_type.lower()}_{price_col}_{window}'] = ma_series
+        # Use transform for robust, index-aligned single-column feature creation
+        feature_name = f"{ma_type.upper()}_{window}"
+        df[feature_name] = df.groupby('ticker', group_keys=False)[price_col].transform(lambda x: ma_func(x, length=window))
         return df
 
     def add_volatility(self, df: pd.DataFrame, window: int, vol_type: str = 'std', price_col: str = 'close') -> pd.DataFrame:
         """
         Adds a volatility column to the DataFrame.
-
-        :param df: DataFrame with financial data.
-        :param window: The rolling window size.
-        :param vol_type: Type of volatility ('std' for standard deviation, 'atr' for Average True Range).
-        :param price_col: The price column to use for 'std'.
-        :return: DataFrame with the added volatility column.
         """
         if vol_type.lower() == 'std':
             if price_col not in df.columns:
                 raise ValueError(f"Price column '{price_col}' not found for 'std' calculation.")
-            vol_series = self._process_in_groups(df, lambda x: x[price_col].pct_change().rolling(window=window).std())
-            df[f'vol_std_{price_col}_{window}'] = vol_series
+            feature_name = f'vol_std_{price_col}_{window}'
+            df[feature_name] = df.groupby('ticker', group_keys=False)[price_col].transform(lambda x: x.pct_change().rolling(window=window).std())
         elif vol_type.lower() == 'atr':
             if not all(col in df.columns for col in ['high', 'low', 'close']):
                 raise ValueError("'high', 'low', and 'close' columns are required for ATR calculation.")
-            atr_series = self._process_in_groups(df, lambda x: ta.atr(x['high'], x['low'], x['close'], length=window))
-            df[f'atr_{window}'] = atr_series
+            # ATR returns a DataFrame, so we calculate per group and join.
+            atr_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.atr(x['high'], x['low'], x['close'], length=window))
+            df = df.join(atr_df)
         else:
             raise ValueError(f"Invalid volatility type: {vol_type}")
         return df
@@ -68,25 +59,23 @@ class FeatureEngine:
         """
         Adds the Relative Strength Index (RSI) to the DataFrame.
         """
-        rsi_series = self._process_in_groups(df, lambda x: ta.rsi(x[price_col], length=window))
-        df[f'rsi_{price_col}_{window}'] = rsi_series
+        feature_name = f"RSI_{window}"
+        df[feature_name] = df.groupby('ticker', group_keys=False)[price_col].transform(lambda x: ta.rsi(x, length=window))
         return df
 
     def add_macd(self, df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9, price_col: str = 'close') -> pd.DataFrame:
         """
         Adds the Moving Average Convergence Divergence (MACD) to the DataFrame.
         """
-        macd_df = self._process_in_groups(df, lambda x: ta.macd(x[price_col], fast=fast, slow=slow, signal=signal))
-        df = df.join(macd_df)
-        return df
+        macd_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.macd(x[price_col], fast=fast, slow=slow, signal=signal))
+        return df.join(macd_df)
 
     def add_bollinger_bands(self, df: pd.DataFrame, window: int = 20, std: int = 2, price_col: str = 'close') -> pd.DataFrame:
         """
         Adds Bollinger Bands to the DataFrame.
         """
-        bbands_df = self._process_in_groups(df, lambda x: ta.bbands(x[price_col], length=window, std=std))
-        df = df.join(bbands_df)
-        return df
+        bbands_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.bbands(x[price_col], length=window, std=std))
+        return df.join(bbands_df)
 
     def add_relative_strength(self, df: pd.DataFrame, benchmark_ticker: str, price_col: str = 'close') -> pd.DataFrame:
         """
@@ -95,15 +84,44 @@ class FeatureEngine:
         if benchmark_ticker not in df['ticker'].unique():
             raise ValueError(f"Benchmark ticker '{benchmark_ticker}' not found in DataFrame.")
         
-        benchmark = df[df['ticker'] == benchmark_ticker].set_index('time')[price_col].pct_change().rename('benchmark_returns')
-        df_merged = df.join(benchmark, on='time')
+        benchmark_returns = df[df['ticker'] == benchmark_ticker].set_index('time')[price_col].pct_change()
+        df_merged = df.join(benchmark_returns.rename('benchmark_returns'), on='time')
         
         def calculate_rs(x):
             asset_returns = x[price_col].pct_change()
-            relative_strength = asset_returns - x['benchmark_returns']
-            return relative_strength
+            return asset_returns - x['benchmark_returns']
 
-        rs_series = self._process_in_groups(df_merged, calculate_rs)
-        df[f'relative_strength_vs_{benchmark_ticker}'] = rs_series
+        feature_name = f'relative_strength_vs_{benchmark_ticker}'
+        df[feature_name] = df_merged.groupby('ticker', group_keys=False).apply(calculate_rs)
         df.drop(columns=['benchmark_returns'], inplace=True, errors='ignore')
         return df
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Feature Engineering and Visualization for Financial Data.")
+    parser.add_argument("--db_path", type=str, required=True, help="Path to the DuckDB database file.")
+    parser.add_argument("--ticker", type=str, required=True, help="Ticker symbol to visualize.")
+    parser.add_argument("--start_date", type=str, help="Start date for data loading (YYYY-MM-DD).")
+    parser.add_argument("--end_date", type=str, help="End date for data loading (YYYY-MM-DD).")
+    parser.add_argument("--chart_type", type=str, default="candlestick", choices=["candlestick", "line"], help="Type of chart to display.")
+
+    args = parser.parse_args()
+
+    db_api = get_database_api("duckdb", db_path=args.db_path)
+    with db_api:
+        data_loader = DataLoader(db_api)
+        df = data_loader.load_daily_prices(tickers=[args.ticker], start_date=args.start_date, end_date=args.end_date)
+
+        if not df.empty:
+            feature_engine = FeatureEngine()
+            df = feature_engine.add_moving_average(df, window=20)
+            df = feature_engine.add_bollinger_bands(df, window=20)
+            df = feature_engine.add_rsi(df, window=14)
+            df = feature_engine.add_macd(df)
+
+            plotter = Plotter()
+            if args.chart_type == 'candlestick':
+                plotter.plot_candlestick(df, ticker=args.ticker)
+            else:
+                plotter.plot_line(df, tickers=[args.ticker])
+        else:
+            print(f"No data found for ticker {args.ticker}")
