@@ -28,9 +28,9 @@ class Plotter:
             df_ticker['time'] = pd.to_datetime(df_ticker['time'])
             df_ticker.set_index('time', inplace=True)
 
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                              vertical_spacing=0.03, subplot_titles=('OHLC', 'Volume'), 
-                              row_width=[0.2, 0.7])
+        fig = make_subplots(rows=4, cols=1, shared_xaxes=True, 
+                              vertical_spacing=0.02, subplot_titles=('OHLC', 'Volume', 'RSI', 'MACD'), 
+                              row_heights=[0.5, 0.1, 0.2, 0.2])
 
         # Candlestick trace
         fig.add_trace(go.Candlestick(x=df_ticker.index,
@@ -48,13 +48,26 @@ class Plotter:
         }
 
         for col in df_ticker.columns:
-            for prefix, (legend_name, color) in legend_map.items():
-                if col.startswith(prefix):
-                    fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name=legend_name, line=dict(color=color)), row=1, col=1)
-                    break # Move to next column once a match is found
-            else: # No break
-                if col.startswith(('sma_', 'ema_', 'wma_')):
-                    fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name=col), row=1, col=1)
+            if col.startswith('RSI'):
+                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name='RSI'), row=3, col=1)
+            elif col.startswith('MACD_'):
+                # MACD Line
+                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name='MACD', line=dict(color='blue')), row=4, col=1)
+            elif col.startswith('MACDs'):
+                # Signal Line
+                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name='Signal', line=dict(color='red')), row=4, col=1)
+            elif col.startswith('MACDh'):
+                # Histogram
+                colors = ['green' if v >= 0 else 'red' for v in df_ticker[col]]
+                fig.add_trace(go.Bar(x=df_ticker.index, y=df_ticker[col], name='Histogram', marker_color=colors), row=4, col=1)
+            else:
+                for prefix, (legend_name, color) in legend_map.items():
+                    if col.startswith(prefix):
+                        fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name=legend_name, line=dict(color=color)), row=1, col=1)
+                        break # Move to next column once a match is found
+                else: # No break
+                    if col.startswith(('SMA_', 'EMA_', 'WMA_')):
+                        fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name=col), row=1, col=1)
 
         if add_volume:
             fig.add_trace(go.Bar(x=df_ticker.index, y=df_ticker['volume'], name='Volume'), row=2, col=1)
