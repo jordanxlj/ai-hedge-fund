@@ -212,9 +212,15 @@ class DuckDBAPI(DatabaseAPI):
     ) -> pd.DataFrame:
         self._ensure_connection()
         if params:
-            return self.conn.execute(query, params).fetchdf()
+            df = self.conn.execute(query, params).fetchdf()
         else:
-            return self.conn.execute(query).fetchdf()
+            df = self.conn.execute(query).fetchdf()
+        
+        # Apply price scaling for consistency
+        for key in ['open', 'close', 'high', 'low']:
+            if key in df.columns:
+                df[key] = df[key] / 100.0
+        return df
 
     def table_exists(self, table_name: str) -> bool:
         self._ensure_connection()

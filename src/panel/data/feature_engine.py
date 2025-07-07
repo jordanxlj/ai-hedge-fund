@@ -1,10 +1,12 @@
-
 import pandas as pd
 import pandas_ta as ta
 import argparse
 from src.panel.data.data_loader import DataLoader
 from src.panel.viz.plotter import Plotter
 from src.data.db import get_database_api
+import logging
+
+logger = logging.getLogger(__name__)
 
 class FeatureEngine:
     """
@@ -74,7 +76,7 @@ class FeatureEngine:
         """
         Adds Bollinger Bands to the DataFrame.
         """
-        bbands_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.bbands(x[price_col], length=window, std=std))
+        bbands_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.bbands(x[price_col], length=window, std=std, mamode='sma'))
         return df.join(bbands_df)
 
     def add_relative_strength(self, df: pd.DataFrame, benchmark_ticker: str, price_col: str = 'close') -> pd.DataFrame:
@@ -121,7 +123,7 @@ if __name__ == '__main__':
             plotter = Plotter()
             if args.chart_type == 'candlestick':
                 plotter.plot_candlestick(df, ticker=args.ticker)
-            else:
+            elif args.chart_type == 'line':
                 plotter.plot_line(df, tickers=[args.ticker])
         else:
             print(f"No data found for ticker {args.ticker}")

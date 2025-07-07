@@ -23,7 +23,10 @@ class DataLoader:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        return self.db_api.query_to_dataframe(query, params)
+        df = self.db_api.query_to_dataframe(query, params)
+        if not df.empty:
+            df = df.sort_values(by='time').reset_index(drop=True)
+        return df
 
     def load_minute_prices(self, tickers: list = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         query = "SELECT * FROM hk_stock_minute_price"
@@ -43,7 +46,10 @@ class DataLoader:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        return self.db_api.query_to_dataframe(query, params)
+        df = self.db_api.query_to_dataframe(query, params)
+        if not df.empty:
+            df = df.sort_values(by='time').reset_index(drop=True)
+        return df
 
     def load_financial_profiles(self, tickers: list = None, period: str = None) -> pd.DataFrame:
         query = "SELECT * FROM financial_profile"
@@ -60,4 +66,7 @@ class DataLoader:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        return self.db_api.query_to_dataframe(query, params)
+        df = self.db_api.query_to_dataframe(query, params)
+        if not df.empty:
+            df = df.sort_values(by='time').reset_index(drop=True)
+        return df
