@@ -1,6 +1,7 @@
 import pandas as pd
 import pandas_ta as ta
 import argparse
+import numpy as np
 from src.panel.data.data_loader import DataLoader
 from src.panel.viz.plotter import Plotter
 from src.data.db import get_database_api
@@ -79,6 +80,29 @@ class FeatureEngine:
         bbands_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.bbands(x[price_col], length=window, std=std, mamode='sma'))
         return df.join(bbands_df)
 
+    def _wavetrend(self, high: pd.Series, low: pd.Series, close: pd.Series, channel_length: int = 10, average_length: int = 21, sma_length: int = 4):
+        ap = (high + low + close) / 3
+        esa = ap.ewm(span=channel_length, adjust=False).mean()
+        d = (ap - esa).abs().ewm(span=channel_length, adjust=False).mean()
+        ci = (ap - esa) / (0.015 * d)
+        wt1 = ci.ewm(span=average_length, adjust=False).mean()
+        wt2 = wt1.rolling(window=sma_length).mean()
+        wt_hist = wt1 - wt2
+
+        # Set initial unstable values to NaN
+        wt1.iloc[:channel_length + average_length] = np.nan
+        wt2.iloc[:channel_length + average_length + sma_length] = np.nan
+        wt_hist.iloc[:channel_length + average_length] = np.nan
+
+        return pd.DataFrame({'WT1': wt1, 'WT2': wt2, 'WT_Hist': wt_hist})
+
+    def add_wavetrend(self, df: pd.DataFrame, channel_length: int = 10, average_length: int = 21, sma_length: int = 4) -> pd.DataFrame:
+        """
+        Adds the Wave Trend Oscillator to the DataFrame.
+        """
+        wavetrend_df = df.groupby('ticker', group_keys=False).apply(lambda x: self._wavetrend(x['high'], x['low'], x['close'], channel_length=channel_length, average_length=average_length, sma_length=sma_length))
+        return df.join(wavetrend_df)
+
     def add_relative_strength(self, df: pd.DataFrame, benchmark_ticker: str, price_col: str = 'close') -> pd.DataFrame:
         """
         Adds a relative strength column compared to a benchmark ticker.
@@ -119,6 +143,7 @@ if __name__ == '__main__':
             df = feature_engine.add_bollinger_bands(df, window=20)
             df = feature_engine.add_rsi(df, window=14)
             df = feature_engine.add_macd(df)
+            df = feature_engine.add_wavetrend(df)
 
             plotter = Plotter()
             if args.chart_type == 'candlestick':

@@ -28,9 +28,9 @@ class Plotter:
             df_ticker['time'] = pd.to_datetime(df_ticker['time'])
             df_ticker.set_index('time', inplace=True)
 
-        fig = make_subplots(rows=4, cols=1, shared_xaxes=True, 
-                              vertical_spacing=0.02, subplot_titles=('OHLC', 'Volume', 'RSI', 'MACD'), 
-                              row_heights=[0.5, 0.1, 0.2, 0.2])
+        fig = make_subplots(rows=5, cols=1, shared_xaxes=True, 
+                              vertical_spacing=0.02, subplot_titles=('OHLC', 'Volume', 'RSI', 'MACD', 'Wave Trend'), 
+                              row_heights=[0.4, 0.1, 0.15, 0.15, 0.2])
 
         # Candlestick trace
         fig.add_trace(go.Candlestick(x=df_ticker.index,
@@ -60,6 +60,15 @@ class Plotter:
                 # Histogram
                 colors = ['green' if v >= 0 else 'red' for v in df_ticker[col]]
                 fig.add_trace(go.Bar(x=df_ticker.index, y=df_ticker[col], name='Histogram', marker_color=colors), row=4, col=1)
+            elif col.startswith('WT1'):
+                # Wave Trend Line 1
+                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name='WT1', line=dict(color='green')), row=5, col=1)
+            elif col.startswith('WT2'):
+                # Wave Trend Line 2 (Signal)
+                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name='WT2', line=dict(color='red', dash='dot')), row=5, col=1)
+            elif col.startswith('WT_Hist'):
+                # Shaded Area
+                fig.add_trace(go.Scatter(x=df_ticker.index, y=df_ticker[col], mode='lines', name='WT Hist', line=dict(color='blue'), fill='tozeroy', fillcolor='rgba(0,0,255,0.1)'), row=5, col=1)
             else:
                 for prefix, (legend_name, color) in legend_map.items():
                     if col.startswith(prefix):
@@ -71,6 +80,13 @@ class Plotter:
 
         if add_volume:
             fig.add_trace(go.Bar(x=df_ticker.index, y=df_ticker['volume'], name='Volume'), row=2, col=1)
+
+        # Add overbought/oversold lines for Wave Trend
+        fig.add_hline(y=60, line_dash="dash", row=5, col=1, line_color="red")
+        fig.add_hline(y=53, line_dash="dot", row=5, col=1, line_color="red")
+        fig.add_hline(y=-60, line_dash="dash", row=5, col=1, line_color="green")
+        fig.add_hline(y=-53, line_dash="dot", row=5, col=1, line_color="green")
+        fig.add_hline(y=0, line_dash="dash", row=5, col=1, line_color="gray")
 
         # Custom X-axis formatting to mimic TradingView
         monthly_ticks = df_ticker.index.to_series().dt.to_period('M').unique()
