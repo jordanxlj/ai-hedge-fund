@@ -4,6 +4,7 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from dash.dash_table.Format import Format, Scheme, Trim
 from src.panel.data.data_loader import DataLoader
 from src.data.db import get_database_api
 
@@ -120,26 +121,71 @@ def toggle_views(clickData, treemap_style, detail_style):
         Output('ticker-fundamentals-table', 'children')
     ],
     [Input('plate-treemap', 'clickData')],
-    [State('plate-detail-title', 'children')])
-def update_plate_details(clickData, current_title):
-    if clickData is None or (current_title and "Select a Plate" in current_title):
+    [State('period-selector', 'value'),
+     State('plate-detail-title', 'children')]
+)
+def update_plate_details(clickData, days_back, current_title):
+    if clickData is None:
         return "Select a Plate", None
 
     plate_name = clickData['points'][0]['label']
-        
+    custom_data = clickData['points'][0]['customdata']
+    avg_change = custom_data[0]
+    total_volume_str = custom_data[1]
+    
+    # Dynamic title based on treemap data
+    title = f'{plate_name} {total_volume_str} {avg_change:+.2%}'
+
+    # Fetch details for the selected plate
     try:
         db_api.connect()
-        plate_details_df = data_loader.get_plate_details(plate_name)
+        plate_details_df = data_loader.get_plate_details(plate_name, days_back=days_back)
     finally:
         db_api.close()
 
+    # Define column formatting
+    columns = [
+        {"name": "代码", "id": "代码", "type": "text"},
+        {"name": "名称", "id": "名称", "type": "text"},
+        {"name": "最新价", "id": "最新价", "type": "numeric", "format": Format(precision=3, scheme=Scheme.fixed)},
+        {"name": "涨跌额", "id": "涨跌额", "type": "numeric", "format": Format(precision=3, scheme=Scheme.fixed)},
+        {"name": "涨跌幅", "id": "涨跌幅", "type": "numeric", "format": Format(precision=2, scheme=Scheme.percentage)},
+        {"name": "成交量", "id": "成交量", "type": "numeric"},
+        {"name": "成交额", "id": "成交额", "type": "numeric"},
+        {"name": "市盈率TTM", "id": "市盈率TTM", "type": "numeric", "format": Format(precision=3, scheme=Scheme.fixed)},
+        {"name": "市盈率(静)", "id": "市盈率(静)", "type": "numeric", "format": Format(precision=3, scheme=Scheme.fixed)},
+        {"name": "股息率TTM", "id": "股息率TTM", "type": "numeric", "format": Format(precision=3, scheme=Scheme.percentage)},
+        {"name": "股息TTM", "id": "股息TTM", "type": "numeric", "format": Format(precision=3, scheme=Scheme.fixed)},
+        {"name": "股息支付率LFY", "id": "股息支付率LFY", "type": "numeric", "format": Format(precision=2, scheme=Scheme.percentage)},
+    ]
+
+    # Create the data table
     table = dash_table.DataTable(
-        columns=[{"name": i, "id": i} for i in plate_details_df.columns],
+        columns=columns,
         data=plate_details_df.to_dict('records'),
         sort_action="native",
-        filter_action="native"
+        filter_action="native",
+        style_data_conditional=[
+            {
+                'if': {'column_id': '涨跌幅', 'filter_query': '{涨跌幅} > 0'},
+                'color': 'red'
+            },
+            {
+                'if': {'column_id': '涨跌幅', 'filter_query': '{涨跌幅} < 0'},
+                'color': 'green'
+            },
+            {
+                'if': {'column_id': '涨跌额', 'filter_query': '{涨跌额} > 0'},
+                'color': 'red'
+            },
+            {
+                'if': {'column_id': '涨跌额', 'filter_query': '{涨跌额} < 0'},
+                'color': 'green'
+            }
+        ]
     )
-    return f"Details for {plate_name}", table
+
+    return title, table
 
 # Layout definition
 app.layout = html.Div([

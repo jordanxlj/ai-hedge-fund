@@ -106,3 +106,54 @@ class DataLoader:
             WHERE CAST(p.time AS TIMESTAMP) >= CAST((SELECT MAX(time) FROM hk_stock_daily_price) AS TIMESTAMP) - INTERVAL '{days_back} DAY'
         """
         return self.db_api.query_to_dataframe(query)
+
+    def get_plate_details(self, plate_name: str, days_back: int = 1) -> pd.DataFrame:
+        # The query needs to be an f-string to interpolate 'days_back'.
+        query = f"""
+            WITH 
+                period_data AS (
+                    SELECT
+                        ticker,
+                        time,
+                        close,
+                        volume
+                    FROM hk_stock_daily_price
+                    WHERE ticker IN (SELECT ticker FROM stock_plate_mappings WHERE plate_name = ?)
+                      AND CAST(time AS TIMESTAMP) >= CAST((SELECT MAX(time) FROM hk_stock_daily_price) AS TIMESTAMP) - INTERVAL '{days_back} DAY'
+                ),
+                ranked_prices AS (
+                    SELECT
+                        ticker,
+                        close,
+                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY time ASC) as rn_asc,
+                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY time DESC) as rn_desc
+                    FROM period_data
+                ),
+                start_prices AS (
+                    SELECT ticker, close as start_price FROM ranked_prices WHERE rn_asc = 1
+                ),
+                end_prices AS (
+                    SELECT ticker, close as end_price FROM ranked_prices WHERE rn_desc = 1
+                ),
+                turnover AS (
+                    SELECT ticker, SUM(volume * close) as total_turnover
+                    FROM period_data
+                    GROUP BY ticker
+                )
+            SELECT 
+                m.ticker AS "代码",
+                m.stock_name AS "名称",
+                ep.end_price AS "现价",
+                (ep.end_price - sp.start_price) / sp.start_price AS "涨跌幅",
+                ep.end_price - sp.start_price AS "涨跌",
+                t.total_turnover AS "成交额",
+                f.price_to_earnings_ratio AS "市盈率(TTM)",
+                f.price_to_book_ratio AS "市净率(MRQ)"
+            FROM stock_plate_mappings m
+            JOIN start_prices sp ON m.ticker = sp.ticker
+            JOIN end_prices ep ON m.ticker = ep.ticker
+            JOIN turnover t ON m.ticker = t.ticker
+            LEFT JOIN financial_profile f ON m.ticker = f.ticker AND f.report_period = (SELECT MAX(report_period) FROM financial_profile WHERE ticker = m.ticker)
+            WHERE m.plate_name = ?
+        """
+        return self.db_api.query_to_dataframe(query, [plate_name, plate_name])
