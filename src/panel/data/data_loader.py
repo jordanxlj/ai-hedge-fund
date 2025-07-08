@@ -1,3 +1,4 @@
+
 import pandas as pd
 from src.data.db import get_database_api, DatabaseAPI
 
@@ -70,3 +71,7 @@ class DataLoader:
         if not df.empty:
             df = df.sort_values(by='time').reset_index(drop=True)
         return df
+
+    def get_plate_summary(self) -> pd.DataFrame:
+        query = "SELECT * FROM plate_daily_summary"
+        return self.db_api.query_to_dataframe(query)
