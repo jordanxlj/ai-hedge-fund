@@ -143,6 +143,29 @@ class DataLoader:
                     FROM ranked_plates
                     WHERE rnk = 1
                 ),
+                all_financial_data AS (
+                    SELECT ticker, report_period, revenue, net_income FROM financial_profile
+                ),
+                revenue_cagr AS (
+                    SELECT
+                        ticker,
+                        (POWER(
+                            (SELECT revenue FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period DESC LIMIT 1) / 
+                            NULLIF(ABS((SELECT revenue FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period ASC LIMIT 1)), 0),
+                            1.0/3
+                        ) - 1) AS revenue_cagr_3y
+                    FROM (SELECT DISTINCT ticker FROM all_financial_data) fd
+                ),
+                net_income_cagr AS (
+                    SELECT
+                        ticker,
+                        (POWER(
+                            (SELECT net_income FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period DESC LIMIT 1) / 
+                            NULLIF(ABS((SELECT net_income FROM all_financial_data WHERE ticker = fd.ticker ORDER BY report_period ASC LIMIT 1)), 0),
+                            1.0/3
+                        ) - 1) AS net_income_cagr_3y
+                    FROM (SELECT DISTINCT ticker FROM all_financial_data) fd
+                ),
                 ranked_prices AS (
                     SELECT
                         ticker,
@@ -169,21 +192,30 @@ class DataLoader:
                     GROUP BY ticker
                 )
             SELECT 
-                m.ticker AS "代码",
-                m.stock_name AS "名称",
-                ep.end_price / 100.0 AS "现价",
-                (ep.end_price - sp.start_price) / sp.start_price AS "涨跌幅",
-                (ep.end_price - sp.start_price) / 100.0 AS "涨跌",
-                t.total_turnover / 100000000 AS "成交额",
-                f.price_to_earnings_ratio AS "市盈率(TTM)",
-                f.price_to_book_ratio AS "市净率(MRQ)",
-                CASE WHEN sp_check.ticker IS NOT NULL THEN '是' ELSE '否' END AS "是否最小板块"
+                m.ticker AS "ticker",
+                m.stock_name AS "name",
+                ep.end_price / 100.0 AS "price",
+                (ep.end_price - sp.start_price) / sp.start_price AS "price_change_pct",
+                (ep.end_price - sp.start_price) / 100.0 AS "price_change",
+                t.total_turnover / 100000000 AS "turnover",
+                f.price_to_earnings_ratio AS "pe_ttm",
+                f.price_to_book_ratio AS "pb_mrq",
+                f.return_on_equity AS "roe",
+                f.return_on_invested_capital AS "roic",
+                f.market_cap / 100000000 AS "market_cap",
+                f.gross_margin AS "gross_margin",
+                f.net_margin AS "net_margin",
+                rc.revenue_cagr_3y AS "revenue_cagr_3y",
+                nic.net_income_cagr_3y AS "net_income_cagr_3y",
+                CASE WHEN sp_check.ticker IS NOT NULL THEN '是' ELSE '否' END AS "is_smallest_plate"
             FROM stock_plate_mappings m
             JOIN start_prices sp ON m.ticker = sp.ticker
             JOIN end_prices ep ON m.ticker = ep.ticker
             JOIN turnover t ON m.ticker = t.ticker
             LEFT JOIN financial_profile f ON m.ticker = f.ticker AND f.report_period = (SELECT MAX(report_period) FROM financial_profile WHERE ticker = m.ticker)
             LEFT JOIN smallest_plates sp_check ON m.ticker = sp_check.ticker AND m.plate_name = sp_check.plate_name
+            LEFT JOIN revenue_cagr rc ON m.ticker = rc.ticker
+            LEFT JOIN net_income_cagr nic ON m.ticker = nic.ticker
             WHERE m.plate_name = ?
         """
         return self.db_api.query_to_dataframe(query, [plate_name, plate_name])

@@ -133,20 +133,24 @@ class Panel:
                 plate_name = clickData['points'][0]['label']
                 plate_details_df = self.data_loader.get_plate_details(plate_name, days_back)
 
-                columns = []
-                for i in plate_details_df.columns:
-                    if i == "涨跌幅":
-                        columns.append({"name": "涨跌幅(%)", "id": i, "type": "numeric", "format": {"specifier": ".2%"}})
-                    elif i == "涨跌":
-                        columns.append({"name": "涨跌(元)", "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
-                    elif i == "现价":
-                        columns.append({"name": "现价(元)", "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
-                    elif i == "成交额":
-                        columns.append({"name": "成交额(亿)", "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
-                    elif i == "市盈率(TTM)" or i == "市净率(MRQ)":
-                        columns.append({"name": i, "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
-                    else:
-                        columns.append({"name": i, "id": i})
+                columns = [
+                    {"name": "代码", "id": "ticker"},
+                    {"name": "名称", "id": "name"},
+                    {"name": "现价(元)", "id": "price", "type": "numeric", "format": {"specifier": ".2f"}},
+                    {"name": "涨跌幅(%)", "id": "price_change_pct", "type": "numeric", "format": {"specifier": ".2%"}},
+                    {"name": "涨跌(元)", "id": "price_change", "type": "numeric", "format": {"specifier": ".2f"}},
+                    {"name": "成交额(亿)", "id": "turnover", "type": "numeric", "format": {"specifier": ".2f"}},
+                    {"name": "市盈率(TTM)", "id": "pe_ttm", "type": "numeric", "format": {"specifier": ".2f"}},
+                    {"name": "市净率(MRQ)", "id": "pb_mrq", "type": "numeric", "format": {"specifier": ".2f"}},
+                    {"name": "市值(亿)", "id": "market_cap", "type": "numeric", "format": {"specifier": ".2f"}},
+                    {"name": "ROE", "id": "roe", "type": "numeric", "format": {"specifier": ".2%"}},
+                    {"name": "ROIC", "id": "roic", "type": "numeric", "format": {"specifier": ".2%"}},
+                    {"name": "毛利率", "id": "gross_margin", "type": "numeric", "format": {"specifier": ".2%"}},
+                    {"name": "净利率", "id": "net_margin", "type": "numeric", "format": {"specifier": ".2%"}},
+                    {"name": "营收CAGR(3年)", "id": "revenue_cagr_3y", "type": "numeric", "format": {"specifier": ".2%"}},
+                    {"name": "净利润CAGR(3年)", "id": "net_income_cagr_3y", "type": "numeric", "format": {"specifier": ".2%"}},
+                    {"name": "是否最小板块", "id": "is_smallest_plate"},
+                ]
 
                 detail_view = html.Div([
                     html.Button('Back to Treemap', id='back-button', n_clicks=0),
@@ -172,18 +176,36 @@ class Panel:
                                 'backgroundColor': 'rgb(248, 248, 248)'
                             },
                             {
-                                'if': {
-                                    'filter_query': '{涨跌幅} > 0',
-                                    'column_id': '涨跌幅'
-                                },
+                                'if': {'filter_query': '{price_change_pct} > 0', 'column_id': 'price_change_pct'},
                                 'color': 'green'
                             },
                             {
-                                'if': {
-                                    'filter_query': '{涨跌幅} < 0',
-                                    'column_id': '涨跌幅'
-                                },
+                                'if': {'filter_query': '{price_change_pct} < 0', 'column_id': 'price_change_pct'},
                                 'color': 'red'
+                            },
+                            {
+                                'if': {'filter_query': '{pe_ttm} < 15 and {pe_ttm} > 0', 'column_id': 'pe_ttm'},
+                                'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                            },
+                            {
+                                'if': {'filter_query': '{pb_mrq} < 1 and {pb_mrq} > 0', 'column_id': 'pb_mrq'},
+                                'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                            },
+                            {
+                                'if': {'filter_query': '{revenue_cagr_3y} > 0.15', 'column_id': 'revenue_cagr_3y'},
+                                'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                            },
+                            {
+                                'if': {'filter_query': '{net_income_cagr_3y} > 0.15', 'column_id': 'net_income_cagr_3y'},
+                                'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                            },
+                            {
+                                'if': {'filter_query': '{gross_margin} > 0.40', 'column_id': 'gross_margin'},
+                                'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                            },
+                            {
+                                'if': {'filter_query': '{net_margin} > 0.10', 'column_id': 'net_margin'},
+                                'backgroundColor': 'rgba(255, 255, 0, 0.3)'
                             }
                         ],
                         style_table={'border': '1px solid grey'}
