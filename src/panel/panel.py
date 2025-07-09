@@ -87,6 +87,8 @@ class Panel:
         })).reset_index()
 
         plate_summary = plate_summary[plate_summary['total_volume'] >= 1e8]
+        plate_summary = plate_summary.sort_values(by='total_volume', ascending=False).head(100)
+
         plate_summary['total_volume_str'] = (plate_summary['total_volume'] / 1e8).round(2).astype(str) + '亿'
 
         return plate_summary
