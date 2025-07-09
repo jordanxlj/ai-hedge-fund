@@ -134,15 +134,15 @@ class Panel:
                 columns = []
                 for i in plate_details_df.columns:
                     if i == "涨跌幅":
-                        columns.append({"name": "涨跌幅(%)", "id": i, "type": "numeric", "format": dash_table.Format.Format(scheme=dash_table.Format.Scheme.percentage, precision=2)})
+                        columns.append({"name": "涨跌幅(%)", "id": i, "type": "numeric", "format": {"specifier": ".2%"}})
                     elif i == "涨跌":
-                        columns.append({"name": "涨跌(元)", "id": i, "type": "numeric", "format": dash_table.Format.Format(precision=2)})
+                        columns.append({"name": "涨跌(元)", "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
                     elif i == "现价":
-                        columns.append({"name": "现价(元)", "id": i, "type": "numeric", "format": dash_table.Format.Format(precision=2)})
+                        columns.append({"name": "现价(元)", "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
                     elif i == "成交额":
-                        columns.append({"name": "成交额(亿)", "id": i, "type": "numeric", "format": dash_table.Format.Format(scheme=dash_table.Format.Scheme.fixed, precision=2)})
+                        columns.append({"name": "成交额(亿)", "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
                     elif i == "市盈率(TTM)" or i == "市净率(MRQ)":
-                        columns.append({"name": i, "id": i, "type": "numeric", "format": dash_table.Format.Format(precision=2)})
+                        columns.append({"name": i, "id": i, "type": "numeric", "format": {"specifier": ".2f"}})
                     else:
                         columns.append({"name": i, "id": i})
 
