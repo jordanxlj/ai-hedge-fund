@@ -153,7 +153,38 @@ class Panel:
                         columns=columns,
                         data=plate_details_df.to_dict('records'),
                         sort_action="native",
-                        filter_action="native"
+                        filter_action="native",
+                        style_header={
+                            'backgroundColor': 'rgb(30, 30, 30)',
+                            'color': 'white',
+                            'fontWeight': 'bold'
+                        },
+                        style_cell={
+                            'textAlign': 'left',
+                            'padding': '5px',
+                            'border': '1px solid grey'
+                        },
+                        style_data_conditional=[
+                            {
+                                'if': {'row_index': 'odd'},
+                                'backgroundColor': 'rgb(248, 248, 248)'
+                            },
+                            {
+                                'if': {
+                                    'filter_query': '{涨跌幅} > 0',
+                                    'column_id': '涨跌幅'
+                                },
+                                'color': 'green'
+                            },
+                            {
+                                'if': {
+                                    'filter_query': '{涨跌幅} < 0',
+                                    'column_id': '涨跌幅'
+                                },
+                                'color': 'red'
+                            }
+                        ],
+                        style_table={'border': '1px solid grey'}
                     )
                 ])
                 return detail_view
