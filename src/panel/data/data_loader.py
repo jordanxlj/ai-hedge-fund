@@ -125,6 +125,24 @@ class DataLoader:
         # The query needs to be an f-string to interpolate 'days_back'.
         query = f"""
             WITH 
+                plate_sizes AS (
+                    SELECT plate_code, COUNT(ticker) AS num_stocks
+                    FROM stock_plate_mappings
+                    GROUP BY plate_code
+                ),
+                ranked_plates AS (
+                    SELECT
+                        sm.ticker,
+                        sm.plate_name,
+                        ROW_NUMBER() OVER(PARTITION BY sm.ticker ORDER BY ps.num_stocks ASC, sm.plate_name ASC) as rnk
+                    FROM stock_plate_mappings sm
+                    JOIN plate_sizes ps ON sm.plate_code = ps.plate_code
+                ),
+                smallest_plates AS (
+                    SELECT ticker, plate_name
+                    FROM ranked_plates
+                    WHERE rnk = 1
+                ),
                 ranked_prices AS (
                     SELECT
                         ticker,
@@ -156,14 +174,16 @@ class DataLoader:
                 ep.end_price / 100.0 AS "现价",
                 (ep.end_price - sp.start_price) / sp.start_price AS "涨跌幅",
                 (ep.end_price - sp.start_price) / 100.0 AS "涨跌",
-                t.total_turnover AS "成交额",
+                t.total_turnover / 100000000 AS "成交额",
                 f.price_to_earnings_ratio AS "市盈率(TTM)",
-                f.price_to_book_ratio AS "市净率(MRQ)"
+                f.price_to_book_ratio AS "市净率(MRQ)",
+                CASE WHEN sp_check.ticker IS NOT NULL THEN '是' ELSE '否' END AS "是否最小板块"
             FROM stock_plate_mappings m
             JOIN start_prices sp ON m.ticker = sp.ticker
             JOIN end_prices ep ON m.ticker = ep.ticker
             JOIN turnover t ON m.ticker = t.ticker
             LEFT JOIN financial_profile f ON m.ticker = f.ticker AND f.report_period = (SELECT MAX(report_period) FROM financial_profile WHERE ticker = m.ticker)
+            LEFT JOIN smallest_plates sp_check ON m.ticker = sp_check.ticker AND m.plate_name = sp_check.plate_name
             WHERE m.plate_name = ?
         """
         return self.db_api.query_to_dataframe(query, [plate_name, plate_name])

@@ -131,11 +131,26 @@ class Panel:
                 plate_name = clickData['points'][0]['label']
                 plate_details_df = self.data_loader.get_plate_details(plate_name, days_back)
 
+                columns = []
+                for i in plate_details_df.columns:
+                    if i == "涨跌幅":
+                        columns.append({"name": "涨跌幅(%)", "id": i, "type": "numeric", "format": dash_table.Format.Format(scheme=dash_table.Format.Scheme.percentage, precision=2)})
+                    elif i == "涨跌":
+                        columns.append({"name": "涨跌(元)", "id": i, "type": "numeric", "format": dash_table.Format.Format(precision=2)})
+                    elif i == "现价":
+                        columns.append({"name": "现价(元)", "id": i, "type": "numeric", "format": dash_table.Format.Format(precision=2)})
+                    elif i == "成交额":
+                        columns.append({"name": "成交额(亿)", "id": i, "type": "numeric", "format": dash_table.Format.Format(scheme=dash_table.Format.Scheme.fixed, precision=2)})
+                    elif i == "市盈率(TTM)" or i == "市净率(MRQ)":
+                        columns.append({"name": i, "id": i, "type": "numeric", "format": dash_table.Format.Format(precision=2)})
+                    else:
+                        columns.append({"name": i, "id": i})
+
                 detail_view = html.Div([
                     html.Button('Back to Treemap', id='back-button', n_clicks=0),
                     html.H2(f"Details for {plate_name}"),
                     dash_table.DataTable(
-                        columns=[{"name": i, "id": i} for i in plate_details_df.columns],
+                        columns=columns,
                         data=plate_details_df.to_dict('records'),
                         sort_action="native",
                         filter_action="native"
