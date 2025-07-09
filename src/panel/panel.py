@@ -1,5 +1,7 @@
-
+import argparse
+import logging
 import dash
+import os
 from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
@@ -7,11 +9,15 @@ import pandas as pd
 import numpy as np
 from src.panel.data.data_loader import DataLoader
 from src.data.db import get_database_api
+from src.utils.log_util import logger_setup as _init_logging
+
+_init_logging()
+logger = logging.getLogger(__name__)
 
 class Panel:
-    def __init__(self, db_path="data/test.duckdb"):
+    def __init__(self, db_api):
         self.app = dash.Dash(__name__)
-        self.db_api = get_database_api("duckdb", db_path=db_path)
+        self.db_api = db_api
         self.data_loader = DataLoader(self.db_api)
         self.app.config.suppress_callback_exceptions = True
         self._build_layout()
@@ -37,7 +43,14 @@ class Panel:
             ])
         ])
 
-    def calculate_plate_summary(self, df: pd.DataFrame) -> pd.DataFrame:
+    def __enter__(self):
+        self.db_api.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.db_api.close()
+
+    def calculate_plate_summary(self, df: pd.DataFrame, days_back: int) -> pd.DataFrame:
         """Calculates the plate summary from raw daily data over a period."""
         if df.empty:
             return pd.DataFrame(columns=['plate_name', 'avg_price_change', 'total_volume', 'total_volume_str'])
@@ -56,8 +69,11 @@ class Panel:
         )
 
         merged_df['price_change'] = (merged_df['close_end'] - merged_df['close_start']) / merged_df['close_start']
-        df['turnover'] = df['close'] * df['volume']
-        total_turnover = df.groupby('ticker')['turnover'].sum().reset_index()
+        
+        # For turnover, get the last N days of data from the df
+        last_n_days_df = df.groupby('ticker').tail(days_back).copy()
+        last_n_days_df['turnover'] = last_n_days_df['close'] * last_n_days_df['volume']
+        total_turnover = last_n_days_df.groupby('ticker')['turnover'].sum().reset_index()
 
         final_df = pd.merge(merged_df, total_turnover, on='ticker')
         final_df.rename(columns={'turnover': 'total_volume'}, inplace=True)
@@ -87,7 +103,7 @@ class Panel:
 
             if trigger_id == 'period-selector' or not clickData:
                 raw_data = self.data_loader.get_plate_summary(days_back=days_back)
-                plate_summary_data = self.calculate_plate_summary(raw_data)
+                plate_summary_data = self.calculate_plate_summary(raw_data, days_back)
                 
                 fixed_cmax = 0.03
                 fixed_cmin = -0.03
@@ -138,7 +154,7 @@ class Panel:
         def go_back(n_clicks, days_back):
             if n_clicks > 0:
                 raw_data = self.data_loader.get_plate_summary(days_back=days_back)
-                plate_summary_data = self.calculate_plate_summary(raw_data)
+                plate_summary_data = self.calculate_plate_summary(raw_data, days_back)
                 
                 fixed_cmax = 0.03
                 fixed_cmin = -0.03
@@ -165,11 +181,18 @@ class Panel:
 
     def run(self, debug=True):
         try:
-            self.db_api.connect()
             self.app.run(debug=debug)
-        finally:
-            self.db_api.close()
+        except Exception as e:
+            logger.error(f"run panel exception: {e}")
 
 if __name__ == '__main__':
-    panel = Panel()
-    panel.run()
+    parser = argparse.ArgumentParser(description="Financial Panel.")
+    parser.add_argument("--db_path", type=str, required=True, help="Path to the DuckDB database file.")
+
+    args = parser.parse_args()
+    abs_db_path = os.path.abspath(args.db_path)
+    db_api = get_database_api("duckdb", db_path=abs_db_path)
+
+    with db_api:
+        panel = Panel(db_api)
+        panel.run()

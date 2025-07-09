@@ -47,7 +47,16 @@ class DuckDBAPI(DatabaseAPI):
     def connect(self, **kwargs: Any) -> duckdb.DuckDBPyConnection:
         """建立并返回一个 DuckDB 连接。"""
         if self.conn is None:
-            self.conn = duckdb.connect(database=self.db_path, read_only=False, **kwargs)
+            logger.info(f"Attempting to connect to database at: {self.db_path}")
+            logger.info(f"Database file exists: {os.path.exists(self.db_path)}")
+            logger.info(f"Database WAL file exists: {os.path.exists(self.db_path + '.wal')}")
+
+            try:
+                self.conn = duckdb.connect(database=self.db_path, read_only=True, **kwargs)
+                logger.info("Database connection successful.")
+            except Exception as e:
+                logger.error(f"Failed to connect to database at {self.db_path}: {e}", exc_info=True)
+                raise
         return self.conn
 
     def close(self) -> None:
@@ -216,10 +225,6 @@ class DuckDBAPI(DatabaseAPI):
         else:
             df = self.conn.execute(query).fetchdf()
         
-        # Apply price scaling for consistency
-        for key in ['open', 'close', 'high', 'low']:
-            if key in df.columns:
-                df[key] = df[key] / 100.0
         return df
 
     def table_exists(self, table_name: str) -> bool:

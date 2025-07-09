@@ -7,7 +7,7 @@ class DataLoader:
         self.db_api = db_api
 
     def load_daily_prices(self, tickers: list = None, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-        query = "SELECT * FROM hk_stock_daily_price"
+        query = "SELECT ticker, time, open / 100.0 AS open, close / 100.0 AS close, high / 100.0 AS high, low / 100.0 AS low, volume FROM hk_stock_daily_price"
         conditions = []
         params = []
 
@@ -92,18 +92,32 @@ class DataLoader:
                     SELECT ticker, plate_name
                     FROM ranked_plates
                     WHERE rnk = 1
+                ),
+                ranked_prices AS (
+                    SELECT
+                        p.ticker,
+                        p.time,
+                        p.close,
+                        p.volume,
+                        ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.time DESC) as rn
+                    FROM hk_stock_daily_price p
+                    WHERE p.ticker IN (SELECT ticker FROM smallest_plates)
+                ),
+                last_n_prices AS (
+                    SELECT *
+                    FROM ranked_prices
+                    WHERE rn <= {days_back + 1}
                 )
             SELECT 
                 sp.plate_name, 
                 p.ticker, 
                 p.time, 
-                p.close, 
+                p.close / 100.0 AS close, 
                 p.volume,
                 f.market_cap
             FROM smallest_plates sp
-            JOIN hk_stock_daily_price p ON sp.ticker = p.ticker
+            JOIN last_n_prices p ON sp.ticker = p.ticker
             JOIN financial_profile f ON p.ticker = f.ticker AND f.report_period = (SELECT MAX(report_period) FROM financial_profile WHERE ticker = p.ticker)
-            WHERE CAST(p.time AS TIMESTAMP) >= CAST((SELECT MAX(time) FROM hk_stock_daily_price) AS TIMESTAMP) - INTERVAL '{days_back} DAY'
         """
         return self.db_api.query_to_dataframe(query)
 
@@ -111,41 +125,37 @@ class DataLoader:
         # The query needs to be an f-string to interpolate 'days_back'.
         query = f"""
             WITH 
-                period_data AS (
+                ranked_prices AS (
                     SELECT
                         ticker,
                         time,
                         close,
-                        volume
+                        volume,
+                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY time DESC) as rn
                     FROM hk_stock_daily_price
                     WHERE ticker IN (SELECT ticker FROM stock_plate_mappings WHERE plate_name = ?)
-                      AND CAST(time AS TIMESTAMP) >= CAST((SELECT MAX(time) FROM hk_stock_daily_price) AS TIMESTAMP) - INTERVAL '{days_back} DAY'
                 ),
-                ranked_prices AS (
-                    SELECT
-                        ticker,
-                        close,
-                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY time ASC) as rn_asc,
-                        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY time DESC) as rn_desc
-                    FROM period_data
+                period_data AS (
+                    SELECT * FROM ranked_prices WHERE rn <= {days_back + 1}
                 ),
                 start_prices AS (
-                    SELECT ticker, close as start_price FROM ranked_prices WHERE rn_asc = 1
+                    SELECT ticker, close as start_price FROM period_data WHERE rn = {days_back + 1}
                 ),
                 end_prices AS (
-                    SELECT ticker, close as end_price FROM ranked_prices WHERE rn_desc = 1
+                    SELECT ticker, close as end_price FROM period_data WHERE rn = 1
                 ),
                 turnover AS (
-                    SELECT ticker, SUM(volume * close) as total_turnover
+                    SELECT ticker, SUM(volume * close / 100.0) as total_turnover
                     FROM period_data
+                    WHERE rn <= {days_back}
                     GROUP BY ticker
                 )
             SELECT 
                 m.ticker AS "代码",
                 m.stock_name AS "名称",
-                ep.end_price AS "现价",
+                ep.end_price / 100.0 AS "现价",
                 (ep.end_price - sp.start_price) / sp.start_price AS "涨跌幅",
-                ep.end_price - sp.start_price AS "涨跌",
+                (ep.end_price - sp.start_price) / 100.0 AS "涨跌",
                 t.total_turnover AS "成交额",
                 f.price_to_earnings_ratio AS "市盈率(TTM)",
                 f.price_to_book_ratio AS "市净率(MRQ)"
