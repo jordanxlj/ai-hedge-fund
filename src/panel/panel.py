@@ -303,12 +303,12 @@ class Panel:
                 },
                 {
                     'if': {'filter_query': f'{{{change_col_id}}} > 0', 'column_id': change_col_id},
-                    'color': '#28a745',
+                    'color': '#dc3545',  # Red for positive change
                     'fontWeight': 'bold'
                 },
                 {
                     'if': {'filter_query': f'{{{change_col_id}}} < 0', 'column_id': change_col_id},
-                    'color': '#dc3545',
+                    'color': '#28a745',  # Green for negative change
                     'fontWeight': 'bold'
                 },
                 {
@@ -370,12 +370,12 @@ class Panel:
                     },
                     {
                         'if': {'filter_query': '{price_change_pct} > 0', 'column_id': 'price_change_pct'},
-                        'color': '#28a745',
+                        'color': '#dc3545',  # Red for positive change
                         'fontWeight': 'bold'
                     },
                     {
                         'if': {'filter_query': '{price_change_pct} < 0', 'column_id': 'price_change_pct'},
-                        'color': '#dc3545',
+                        'color': '#28a745',  # Green for negative change
                         'fontWeight': 'bold'
                     },
                     {
