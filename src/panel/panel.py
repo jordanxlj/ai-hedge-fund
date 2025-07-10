@@ -196,13 +196,14 @@ class Panel:
         @self.app.callback(
             [Output('main-container', 'children', allow_duplicate=True), Output('view-state-store', 'data', allow_duplicate=True)],
             [Input('plate-list-table', 'active_cell')],
-            [State('view-state-store', 'data')],
+            [State('view-state-store', 'data'), State('plate-list-table', 'data')],
             prevent_initial_call=True
         )
-        def display_plate_details_from_list(active_cell, current_state):
+        def display_plate_details_from_list(active_cell, current_state, table_data):
             if active_cell is None:
                 return dash.no_update, dash.no_update
-            plate_name = active_cell['row']['plate_name']
+            row_index = active_cell['row']
+            plate_name = table_data[row_index]['plate_name']
             new_state = current_state.copy()
             new_state['view_mode'] = 'details'
             new_state['selected_plate'] = plate_name
@@ -298,17 +299,23 @@ class Panel:
             style_data_conditional=[
                 {
                     'if': {'row_index': 'odd'},
-                    'backgroundColor': '#f8f9fa'  # 美化：交替行颜色
+                    'backgroundColor': '#f8f9fa'
                 },
                 {
                     'if': {'filter_query': f'{{{change_col_id}}} > 0', 'column_id': change_col_id},
-                    'color': '#28a745',  # 美化：绿色正值
+                    'color': '#28a745',
                     'fontWeight': 'bold'
                 },
                 {
                     'if': {'filter_query': f'{{{change_col_id}}} < 0', 'column_id': change_col_id},
-                    'color': '#dc3545',  # 美化：红色负值
+                    'color': '#dc3545',
                     'fontWeight': 'bold'
+                },
+                {
+                    'if': {'column_id': name_col_id},
+                    'cursor': 'pointer',
+                    'color': '#007bff',
+                    'textDecoration': 'underline'
                 }
             ],
             style_table={'border': '1px solid #dee2e6', 'borderRadius': '5px', 'overflow': 'hidden'}  # 美化：表格圆角和溢出隐藏
