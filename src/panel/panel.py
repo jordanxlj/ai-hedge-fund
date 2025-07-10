@@ -25,7 +25,7 @@ class Panel:
 
     def _build_layout(self):
         self.app.layout = html.Div([
-            html.H1("Stock Plate Dashboard", style={'margin-top': '10px', 'margin-bottom': '10px'}),
+            html.H1("Stock Plate Dashboard", style={'margin-top': '0px', 'margin-bottom': '10px'}),
             dcc.RadioItems(
                 id='period-selector',
                 options=[
@@ -122,7 +122,6 @@ class Panel:
                 ))
                 treemap_fig.update_traces(marker_cmin=fixed_cmin, marker_cmax=fixed_cmax)
                 treemap_fig.update_layout(
-                    title='Plate Heatmap',
                     yaxis_showgrid=False, yaxis_zeroline=False, yaxis_ticks='', yaxis_showticklabels=False,
                     xaxis_showgrid=False, xaxis_zeroline=False, xaxis_ticks='', xaxis_showticklabels=False,
                     plot_bgcolor='#f0f0f0'
@@ -241,7 +240,6 @@ class Panel:
                 ))
                 treemap_fig.update_traces(marker_cmin=fixed_cmin, marker_cmax=fixed_cmax)
                 treemap_fig.update_layout(
-                    title='Plate Heatmap',
                     yaxis_showgrid=False, yaxis_zeroline=False, yaxis_ticks='', yaxis_showticklabels=False,
                     xaxis_showgrid=False, xaxis_zeroline=False, xaxis_ticks='', xaxis_showticklabels=False,
                     plot_bgcolor='#f0f0f0'
