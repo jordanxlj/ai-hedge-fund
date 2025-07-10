@@ -1,4 +1,3 @@
-
 import pandas as pd
 from src.data.db import get_database_api, DatabaseAPI
 
@@ -117,6 +116,35 @@ class DataLoader:
                 f.market_cap
             FROM smallest_plates sp
             JOIN last_n_prices p ON sp.ticker = p.ticker
+            JOIN financial_profile f ON p.ticker = f.ticker AND f.report_period = (SELECT MAX(report_period) FROM financial_profile WHERE ticker = p.ticker)
+        """
+        return self.db_api.query_to_dataframe(query)
+
+    def get_stock_summary(self, days_back: int = 2) -> pd.DataFrame:
+        query = f"""
+            WITH
+                ranked_prices AS (
+                    SELECT
+                        p.ticker,
+                        p.time,
+                        p.close,
+                        p.volume,
+                        ROW_NUMBER() OVER (PARTITION BY p.ticker ORDER BY p.time DESC) as rn
+                    FROM hk_stock_daily_price p
+                ),
+                last_n_prices AS (
+                    SELECT *
+                    FROM ranked_prices
+                    WHERE rn <= {days_back + 1}
+                )
+            SELECT 
+                p.ticker, 
+                p.time, 
+                p.close / 100.0 AS close, 
+                p.volume,
+                f.market_cap,
+                f.name as stock_name
+            FROM last_n_prices p
             JOIN financial_profile f ON p.ticker = f.ticker AND f.report_period = (SELECT MAX(report_period) FROM financial_profile WHERE ticker = p.ticker)
         """
         return self.db_api.query_to_dataframe(query)
