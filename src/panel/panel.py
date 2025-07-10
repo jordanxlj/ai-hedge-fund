@@ -64,8 +64,8 @@ class Panel:
                 ), width=4),
             ]),
             dcc.Store(id='view-state-store', data={'view_mode': 'main', 'primary_view': 'plate', 'secondary_view': 'heatmap', 'days_back': 1, 'selected_plate': None}),
-            html.Div(id='main-container', className="p-3 bg-light rounded shadow")  # 美化：添加背景、圆角和阴影
-        ], fluid=True, className="p-4")  # 美化：整体容器添加 padding
+            html.Div(id='main-container', className="p-0 bg-light rounded shadow")  # 美化：去除 padding，减少空白
+        ], fluid=True, className="p-2")  # 美化：减少整体容器 padding
 
     def __enter__(self):
         self.db_api.connect(read_only=True)
@@ -163,14 +163,14 @@ class Panel:
                 raw_data = self.data_loader.get_plate_summary(days_back=days_back)
                 plate_summary_data = self.calculate_plate_summary(raw_data, days_back)
                 if secondary_view == 'heatmap':
-                    children = dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(plate_summary_data, 'plate_name', 'avg_price_change'))
+                    children = dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(plate_summary_data, 'plate_name', 'avg_price_change'), style={'height': '80vh'}) # 增加：设置热力图高度，减少空白
                 elif secondary_view == 'list':
                     children = self.create_summary_datatable('plate-list-table', plate_summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
             elif primary_view == 'stock':
                 raw_data = self.data_loader.get_stock_summary(days_back=days_back)
                 stock_summary_data = self.calculate_stock_summary(raw_data, days_back)
                 if secondary_view == 'heatmap':
-                    children = dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(stock_summary_data, 'stock_name', 'price_change'))
+                    children = dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(stock_summary_data, 'stock_name', 'price_change'), style={'height': '80vh'}) # 增加：设置热力图高度，减少空白
                 elif secondary_view == 'list':
                     children = self.create_summary_datatable('stock-list-table', stock_summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
             
@@ -236,14 +236,14 @@ class Panel:
                     raw_data = self.data_loader.get_plate_summary(days_back=state['days_back'])
                     summary_data = self.calculate_plate_summary(raw_data, state['days_back'])
                     if state['secondary_view'] == 'heatmap':
-                        return dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(summary_data, 'plate_name', 'avg_price_change'))
+                        return dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(summary_data, 'plate_name', 'avg_price_change'), style={'height': '80vh'})
                     elif state['secondary_view'] == 'list':
                         return self.create_summary_datatable('plate-list-table', summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
                 elif state['primary_view'] == 'stock':
                     raw_data = self.data_loader.get_stock_summary(days_back=state['days_back'])
                     summary_data = self.calculate_stock_summary(raw_data, state['days_back'])
                     if state['secondary_view'] == 'heatmap':
-                        return dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(summary_data, 'stock_name', 'price_change'))
+                        return dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(summary_data, 'stock_name', 'price_change'), style={'height': '80vh'})
                     elif state['secondary_view'] == 'list':
                         return self.create_summary_datatable('stock-list-table', summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
             elif state['view_mode'] == 'details':
@@ -269,7 +269,7 @@ class Panel:
             yaxis_showgrid=False, yaxis_zeroline=False, yaxis_ticks='', yaxis_showticklabels=False,
             xaxis_showgrid=False, xaxis_zeroline=False, xaxis_ticks='', xaxis_showticklabels=False,
             plot_bgcolor='#f8f9fa',  # 美化：更柔和的背景色
-            margin=dict(l=10, r=10, t=50, b=10)  # 美化：调整���距
+            margin=dict(l=0, r=0, t=0, b=0)  # 增加：设置边距为0，减少空白
         )
         return treemap_fig
 
