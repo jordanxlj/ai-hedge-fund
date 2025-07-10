@@ -240,7 +240,8 @@ class FutuScraper:
                 return
 
             for plate in plate_list:
-                if plate['plate_id'] == 'LIST1288': # 昨日强势股
+                # 昨日强势股 or 美国降息利好概念
+                if plate['plate_id'] == 'LIST1288' or plate['plate_id'] == 'LIST22928':
                     continue
 
                 plate_mappings = []

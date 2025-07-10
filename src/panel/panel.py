@@ -119,9 +119,9 @@ class Panel:
 
     def get_plate_cluster(self, plate_name: str) -> str:
         """Returns the plate cluster for a given plate name."""
-        if plate_name in ['医疗设备及用品', '医疗及医学美容服务', '医药外包概念', '医疗保健', '中医药', '中医药概念', '药品', '药品分销', '生物技术', '生物医药', '生物医药B类股', '创新药概念', 'AI医疗概念股', '互联网医疗', '医美概念股', '养老概念']:
+        if plate_name in ['医疗设备及用品', '医疗及医学美容服务', '医药外包概念', '医疗保健', '中医药', '中医药概念', '药品', '药品分销', '生物技术', '生物医药', '生物医药B类股', '创新药概念', 'AI医疗概念股', '互联网医疗', '医美概念股']:
             return '医疗与健康'
-        if plate_name in ['地产投资', '地产发展商', '楼宇建造', '内房股', '内地物业管理股', '物业服务及管理', '建筑材料', '建材水泥股', '地产代理', '房地产基金', '房地产投资信托']:
+        if plate_name in ['地产投资', '地产发展商', '楼宇建造', '内房股', '内地物业管理股', '物业服务及管理', '建筑材料', '建材水泥股', '地产代理', '房地产基金', '房地产投资信托', '养老概念']:
             return '地产与建筑'
         if plate_name in ['工业零件及器材', '重型机械', '重型机械股', '特殊化工用品', '钢铁', '其他金��及矿物', '铝', '铜', '煤炭股', '印刷及包装', '电力设备股', '半导体设备与材料']:
             return '工业与制造'
@@ -129,7 +129,7 @@ class Panel:
             return '资源与环保'
         if plate_name in ['消费电子产品', '家具', '服装', '服装零售商', '纺织品及布料', '鞋类', '珠宝钟表', '奢侈品品牌股', '餐饮', '食品股', '包装食品', '食品添加剂', '农产品', '乳制品', '酒精饮料', '非酒精饮料', '啤酒', '超市及便利店', '百货业股', '其他零售商', '线上零售商', '国内零售股', '体育用品']:
             return '消费品与零售'
-        if plate_name in ['OLED概念', 'LED', '电讯设备', '应用软件', '电脑及周边器材', '芯片股', '半导体', '5G概念', 'ChatGPT概念股', '元宇宙概念', '机器人概念股', '智能驾驶概念股', '云计算', 'SaaS概念', '手游股', '游戏软件', '短视频概念���', '抖音概念股', '腾讯概念', '阿里概念股', '小米概念', '苹果概念', '虚拟现实']:
+        if plate_name in ['OLED概念', 'LED', '电讯设备', '应用软件', '电脑及周边器材', '芯片股', '半导体', '5G概念', 'ChatGPT概念股', '元宇宙概念', '机器人概念股', '智能驾驶概念股', '小米概念', '苹果概念', '虚拟现实', 'DeepSeek概念股']:
             return '科技与创新'
         if plate_name in ['公共运输', '航运及港口', '港口运输股', '物流', '航空服务', '航空货运及物流', '公路及铁路股', '高铁基建股', '一带一路', '重型基建']:
             return '交通运输与物流'
@@ -143,7 +143,7 @@ class Panel:
             return '汽车与配件'
         if plate_name in ['MSCI中国大陆小型股', 'MSCI中国香港小型股', '红海危机概念', '双十一', '港股通(沪)', '红筹股', '蓝筹股']:
             return '其他概念股'
-        if plate_name in ['云办公', '短视频概念股', '明星科网股']:
+        if plate_name in ['云办公', '短视频概念股', '明星科网股', '抖音概念股', '腾讯概念', '阿里概念股', '云计算', '手游股', '游戏软件', 'SaaS概念']:
             return '互联网'
         return '其他'
 
@@ -236,29 +236,19 @@ class Panel:
                         'color': 0,
                     })
 
-                    plate_to_cluster_map = stock_summary_data[['plate_name', 'plate_cluster']].drop_duplicates().reset_index(drop=True)
-                    df_plates = pd.DataFrame({
-                        'id': plate_to_cluster_map['plate_name'],
-                        'parent': plate_to_cluster_map['plate_cluster'],
-                        'label': plate_to_cluster_map['plate_name'],
-                        'value': 0,
-                        'color': 0,
-                    })
-
                     df_stocks = pd.DataFrame({
                         'id': stock_summary_data['stock_name'],
-                        'parent': stock_summary_data['plate_name'],
+                        'parent': stock_summary_data['plate_cluster'],
                         'label': stock_summary_data['stock_name'],
                         'value': stock_summary_data['total_volume'],
                         'color': stock_summary_data['price_change'],
                     })
 
-                    df_treemap = pd.concat([df_clusters, df_plates, df_stocks], ignore_index=True)
+                    df_treemap = pd.concat([df_clusters, df_stocks], ignore_index=True)
                     
                     customdata = pd.concat([
                         pd.Series([[0, ''] for _ in df_clusters.index]), # Placeholder for clusters
-                        pd.Series([[0, ''] for _ in df_plates.index]), # Placeholder for plates
-                        stock_summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1)
+                        stock_summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1).reset_index(drop=True)
                     ], ignore_index=True)
 
                     fig = go.Figure(go.Treemap(
@@ -383,29 +373,19 @@ class Panel:
                             'color': 0,
                         })
 
-                        plate_to_cluster_map = summary_data[['plate_name', 'plate_cluster']].drop_duplicates().reset_index(drop=True)
-                        df_plates = pd.DataFrame({
-                            'id': plate_to_cluster_map['plate_name'],
-                            'parent': plate_to_cluster_map['plate_cluster'],
-                            'label': plate_to_cluster_map['plate_name'],
-                            'value': 0,
-                            'color': 0,
-                        })
-
                         df_stocks = pd.DataFrame({
                             'id': summary_data['stock_name'],
-                            'parent': summary_data['plate_name'],
+                            'parent': summary_data['plate_cluster'],
                             'label': summary_data['stock_name'],
                             'value': summary_data['total_volume'],
                             'color': summary_data['price_change'],
                         })
 
-                        df_treemap = pd.concat([df_clusters, df_plates, df_stocks], ignore_index=True)
+                        df_treemap = pd.concat([df_clusters, df_stocks], ignore_index=True)
                         
                         customdata = pd.concat([
                             pd.Series([[0, ''] for _ in df_clusters.index]), # Placeholder for clusters
-                            pd.Series([[0, ''] for _ in df_plates.index]), # Placeholder for plates
-                            summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1)
+                            summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1).reset_index(drop=True)
                         ], ignore_index=True)
 
                         fig = go.Figure(go.Treemap(
@@ -414,7 +394,7 @@ class Panel:
                             parents=df_treemap['parent'],
                             values=df_treemap['value'],
                             marker_colors=df_treemap['color'],
-                            marker_colorscale=[[0, '#ff0000'], [0.4, '#8b0000'], [0.5, '#ffffff'], [0.6, '#006400'], [1, '#2ca02c']],
+                            marker_colorscale=[[0, '#2ca02c'], [0.4, '#006400'], [0.5, '#ffffff'], [0.6, '#8b0000'], [1, '#ff0000']],
                             marker_cmin=-0.03,
                             marker_cmax=0.03,
                             texttemplate="%{label}<br>%{customdata[0]:.2%}",
