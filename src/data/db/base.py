@@ -15,7 +15,7 @@ class DatabaseAPI(ABC):
     """
 
     @abstractmethod
-    def connect(self, **kwargs: Any) -> Any:
+    def connect(self, read_only: bool = True, **kwargs: Any) -> Any:
         """建立数据库连接并返回连接对象。"""
         pass
 

@@ -44,15 +44,16 @@ class DuckDBAPI(DatabaseAPI):
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
 
-    def connect(self, **kwargs: Any) -> duckdb.DuckDBPyConnection:
+    def connect(self, read_only: bool = True, **kwargs: Any) -> duckdb.DuckDBPyConnection:
         """建立并返回一个 DuckDB 连接。"""
         if self.conn is None:
             logger.info(f"Attempting to connect to database at: {self.db_path}")
             logger.info(f"Database file exists: {os.path.exists(self.db_path)}")
             logger.info(f"Database WAL file exists: {os.path.exists(self.db_path + '.wal')}")
-
+            
             try:
-                self.conn = duckdb.connect(database=self.db_path, read_only=True, **kwargs)
+                logger.info(f"Connecting with read_only: {read_only}, kwargs: {kwargs}")
+                self.conn = duckdb.connect(database=self.db_path, read_only=read_only, **kwargs)
                 logger.info("Database connection successful.")
             except Exception as e:
                 logger.error(f"Failed to connect to database at {self.db_path}: {e}", exc_info=True)

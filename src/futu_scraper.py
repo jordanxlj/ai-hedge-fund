@@ -75,7 +75,7 @@ class FutuScraper:
                 raise
         if not self.db_api:
             try:
-                self.db_api = get_database_api("duckdb", db_path=self.db_path)
+                self.db_api = get_database_api("duckdb", db_path=self.db_path, read_only=False)
                 self.db_api.connect()
             except Exception as e:
                 logger.error(f"An unexpected error occurred while connecting to the database: {e}", exc_info=True)
@@ -229,28 +229,32 @@ class FutuScraper:
     def scrape_stock_plate_mappings(self, market: Market = Market.HK):
         """Scrapes and stores stock-to-plate mappings synchronously."""
         self._connect()
+        table_name = "stock_plate_mappings"
+        primary_keys = ["ticker", "plate_code"]
+
         try:
+            self.db_api.create_table_from_model(table_name, StockPlateMapping, primary_keys)
             plate_list = self._get_plate_list(market)
             if not plate_list:
                 logger.warning(f"No plates found for market: {market.value}")
                 return
 
-            all_mappings = []
             for plate in plate_list:
+                if plate['plate_id'] == 'LIST1288': # 昨日强势股
+                    continue
+
+                plate_mappings = []
                 stocks_df = self._get_plate_stock(plate['code'])
                 if stocks_df is not None and not stocks_df.empty:
                     for _, stock in stocks_df.iterrows():
                         # The ticker in the plate data does not have a market prefix
                         ticker = stock['code']
                         ticker = ticker.split('.')[1] if '.' in ticker else ticker
-                        all_mappings.append(StockPlateMapping(ticker=ticker, stock_name=stock['stock_name'], plate_code=plate['plate_id'], plate_name=plate['plate_name'], market=market.value))
+                        plate_mappings.append(StockPlateMapping(ticker=ticker, stock_name=stock['stock_name'], plate_code=plate['plate_id'], plate_name=plate['plate_name'], market=market.value))
 
-            if all_mappings:
-                table_name = "stock_plate_mappings"
-                primary_keys = ["ticker", "plate_code"]
-                self.db_api.create_table_from_model(table_name, StockPlateMapping, primary_keys)
-                self.db_api.upsert_data_from_models(table_name, all_mappings, primary_keys)
-                logger.info(f"Upserted {len(all_mappings)} stock-plate mappings.")
+                if plate_mappings:
+                    self.db_api.upsert_data_from_models(table_name, plate_mappings, primary_keys)
+                    logger.info(f"Upserted {len(plate_mappings)} stock-plate mappings.")
         except Exception as e:
             logger.error(f"Failed to scrape stock plate mappings: {e}", exc_info=True)
 
@@ -277,6 +281,6 @@ class FutuScraper:
 if __name__ == "__main__":
     logger.info("------------- ai hedge fund start ---------------")
     with FutuScraper(db_path="data/test.duckdb") as scraper:
-        scraper.scrape_and_store_financials("HK", "annual")
+        # scraper.scrape_and_store_financials("HK", "annual")
         scraper.scrape_stock_plate_mappings(Market.HK)
     logger.info("------------- ai hedge fund finish --------------")

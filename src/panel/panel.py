@@ -44,7 +44,7 @@ class Panel:
         ])
 
     def __enter__(self):
-        self.db_api.connect()
+        self.db_api.connect(read_only=True)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

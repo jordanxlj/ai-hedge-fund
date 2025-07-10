@@ -25,7 +25,7 @@ class TushareScraper:
 
     def __enter__(self):
         """Context manager entry point. Connects to the database."""
-        self.db.connect()
+        self.db.connect(read_only=False)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):

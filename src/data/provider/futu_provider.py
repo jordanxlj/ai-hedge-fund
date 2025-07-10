@@ -37,7 +37,7 @@ class FutuDataProvider(AbstractDataProvider):
         if self.quote_ctx is None:
             try:
                 self.quote_ctx = ft.OpenQuoteContext(host=os.getenv("FUTU_HOST", "127.0.0.1"), port=11111)
-                self.db_api.connect()
+                self.db_api.connect(read_only=True)
             except Exception as e:
                 logger.error(f"Failed to connect to Futu or database: {e}")
                 raise

@@ -30,7 +30,7 @@ class YFinanceScraper:
         self.db_api.create_table_from_model("financial_profile", FinancialProfile, ["ticker", "report_period", "period"])
 
     def __enter__(self):
-        self.db_api.connect()
+        self.db_api.connect(read_only=False)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
