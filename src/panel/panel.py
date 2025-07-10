@@ -178,7 +178,7 @@ class Panel:
         
         final_df['plate_name'] = final_df['plate_name'].fillna('Unclassified')
         final_df['plate_cluster'] = final_df['plate_cluster'].fillna('Unclassified')
-        final_df = final_df.sort_values(by='total_volume', ascending=False).head(100)
+        final_df = final_df.sort_values(by='total_volume', ascending=False).head(500)
         final_df['total_volume_str'] = (final_df['total_volume'] / 1e8).round(2).astype(str) + '亿'
 
         logger.info(f"Finished calculating stock summary. Output data shape: {final_df.shape}")
