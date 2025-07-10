@@ -1,6 +1,7 @@
 import argparse
 import logging
 import dash
+import dash_bootstrap_components as dbc  # 新增：引入 Bootstrap Components
 import os
 from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output, State
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class Panel:
     def __init__(self, db_api):
-        self.app = dash.Dash(__name__)
+        self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])  # 新增：使用 Bootstrap 主题
         self.db_api = db_api
         self.data_loader = DataLoader(self.db_api)
         self.app.config.suppress_callback_exceptions = True
@@ -24,40 +25,47 @@ class Panel:
         self.register_callbacks()
 
     def _build_layout(self):
-        self.app.layout = html.Div([
-            html.H1("Stock Plate Dashboard", style={'margin-top': '0px', 'margin-bottom': '10px'}),
-            dcc.RadioItems(
-                id='primary-view-selector',
-                options=[
-                    {'label': '板块', 'value': 'plate'},
-                    {'label': '个股', 'value': 'stock'},
-                ],
-                value='plate',
-                labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-            ),
-            dcc.RadioItems(
-                id='secondary-view-selector',
-                options=[
-                    {'label': '热力图', 'value': 'heatmap'},
-                    {'label': '列表', 'value': 'list'},
-                ],
-                value='heatmap',
-                labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-            ),
-            dcc.RadioItems(
-                id='period-selector',
-                options=[
-                    {'label': 'Last Day', 'value': 1},
-                    {'label': '5 Days', 'value': 5},
-                    {'label': '10 Days', 'value': 10},
-                    {'label': '30 Days', 'value': 30}
-                ],
-                value=1,
-                labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-            ),
+        self.app.layout = dbc.Container([
+            dbc.Row([  # 新增：使用 Row 和 Col 布局
+                dbc.Col(html.H1("Stock Panel", className="text-center mb-3"), width=12)  # 美化：居中标题，添加间距
+            ]),
+            dbc.Row([
+                dbc.Col(dcc.RadioItems(
+                    id='primary-view-selector',
+                    options=[
+                        {'label': '板块', 'value': 'plate'},
+                        {'label': '个股', 'value': 'stock'},
+                    ],
+                    value='plate',
+                    labelStyle={'display': 'inline-block', 'margin-right': '20px'},
+                    className="mb-3"  # 美化：添加间距
+                ), width=4),
+                dbc.Col(dcc.RadioItems(
+                    id='secondary-view-selector',
+                    options=[
+                        {'label': '热力图', 'value': 'heatmap'},
+                        {'label': '列表', 'value': 'list'},
+                    ],
+                    value='heatmap',
+                    labelStyle={'display': 'inline-block', 'margin-right': '20px'},
+                    className="mb-3"
+                ), width=4),
+                dbc.Col(dcc.RadioItems(
+                    id='period-selector',
+                    options=[
+                        {'label': 'Last Day', 'value': 1},
+                        {'label': '5 Days', 'value': 5},
+                        {'label': '10 Days', 'value': 10},
+                        {'label': '30 Days', 'value': 30}
+                    ],
+                    value=1,
+                    labelStyle={'display': 'inline-block', 'margin-right': '20px'},
+                    className="mb-3"
+                ), width=4),
+            ]),
             dcc.Store(id='view-state-store', data={'view_mode': 'main', 'primary_view': 'plate', 'secondary_view': 'heatmap', 'days_back': 1, 'selected_plate': None}),
-            html.Div(id='main-container', children=[])
-        ])
+            html.Div(id='main-container', className="p-3 bg-light rounded shadow")  # 美化：添加背景、圆角和阴影
+        ], fluid=True, className="p-4")  # 美化：整体容器添加 padding
 
     def __enter__(self):
         self.db_api.connect(read_only=True)
@@ -253,13 +261,14 @@ class Panel:
             texttemplate="%{label}<br>%{customdata[0]:.2%}",
             hovertemplate='<b>%{label}</b><br>Change: %{customdata[0]:.2%}<br>Total Volume: %{customdata[1]}<extra></extra>',
             marker_colors=df[colors_col],
-            marker_colorscale=[[0, 'green'], [0.4, 'darkgreen'], [0.5, 'white'], [0.6, 'darkred'], [1, 'red']],
+            marker_colorscale=[[0, '#2ca02c'], [0.4, '#006400'], [0.5, '#ffffff'], [0.6, '#8b0000'], [1, '#ff0000']],  # 美化：优化颜色渐变，更柔和
         ))
         treemap_fig.update_traces(marker_cmin=fixed_cmin, marker_cmax=fixed_cmax)
         treemap_fig.update_layout(
             yaxis_showgrid=False, yaxis_zeroline=False, yaxis_ticks='', yaxis_showticklabels=False,
             xaxis_showgrid=False, xaxis_zeroline=False, xaxis_ticks='', xaxis_showticklabels=False,
-            plot_bgcolor='#f0f0f0'
+            plot_bgcolor='#f8f9fa',  # 美化：更柔和的背景色
+            margin=dict(l=10, r=10, t=50, b=10)  # 美化：调整���距
         )
         return treemap_fig
 
@@ -275,30 +284,34 @@ class Panel:
             sort_action="native",
             filter_action="native",
             style_header={
-                'backgroundColor': 'rgb(30, 30, 30)',
+                'backgroundColor': '#343a40',  # 美化：深灰色头部
                 'color': 'white',
-                'fontWeight': 'bold'
+                'fontWeight': 'bold',
+                'textAlign': 'center'  # 美化：居中对齐
             },
             style_cell={
                 'textAlign': 'left',
-                'padding': '5px',
-                'border': '1px solid grey'
+                'padding': '10px',  # 美化：增加间距
+                'border': '1px solid #dee2e6',  # 美化：浅灰边框
+                'fontSize': '14px'  # 美化：字体大小
             },
             style_data_conditional=[
                 {
                     'if': {'row_index': 'odd'},
-                    'backgroundColor': 'rgb(248, 248, 248)'
+                    'backgroundColor': '#f8f9fa'  # 美化：交替行颜色
                 },
                 {
                     'if': {'filter_query': f'{{{change_col_id}}} > 0', 'column_id': change_col_id},
-                    'color': 'green'
+                    'color': '#28a745',  # 美化：绿色正值
+                    'fontWeight': 'bold'
                 },
                 {
                     'if': {'filter_query': f'{{{change_col_id}}} < 0', 'column_id': change_col_id},
-                    'color': 'red'
+                    'color': '#dc3545',  # 美化：红色负值
+                    'fontWeight': 'bold'
                 }
             ],
-            style_table={'border': '1px solid grey'}
+            style_table={'border': '1px solid #dee2e6', 'borderRadius': '5px', 'overflow': 'hidden'}  # 美化：表格圆角和溢出隐藏
         )
 
     def render_details_view(self, plate_name, days_back):
@@ -324,64 +337,70 @@ class Panel:
         ]
 
         return html.Div([
-            html.Button('Back to Main View', id='back-button', n_clicks=0),
-            html.H2(f"Details for {plate_name}"),
+            html.Button('Back to Main View', id='back-button', n_clicks=0, className="btn btn-primary mb-3"),  # 美化：使用 Bootstrap 按钮样式
+            html.H2(f"Details for {plate_name}", className="text-primary"),  # 美化：蓝色标题
             dash_table.DataTable(
                 columns=columns,
                 data=plate_details_df.to_dict('records'),
                 sort_action="native",
                 filter_action="native",
                 style_header={
-                    'backgroundColor': 'rgb(30, 30, 30)',
+                    'backgroundColor': '#343a40',
                     'color': 'white',
-                    'fontWeight': 'bold'
+                    'fontWeight': 'bold',
+                    'textAlign': 'center'
                 },
                 style_cell={
                     'textAlign': 'left',
-                    'padding': '5px',
-                    'border': '1px solid grey'
+                    'padding': '10px',
+                    'border': '1px solid #dee2e6',
+                    'fontSize': '14px'
                 },
                 style_data_conditional=[
                     {
                         'if': {'row_index': 'odd'},
-                        'backgroundColor': 'rgb(248, 248, 248)'
+                        'backgroundColor': '#f8f9fa'
                     },
                     {
                         'if': {'filter_query': '{price_change_pct} > 0', 'column_id': 'price_change_pct'},
-                        'color': 'green'
+                        'color': '#28a745',
+                        'fontWeight': 'bold'
                     },
                     {
                         'if': {'filter_query': '{price_change_pct} < 0', 'column_id': 'price_change_pct'},
-                        'color': 'red'
+                        'color': '#dc3545',
+                        'fontWeight': 'bold'
                     },
                     {
                         'if': {'filter_query': '{pe_ttm} < 15 and {pe_ttm} > 0', 'column_id': 'pe_ttm'},
-                        'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                        'backgroundColor': 'rgba(255, 193, 7, 0.3)'  # 美化：黄色高亮
                     },
                     {
                         'if': {'filter_query': '{pb_mrq} < 1 and {pb_mrq} > 0', 'column_id': 'pb_mrq'},
-                        'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                        'backgroundColor': 'rgba(255, 193, 7, 0.3)'
                     },
                     {
                         'if': {'filter_query': '{revenue_cagr_3y} > 0.15', 'column_id': 'revenue_cagr_3y'},
-                        'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'  # 美化：绿色高亮
                     },
                     {
                         'if': {'filter_query': '{net_income_cagr_3y} > 0.15', 'column_id': 'net_income_cagr_3y'},
-                        'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'
                     },
                     {
                         'if': {'filter_query': '{gross_margin} > 0.40', 'column_id': 'gross_margin'},
-                        'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'
                     },
                     {
                         'if': {'filter_query': '{net_margin} > 0.10', 'column_id': 'net_margin'},
-                        'backgroundColor': 'rgba(255, 255, 0, 0.3)'
+                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'
                     }
                 ],
-                style_table={'border': '1px solid grey'}
+                style_table={'border': '1px solid #dee2e6', 'borderRadius': '5px', 'overflow': 'hidden'}
             )
-        ])
+        ], className="p-3 bg-white rounded shadow")  # 美化：细节视图容器添加白色背景、圆角和阴影
+
+    # 其他方法和回调函数保持不变（register_callbacks 等）
 
     def run(self, debug=True):
         try:
