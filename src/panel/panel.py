@@ -119,8 +119,9 @@ class Panel:
 
     def calculate_stock_summary(self, df: pd.DataFrame, days_back: int) -> pd.DataFrame:
         """Calculates the stock summary from raw daily data over a period."""
+        logger.info(f"Calculating stock summary. Input data shape: {df.shape}, columns: {df.columns}")
         if df.empty:
-            return pd.DataFrame(columns=['ticker', 'stock_name', 'price_change', 'total_volume', 'total_volume_str'])
+            return pd.DataFrame(columns=['ticker', 'stock_name', 'plate_name', 'price_change', 'total_volume', 'total_volume_str'])
 
         df['time'] = pd.to_datetime(df['time'])
         df = df.sort_values(by=['ticker', 'time'])
@@ -129,7 +130,7 @@ class Panel:
         last_day = df.loc[df.groupby('ticker')['time'].idxmax()]
 
         merged_df = pd.merge(
-            first_day[['ticker', 'stock_name', 'close']],
+            first_day[['ticker', 'stock_name', 'plate_name', 'close']],
             last_day[['ticker', 'close']],
             on='ticker',
             suffixes=['_start', '_end']
@@ -145,9 +146,11 @@ class Panel:
         final_df = pd.merge(merged_df, total_turnover, on='ticker')
         final_df.rename(columns={'turnover': 'total_volume'}, inplace=True)
         
+        final_df['plate_name'] = final_df['plate_name'].fillna('Unclassified')
         final_df = final_df.sort_values(by='total_volume', ascending=False).head(100)
         final_df['total_volume_str'] = (final_df['total_volume'] / 1e8).round(2).astype(str) + '亿'
 
+        logger.info(f"Finished calculating stock summary. Output data shape: {final_df.shape}")
         return final_df
 
     def register_callbacks(self):
@@ -167,10 +170,65 @@ class Panel:
                 elif secondary_view == 'list':
                     children = self.create_summary_datatable('plate-list-table', plate_summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
             elif primary_view == 'stock':
-                raw_data = self.data_loader.get_stock_summary(days_back=days_back)
+                logger.info("Fetching data for stock view...")
+                raw_stock_data = self.data_loader.get_stock_summary(days_back=days_back)
+                raw_plate_data = self.data_loader.get_plate_summary(days_back=days_back)
+                logger.info(f"Raw stock data shape: {raw_stock_data.shape}")
+                logger.info(f"Raw plate data shape: {raw_plate_data.shape}")
+
+                plate_mapping = raw_plate_data[['ticker', 'plate_name']].drop_duplicates()
+                raw_data = pd.merge(raw_stock_data, plate_mapping, on='ticker', how='left')
+                logger.info(f"Merged data shape: {raw_data.shape}")
+
                 stock_summary_data = self.calculate_stock_summary(raw_data, days_back)
+                
                 if secondary_view == 'heatmap':
-                    children = dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(stock_summary_data, 'stock_name', 'price_change'), style={'height': '80vh'}) # 增加：设置热力图高度，减少空白
+                    logger.info("Generating clustered stock heatmap...")
+                    # Ensure there are no NaN parents and filter them out
+                    stock_summary_data = stock_summary_data.dropna(subset=['plate_name'])
+                    
+                    # Create a hierarchical dataframe for the treemap
+                    df_plates = pd.DataFrame({
+                        'id': stock_summary_data['plate_name'].unique(),
+                        'parent': '',
+                        'label': stock_summary_data['plate_name'].unique(),
+                        'value': 0,
+                        'color': 0,
+                    })
+
+                    df_stocks = pd.DataFrame({
+                        'id': stock_summary_data['stock_name'],
+                        'parent': stock_summary_data['plate_name'],
+                        'label': stock_summary_data['stock_name'],
+                        'value': stock_summary_data['total_volume'],
+                        'color': stock_summary_data['price_change'],
+                    })
+
+                    df_treemap = pd.concat([df_plates, df_stocks], ignore_index=True)
+                    
+                    customdata = pd.concat([
+                        pd.Series([[0, ''] for _ in df_plates.index]), # Placeholder for plates
+                        stock_summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1)
+                    ], ignore_index=True)
+
+                    fig = go.Figure(go.Treemap(
+                        ids=df_treemap['id'],
+                        labels=df_treemap['label'],
+                        parents=df_treemap['parent'],
+                        values=df_treemap['value'],
+                        marker_colors=df_treemap['color'],
+                        marker_colorscale=[[0, '#ff0000'], [0.4, '#8b0000'], [0.5, '#ffffff'], [0.6, '#006400'], [1, '#2ca02c']],
+                        marker_cmin=-0.03,
+                        marker_cmax=0.03,
+                        texttemplate="%{label}<br>%{customdata[0]:.2%}",
+                        hovertemplate='<b>%{label}</b><br>Change: %{customdata[0]:.2%}<br>Total Volume: %{customdata[1]}<extra></extra>',
+                        root_color="lightgrey"
+                    ))
+                    fig.data[0].customdata = customdata
+                    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+                    
+                    children = dcc.Graph(id='stock-treemap', figure=fig, style={'height': '80vh'})
+
                 elif secondary_view == 'list':
                     children = self.create_summary_datatable('stock-list-table', stock_summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
             
@@ -240,23 +298,85 @@ class Panel:
                     elif state['secondary_view'] == 'list':
                         return self.create_summary_datatable('plate-list-table', summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
                 elif state['primary_view'] == 'stock':
-                    raw_data = self.data_loader.get_stock_summary(days_back=state['days_back'])
+                    logger.info("Fetching data for stock view...")
+                    raw_stock_data = self.data_loader.get_stock_summary(days_back=state['days_back'])
+                    raw_plate_data = self.data_loader.get_plate_summary(days_back=state['days_back'])
+                    logger.info(f"Raw stock data shape: {raw_stock_data.shape}")
+                    logger.info(f"Raw plate data shape: {raw_plate_data.shape}")
+
+                    plate_mapping = raw_plate_data[['ticker', 'plate_name']].drop_duplicates()
+                    raw_data = pd.merge(raw_stock_data, plate_mapping, on='ticker', how='left')
+                    logger.info(f"Merged data shape: {raw_data.shape}")
+
                     summary_data = self.calculate_stock_summary(raw_data, state['days_back'])
+                    
                     if state['secondary_view'] == 'heatmap':
-                        return dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(summary_data, 'stock_name', 'price_change'), style={'height': '80vh'})
+                        logger.info("Generating clustered stock heatmap...")
+                        # Ensure there are no NaN parents and filter them out
+                        summary_data = summary_data.dropna(subset=['plate_name'])
+                        
+                        # Create a hierarchical dataframe for the treemap
+                        df_plates = pd.DataFrame({
+                            'id': summary_data['plate_name'].unique(),
+                            'parent': '',
+                            'label': summary_data['plate_name'].unique(),
+                            'value': 0,
+                            'color': 0,
+                        })
+
+                        df_stocks = pd.DataFrame({
+                            'id': summary_data['stock_name'],
+                            'parent': summary_data['plate_name'],
+                            'label': summary_data['stock_name'],
+                            'value': summary_data['total_volume'],
+                            'color': summary_data['price_change'],
+                        })
+
+                        df_treemap = pd.concat([df_plates, df_stocks], ignore_index=True)
+                        
+                        customdata = pd.concat([
+                            pd.Series([[0, ''] for _ in df_plates.index]), # Placeholder for plates
+                            summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1)
+                        ], ignore_index=True)
+
+                        fig = go.Figure(go.Treemap(
+                            ids=df_treemap['id'],
+                            labels=df_treemap['label'],
+                            parents=df_treemap['parent'],
+                            values=df_treemap['value'],
+                            marker_colors=df_treemap['color'],
+                            marker_colorscale=[[0, '#ff0000'], [0.4, '#8b0000'], [0.5, '#ffffff'], [0.6, '#006400'], [1, '#2ca02c']],
+                            marker_cmin=-0.03,
+                            marker_cmax=0.03,
+                            texttemplate="%{label}<br>%{customdata[0]:.2%}",
+                            hovertemplate='<b>%{label}</b><br>Change: %{customdata[0]:.2%}<br>Total Volume: %{customdata[1]}<extra></extra>',
+                            root_color="lightgrey"
+                        ))
+                        fig.data[0].customdata = customdata
+                        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+                        
+                        return dcc.Graph(id='stock-treemap', figure=fig, style={'height': '80vh'})
+
                     elif state['secondary_view'] == 'list':
                         return self.create_summary_datatable('stock-list-table', summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
             elif state['view_mode'] == 'details':
                 return self.render_details_view(state['selected_plate'], state['days_back'])
             return dash.no_update
 
-    def create_treemap_figure(self, df, labels_col, colors_col):
+    def create_treemap_figure(self, df, labels_col, colors_col, parents_col=None):
+        """Creates a treemap figure from a DataFrame."""
+        logger.info(f"Creating treemap figure. Input data shape: {df.shape}, labels: {labels_col}, colors: {colors_col}, parents: {parents_col}")
+        if df.empty:
+            return go.Figure()
+
         fixed_cmax = 0.03
         fixed_cmin = -0.03
 
+        parents = df[parents_col] if parents_col and parents_col in df.columns else ["" for _ in df[labels_col]]
+
         treemap_fig = go.Figure(go.Treemap(
             labels=df[labels_col],
-            parents=["" for _ in df[labels_col]],
+            parents=parents,
             values=df['total_volume'],
             customdata=df.apply(lambda row: [row[colors_col], row['total_volume_str']], axis=1),
             texttemplate="%{label}<br>%{customdata[0]:.2%}",
