@@ -71,6 +71,10 @@ class DataLoader:
             df = df.sort_values(by='time').reset_index(drop=True)
         return df
 
+    def get_stock_plate_mappings(self) -> pd.DataFrame:
+        query = "SELECT ticker, plate_name, plate_code FROM stock_plate_mappings"
+        return self.db_api.query_to_dataframe(query)
+
     def get_plate_summary(self, days_back: int = 2) -> pd.DataFrame:
         query = f"""
             WITH
