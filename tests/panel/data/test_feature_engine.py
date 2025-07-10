@@ -26,9 +26,9 @@ def feature_engine():
 def test_add_moving_average(feature_engine, sample_panel_data):
     """Tests the add_moving_average method."""
     df = feature_engine.add_moving_average(sample_panel_data, window=2, ma_type='sma', price_col='close')
-    assert 'sma_close_2' in df.columns
-    assert df[df['ticker'] == 'AAPL']['sma_close_2'].iloc[-1] == 153.5
-    assert df[df['ticker'] == 'GOOG']['sma_close_2'].iloc[-1] == 2817.5
+    assert 'SMA_2' in df.columns
+    assert df[df['ticker'] == 'AAPL']['SMA_2'].iloc[-1] == 153.5
+    assert df[df['ticker'] == 'GOOG']['SMA_2'].iloc[-1] == 2817.5
 
 def test_add_volatility_std(feature_engine, sample_panel_data):
     """Tests the add_volatility method with standard deviation."""
@@ -39,14 +39,14 @@ def test_add_volatility_std(feature_engine, sample_panel_data):
 def test_add_volatility_atr(feature_engine, sample_panel_data):
     """Tests the add_volatility method with ATR."""
     df = feature_engine.add_volatility(sample_panel_data, window=2, vol_type='atr')
-    assert 'atr_2' in df.columns
-    assert not df['atr_2'].isnull().all()
+    assert 'ATRr_2' in df.columns
+    assert not df['ATRr_2'].isnull().all()
 
 def test_add_rsi(feature_engine, sample_panel_data):
     """Tests the add_rsi method."""
     df = feature_engine.add_rsi(sample_panel_data, window=2)
-    assert 'rsi_close_2' in df.columns
-    assert not df['rsi_close_2'].isnull().all()
+    assert 'RSI_2' in df.columns
+    assert not df['RSI_2'].isnull().all()
 
 def test_add_macd(feature_engine, sample_panel_data):
     """Tests the add_macd method."""

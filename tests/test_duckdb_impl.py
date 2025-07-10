@@ -21,7 +21,7 @@ def db_api():
     """Fixture to set up and tear down a test DuckDB database."""
     db_path = "test_duckdb_impl.db"
     api = DuckDBAPI(db_path)
-    api.connect()
+    api.connect(read_only=False)
     yield api
     api.close()
     if os.path.exists(db_path):
@@ -32,7 +32,7 @@ def in_memory_db_api():
     """Fixture for a DuckDBAPI instance with an in-memory database."""
     db_path = ":memory:"
     db = DuckDBAPI(db_path)
-    db.connect()
+    db.connect(read_only=False)
     yield db
     db.close()
 
@@ -199,7 +199,7 @@ class TestDuckDBAPI:
         try:
             api = DuckDBAPI(db_path)
             assert os.path.isdir(db_dir)
-            api.connect()
+            api.connect(read_only=False)
         finally:
             if api:
                 api.close()

@@ -26,31 +26,36 @@ class Panel:
     def _build_layout(self):
         self.app.layout = html.Div([
             html.H1("Stock Plate Dashboard", style={'margin-top': '0px', 'margin-bottom': '10px'}),
-            html.Div([
-                html.Div([
-                    html.Button("板块", id="plate-button", n_clicks=0, className="menu-button"),
-                    html.Button("个股", id="stock-button", n_clicks=0, className="menu-button"),
-                ], style={'display': 'flex', 'margin-right': '20px'}),
-                html.Div([
-                    html.Button("热力图", id="heatmap-button", n_clicks=0, className="menu-button"),
-                    html.Button("列表", id="list-button", n_clicks=0, className="menu-button"),
-                ], style={'display': 'flex', 'margin-right': '20px'}),
-                dcc.RadioItems(
-                    id='period-selector',
-                    options=[
-                        {'label': 'Last Day', 'value': 1},
-                        {'label': '5 Days', 'value': 5},
-                        {'label': '10 Days', 'value': 10},
-                        {'label': '30 Days', 'value': 30}
-                    ],
-                    value=1,
-                    labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-                ),
-            ], style={'display': 'flex', 'align-items': 'center', 'padding': '5px', 'border': '1px solid #ddd', 'border-radius': '5px'}),
-            dcc.Store(id='primary-view-store', data='plate'),
-            dcc.Store(id='secondary-view-store', data='heatmap'),
-            dcc.Store(id='period-days-store', data=1),
-            dcc.Store(id='last-main-view-store', data=None),
+            dcc.RadioItems(
+                id='primary-view-selector',
+                options=[
+                    {'label': '板块', 'value': 'plate'},
+                    {'label': '个股', 'value': 'stock'},
+                ],
+                value='plate',
+                labelStyle={'display': 'inline-block', 'margin-right': '20px'},
+            ),
+            dcc.RadioItems(
+                id='secondary-view-selector',
+                options=[
+                    {'label': '热力图', 'value': 'heatmap'},
+                    {'label': '列表', 'value': 'list'},
+                ],
+                value='heatmap',
+                labelStyle={'display': 'inline-block', 'margin-right': '20px'},
+            ),
+            dcc.RadioItems(
+                id='period-selector',
+                options=[
+                    {'label': 'Last Day', 'value': 1},
+                    {'label': '5 Days', 'value': 5},
+                    {'label': '10 Days', 'value': 10},
+                    {'label': '30 Days', 'value': 30}
+                ],
+                value=1,
+                labelStyle={'display': 'inline-block', 'margin-right': '20px'},
+            ),
+            dcc.Store(id='view-state-store', data={'view_mode': 'main', 'primary_view': 'plate', 'secondary_view': 'heatmap', 'days_back': 1, 'selected_plate': None}),
             html.Div(id='main-container', children=[])
         ])
 
@@ -139,105 +144,102 @@ class Panel:
 
     def register_callbacks(self):
         @self.app.callback(
-            Output('primary-view-store', 'data'),
-            [Input('plate-button', 'n_clicks'), Input('stock-button', 'n_clicks')]
-        )
-        def update_primary_view_type(plate_clicks, stock_clicks):
-            ctx = dash.callback_context
-            if not ctx.triggered:
-                return 'plate'
-            button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-            if button_id == 'stock-button':
-                return 'stock'
-            else:
-                return 'plate'
-
-        @self.app.callback(
-            Output('secondary-view-store', 'data'),
-            [Input('heatmap-button', 'n_clicks'), Input('list-button', 'n_clicks')]
-        )
-        def update_secondary_view_type(heatmap_clicks, list_clicks):
-            ctx = dash.callback_context
-            if not ctx.triggered:
-                return 'heatmap'
-            button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-            if button_id == 'list-button':
-                return 'list'
-            else:
-                return 'heatmap'
-
-        @self.app.callback(
-            Output('main-container', 'children'),
-            [Input('primary-view-store', 'data'),
-             Input('secondary-view-store', 'data'),
+            [Output('main-container', 'children'), Output('view-state-store', 'data')],
+            [Input('primary-view-selector', 'value'),
+             Input('secondary-view-selector', 'value'),
              Input('period-selector', 'value')]
         )
         def display_main_content(primary_view, secondary_view, days_back):
+            children = []
             if primary_view == 'plate':
                 raw_data = self.data_loader.get_plate_summary(days_back=days_back)
                 plate_summary_data = self.calculate_plate_summary(raw_data, days_back)
                 if secondary_view == 'heatmap':
-                    return dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(plate_summary_data, 'plate_name', 'avg_price_change'))
+                    children = dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(plate_summary_data, 'plate_name', 'avg_price_change'))
                 elif secondary_view == 'list':
-                    return self.create_summary_datatable('plate-list-table', plate_summary_data, "板块名称", "plate_name", "平均涨��幅(%)", "avg_price_change")
+                    children = self.create_summary_datatable('plate-list-table', plate_summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
             elif primary_view == 'stock':
                 raw_data = self.data_loader.get_stock_summary(days_back=days_back)
                 stock_summary_data = self.calculate_stock_summary(raw_data, days_back)
                 if secondary_view == 'heatmap':
-                    return dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(stock_summary_data, 'stock_name', 'price_change'))
+                    children = dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(stock_summary_data, 'stock_name', 'price_change'))
                 elif secondary_view == 'list':
-                    return self.create_summary_datatable('stock-list-table', stock_summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
+                    children = self.create_summary_datatable('stock-list-table', stock_summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
+            
+            new_state = {'view_mode': 'main', 'primary_view': primary_view, 'secondary_view': secondary_view, 'days_back': days_back, 'selected_plate': None}
+            return children, new_state
 
         @self.app.callback(
-            Output('main-container', 'children', allow_duplicate=True),
+            [Output('main-container', 'children', allow_duplicate=True), Output('view-state-store', 'data', allow_duplicate=True)],
             [Input('plate-treemap', 'clickData')],
-            [State('period-selector', 'value'), State('main-container', 'children')],
+            [State('view-state-store', 'data')],
             prevent_initial_call=True
         )
-        def display_plate_details_from_heatmap(clickData, days_back, current_children):
+        def display_plate_details_from_heatmap(clickData, current_state):
             if clickData is None:
-                return dash.no_update
+                return dash.no_update, dash.no_update
             plate_name = clickData['points'][0]['label']
-            return self.render_details_view(plate_name, days_back, current_children)
+            new_state = current_state.copy()
+            new_state['view_mode'] = 'details'
+            new_state['selected_plate'] = plate_name
+            details_children = self.render_details_view(plate_name, current_state['days_back'])
+            return details_children, new_state
 
         @self.app.callback(
-            Output('main-container', 'children', allow_duplicate=True),
+            [Output('main-container', 'children', allow_duplicate=True), Output('view-state-store', 'data', allow_duplicate=True)],
             [Input('plate-list-table', 'active_cell')],
-            [State('period-selector', 'value'), State('main-container', 'children')],
+            [State('view-state-store', 'data')],
             prevent_initial_call=True
         )
-        def display_plate_details_from_list(active_cell, days_back, current_children):
+        def display_plate_details_from_list(active_cell, current_state):
             if active_cell is None:
-                return dash.no_update
+                return dash.no_update, dash.no_update
             plate_name = active_cell['row']['plate_name']
-            return self.render_details_view(plate_name, days_back, current_children)
+            new_state = current_state.copy()
+            new_state['view_mode'] = 'details'
+            new_state['selected_plate'] = plate_name
+            details_children = self.render_details_view(plate_name, current_state['days_back'])
+            return details_children, new_state
 
         @self.app.callback(
-            Output('main-container', 'children', allow_duplicate=True),
+            Output('view-state-store', 'data', allow_duplicate=True),
             [Input('back-button', 'n_clicks')],
-            [State('last-main-view-store', 'data')],
+            [State('view-state-store', 'data')],
             prevent_initial_call=True
         )
-        def go_back(n_clicks, last_view):
+        def go_back(n_clicks, current_state):
             if n_clicks > 0:
-                return last_view
+                new_state = current_state.copy()
+                new_state['view_mode'] = 'main'
+                new_state['selected_plate'] = None
+                return new_state
             return dash.no_update
 
         @self.app.callback(
-            Output('last-main-view-store', 'data'),
-            [Input('main-container', 'children')]
+            Output('main-container', 'children', allow_duplicate=True),
+            [Input('view-state-store', 'data')],
+            prevent_initial_call=True
         )
-        def store_last_main_view(children):
-            # This callback will fire whenever the main container's children change.
-            # We only want to store the main view, not the details view.
-            # A simple way to check is to see if a 'back-button' exists in the children.
-            try:
-                # A bit of a hack, but effective: check if the children are the details view.
-                if children['props']['children'][0]['props']['id'] == 'back-button':
-                    return dash.no_update
-            except (TypeError, KeyError):
-                pass
-            return children
+        def render_based_on_state(state):
+            if state['view_mode'] == 'main':
+                # Re-generate main view using state values
+                if state['primary_view'] == 'plate':
+                    raw_data = self.data_loader.get_plate_summary(days_back=state['days_back'])
+                    summary_data = self.calculate_plate_summary(raw_data, state['days_back'])
+                    if state['secondary_view'] == 'heatmap':
+                        return dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(summary_data, 'plate_name', 'avg_price_change'))
+                    elif state['secondary_view'] == 'list':
+                        return self.create_summary_datatable('plate-list-table', summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
+                elif state['primary_view'] == 'stock':
+                    raw_data = self.data_loader.get_stock_summary(days_back=state['days_back'])
+                    summary_data = self.calculate_stock_summary(raw_data, state['days_back'])
+                    if state['secondary_view'] == 'heatmap':
+                        return dcc.Graph(id='stock-treemap', figure=self.create_treemap_figure(summary_data, 'stock_name', 'price_change'))
+                    elif state['secondary_view'] == 'list':
+                        return self.create_summary_datatable('stock-list-table', summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
+            elif state['view_mode'] == 'details':
+                return self.render_details_view(state['selected_plate'], state['days_back'])
+            return dash.no_update
 
     def create_treemap_figure(self, df, labels_col, colors_col):
         fixed_cmax = 0.03
@@ -299,7 +301,7 @@ class Panel:
             style_table={'border': '1px solid grey'}
         )
 
-    def render_details_view(self, plate_name, days_back, last_view):
+    def render_details_view(self, plate_name, days_back):
         plate_details_df = self.data_loader.get_plate_details(plate_name, days_back)
 
         columns = [
@@ -323,7 +325,6 @@ class Panel:
 
         return html.Div([
             html.Button('Back to Main View', id='back-button', n_clicks=0),
-            dcc.Store(id='last-main-view-store', data=last_view),
             html.H2(f"Details for {plate_name}"),
             dash_table.DataTable(
                 columns=columns,
