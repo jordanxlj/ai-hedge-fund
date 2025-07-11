@@ -23,12 +23,11 @@ class MACrossoverStrategy(Strategy):
         """
         df = data.copy()
         # The feature engine already calculates the moving averages
-        df['signal'] = 0
-        df['signal'][self.short_window:] = np.where(
-            df[f'SMA_{self.short_window}'][self.short_window:] > df[f'SMA_{self.long_window}'][self.short_window:], 1, -1
+        df['position'] = 0
+        df.iloc[self.short_window:, df.columns.get_loc('position')] = np.where(
+            df[f'SMA_{self.short_window}'].iloc[self.short_window:] > df[f'SMA_{self.long_window}'].iloc[self.short_window:], 1, 0
         )
-        df['signal'] = df['signal'].diff().fillna(0)
-        df['signal'] = df['signal'].clip(-1, 1)
+        df['signal'] = df['position'].diff().fillna(0)
         return df
 
 if __name__ == '__main__':
@@ -48,6 +47,7 @@ if __name__ == '__main__':
         df = data_loader.load_daily_prices(tickers=[args.ticker], start_date=args.start_date, end_date=args.end_date)
 
         if not df.empty:
+            df = df.set_index('time')
             feature_engine = FeatureEngine()
             df = feature_engine.add_moving_average(df, window=args.short_window)
             df = feature_engine.add_moving_average(df, window=args.long_window)
