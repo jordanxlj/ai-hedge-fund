@@ -69,6 +69,20 @@ def test_calculate_plate_summary(panel_instance, sample_plate_data):
     assert 'avg_price_change' in summary.columns
     assert len(summary) == 1
 
+def test_calculate_summary_empty(panel_instance):
+    summary = panel_instance._calculate_summary(pd.DataFrame(), 1, 'plate_name', 'avg_price_change')
+    assert summary.empty
+
+def test_create_radio_items(panel_instance):
+    radio_items = panel_instance._create_radio_items('test-id', [{'label': 'Test', 'value': 'test'}], 'test')
+    assert radio_items.id == 'test-id'
+    assert radio_items.value == 'test'
+
+def test_context_manager(panel_instance):
+    with panel_instance as p:
+        p.db_api.connect.assert_called_with(read_only=True)
+    p.db_api.close.assert_called_once()
+
 def test_display_main_content_stock_heatmap(panel_instance, sample_stock_data, sample_plate_mappings_data):
     # Mock the data loader methods
     panel_instance.data_loader = MagicMock()
@@ -112,3 +126,56 @@ def test_display_main_content_plate_heatmap(panel_instance, sample_plate_data):
         response_data = json.loads(result)
         assert response_data['response']['main-container']['children'] is not None
         assert response_data['response']['view-state-store']['data']['primary_view'] == 'plate'
+
+def test_display_plate_details_from_heatmap(panel_instance):
+    with panel_instance.app.server.test_request_context():
+        callback_key = '..main-container.children@6ec63c7c0ae3d76937dbe15eab2099c8566b63a1f6b601337cc2dde5fd495302...view-state-store.data@6ec63c7c0ae3d76937dbe15eab2099c8566b63a1f6b601337cc2dde5fd495302..'
+        outputs_list = [
+            {'id': 'main-container', 'property': 'children'},
+            {'id': 'view-state-store', 'property': 'data'}
+        ]
+        panel_instance.data_loader.get_plate_details.return_value = pd.DataFrame({'ticker': [], 'name': []})
+        result = panel_instance.app.callback_map[callback_key]['callback'](
+            {'points': [{'label': 'Test Plate'}]}, {'days_back': 1}, outputs_list=outputs_list
+        )
+        import json
+        response_data = json.loads(result)
+        assert response_data['response']['view-state-store']['data']['selected_plate'] == 'Test Plate'
+
+def test_display_plate_details_from_list(panel_instance):
+    with panel_instance.app.server.test_request_context():
+        callback_key = '..main-container.children@621154554c8d9e3ce660b0573b0499e1f4ccf18c970d462cfdc59f292acd8766...view-state-store.data@621154554c8d9e3ce660b0573b0499e1f4ccf18c970d462cfdc59f292acd8766..'
+        outputs_list = [
+            {'id': 'main-container', 'property': 'children'},
+            {'id': 'view-state-store', 'property': 'data'}
+        ]
+        result = panel_instance.app.callback_map[callback_key]['callback'](
+            {'row': 0, 'column': 0}, {'days_back': 1}, [{'plate_name': 'Test Plate'}], outputs_list=outputs_list
+        )
+        import json
+        response_data = json.loads(result)
+        assert response_data['response']['view-state-store']['data']['selected_plate'] == 'Test Plate'
+
+def test_go_back(panel_instance):
+    with panel_instance.app.server.test_request_context():
+        callback_key = 'view-state-store.data@0d977e805e4dcaeed789cb11509bb1ccada0db3052876479c48ef44784eedd50'
+        outputs_list = [{'id': 'view-state-store', 'property': 'data'}]
+        result = panel_instance.app.callback_map[callback_key]['callback'](1, {'view_mode': 'details'}, outputs_list=outputs_list)
+        import json
+        response_data = json.loads(result)
+        assert response_data['response']['view-state-store']['data']['view_mode'] == 'main'
+
+def test_render_details_view(panel_instance):
+    panel_instance.data_loader = MagicMock()
+    panel_instance.data_loader.get_plate_details.return_value = pd.DataFrame()
+    details_view = panel_instance.render_details_view('Test Plate', 1)
+    assert details_view.children[1].children == 'Details for Test Plate'
+
+def test_create_treemap_figure_empty(panel_instance):
+    fig = panel_instance.create_treemap_figure(pd.DataFrame(columns=['plate_name', 'avg_price_change', 'total_volume', 'total_volume_str']), 'plate_name', 'avg_price_change')
+    assert fig is not None
+
+def test_run(panel_instance):
+    panel_instance.app.run = MagicMock()
+    panel_instance.run(debug=False)
+    panel_instance.app.run.assert_called_with(debug=False)
