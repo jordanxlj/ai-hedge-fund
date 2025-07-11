@@ -73,7 +73,7 @@ class Strategy(ABC):
         # Add Buy labels below the low
         for idx, row in buy_signals.iterrows():
             fig.add_annotation(
-                x=idx, y=row['low'] * 0.98,
+                x=idx, y=row['low'] * 0.90,  # Adjusted to be further below to avoid overlap
                 text='Buy',
                 showarrow=False,
                 font=dict(color='white', size=12),
@@ -88,7 +88,7 @@ class Strategy(ABC):
         # Add Sell labels above the high
         for idx, row in sell_signals.iterrows():
             fig.add_annotation(
-                x=idx, y=row['high'] * 1.02,
+                x=idx, y=row['high'] * 1.1,  # Adjusted to be further above to avoid overlap
                 text='Sell',
                 showarrow=False,
                 font=dict(color='white', size=12),
