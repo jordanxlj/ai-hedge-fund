@@ -1,13 +1,15 @@
 import argparse
 import logging
-import dash
-import dash_bootstrap_components as dbc  # 新增：引入 Bootstrap Components
 import os
+
+import dash
+import dash_bootstrap_components as dbc
 from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+
 from src.panel.data.data_loader import DataLoader
 from src.data.db import get_database_api
 from src.utils.log_util import logger_setup as _init_logging
@@ -16,8 +18,11 @@ _init_logging()
 logger = logging.getLogger(__name__)
 
 class Panel:
+    """
+    A Dash-based dashboard for stock plate analysis.
+    """
     def __init__(self, db_api):
-        self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])  # 新增：使用 Bootstrap 主题
+        self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
         self.db_api = db_api
         self.data_loader = DataLoader(self.db_api)
         self.app.config.suppress_callback_exceptions = True
@@ -25,47 +30,50 @@ class Panel:
         self.register_callbacks()
 
     def _build_layout(self):
+        """
+        Builds the initial layout of the dashboard.
+        """
         self.app.layout = dbc.Container([
-            dbc.Row([  # 新增：使用 Row 和 Col 布局
-                dbc.Col(html.H1("Stock Panel", className="text-center mb-3"), width=12)  # 美化：居中标题，添加间距
+            dbc.Row([
+                dbc.Col(html.H1("Stock Panel", className="text-center mb-3"), width=12)
             ]),
             dbc.Row([
-                dbc.Col(dcc.RadioItems(
-                    id='primary-view-selector',
-                    options=[
-                        {'label': '板块', 'value': 'plate'},
-                        {'label': '个股', 'value': 'stock'},
-                    ],
-                    value='plate',
-                    labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-                    className="mb-3"  # 美化：添加间距
-                ), width=4),
-                dbc.Col(dcc.RadioItems(
-                    id='secondary-view-selector',
-                    options=[
-                        {'label': '热力图', 'value': 'heatmap'},
-                        {'label': '列表', 'value': 'list'},
-                    ],
-                    value='heatmap',
-                    labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-                    className="mb-3"
-                ), width=4),
-                dbc.Col(dcc.RadioItems(
-                    id='period-selector',
-                    options=[
-                        {'label': 'Last Day', 'value': 1},
-                        {'label': '5 Days', 'value': 5},
-                        {'label': '10 Days', 'value': 10},
-                        {'label': '30 Days', 'value': 30}
-                    ],
-                    value=1,
-                    labelStyle={'display': 'inline-block', 'margin-right': '20px'},
-                    className="mb-3"
-                ), width=4),
+                dbc.Col(self._create_radio_items('primary-view-selector', [
+                    {'label': '板块', 'value': 'plate'},
+                    {'label': '个股', 'value': 'stock'},
+                ], 'plate'), width=4),
+                dbc.Col(self._create_radio_items('secondary-view-selector', [
+                    {'label': '热力图', 'value': 'heatmap'},
+                    {'label': '列表', 'value': 'list'},
+                ], 'heatmap'), width=4),
+                dbc.Col(self._create_radio_items('period-selector', [
+                    {'label': 'Last Day', 'value': 1},
+                    {'label': '5 Days', 'value': 5},
+                    {'label': '10 Days', 'value': 10},
+                    {'label': '30 Days', 'value': 30}
+                ], 1), width=4),
             ]),
-            dcc.Store(id='view-state-store', data={'view_mode': 'main', 'primary_view': 'plate', 'secondary_view': 'heatmap', 'days_back': 1, 'selected_plate': None}),
-            html.Div(id='main-container', className="p-0 bg-light rounded shadow")  # 美化：去除 padding，减少空白
-        ], fluid=True, className="p-2")  # 美化：减少整体容器 padding
+            dcc.Store(id='view-state-store', data={
+                'view_mode': 'main',
+                'primary_view': 'plate',
+                'secondary_view': 'heatmap',
+                'days_back': 1,
+                'selected_plate': None
+            }),
+            html.Div(id='main-container', className="p-0 bg-light rounded shadow")
+        ], fluid=True, className="p-2")
+
+    def _create_radio_items(self, item_id, options, default_value):
+        """
+        Helper method to create radio items with consistent styling.
+        """
+        return dcc.RadioItems(
+            id=item_id,
+            options=options,
+            value=default_value,
+            labelStyle={'display': 'inline-block', 'margin-right': '20px'},
+            className="mb-3"
+        )
 
     def __enter__(self):
         self.db_api.connect(read_only=True)
@@ -73,49 +81,6 @@ class Panel:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.db_api.close()
-
-    def calculate_plate_summary(self, df: pd.DataFrame, days_back: int) -> pd.DataFrame:
-        """Calculates the plate summary from raw daily data over a period."""
-        if df.empty:
-            return pd.DataFrame(columns=['plate_name', 'avg_price_change', 'total_volume', 'total_volume_str'])
-
-        df['time'] = pd.to_datetime(df['time'])
-        df = df.sort_values(by=['ticker', 'time'])
-
-        first_day = df.loc[df.groupby('ticker')['time'].idxmin()]
-        last_day = df.loc[df.groupby('ticker')['time'].idxmax()]
-
-        merged_df = pd.merge(
-            first_day[['ticker', 'plate_name', 'close', 'market_cap']],
-            last_day[['ticker', 'close']],
-            on='ticker',
-            suffixes=['_start', '_end']
-        )
-
-        merged_df['price_change'] = (merged_df['close_end'] - merged_df['close_start']) / merged_df['close_start']
-        
-        # For turnover, get the last N days of data from the df
-        last_n_days_df = df.groupby('ticker').tail(days_back).copy()
-        last_n_days_df['turnover'] = last_n_days_df['close'] * last_n_days_df['volume']
-        total_turnover = last_n_days_df.groupby('ticker')['turnover'].sum().reset_index()
-
-        final_df = pd.merge(merged_df, total_turnover, on='ticker')
-        final_df.rename(columns={'turnover': 'total_volume'}, inplace=True)
-
-        def weighted_avg(group):
-            return (group['price_change'] * group['market_cap']).sum() / group['market_cap'].sum()
-
-        plate_summary = final_df.groupby('plate_name').apply(lambda x: pd.Series({
-            'avg_price_change': weighted_avg(x),
-            'total_volume': x['total_volume'].sum()
-        })).reset_index()
-
-        plate_summary = plate_summary[plate_summary['total_volume'] >= 1e8]
-        plate_summary = plate_summary.sort_values(by='total_volume', ascending=False).head(100)
-
-        plate_summary['total_volume_str'] = (plate_summary['total_volume'] / 1e8).round(2).astype(str) + '亿'
-
-        return plate_summary
 
     def get_plate_cluster(self, plate_name: str) -> str:
         """Returns the plate cluster for a given plate name."""
@@ -147,11 +112,12 @@ class Panel:
             return '互联网'
         return '其他'
 
-    def calculate_stock_summary(self, df: pd.DataFrame, days_back: int) -> pd.DataFrame:
-        """Calculates the stock summary from raw daily data over a period."""
-        logger.info(f"Calculating stock summary. Input data shape: {df.shape}, columns: {df.columns}")
+    def _calculate_summary(self, df: pd.DataFrame, days_back: int, group_col: str, change_col: str, weight_col: str = 'market_cap') -> pd.DataFrame:
+        """
+        Generic method to calculate summary for plate or stock data.
+        """
         if df.empty:
-            return pd.DataFrame(columns=['ticker', 'stock_name', 'plate_name', 'plate_cluster', 'price_change', 'total_volume', 'total_volume_str'])
+            return pd.DataFrame(columns=[group_col, change_col, 'total_volume', 'total_volume_str', 'plate_cluster'])
 
         df['time'] = pd.to_datetime(df['time'])
         df = df.sort_values(by=['ticker', 'time'])
@@ -159,32 +125,61 @@ class Panel:
         first_day = df.loc[df.groupby('ticker')['time'].idxmin()]
         last_day = df.loc[df.groupby('ticker')['time'].idxmax()]
 
+        cols_to_merge = ['ticker', group_col, 'close', weight_col]
+        if 'plate_cluster' in df.columns:
+            cols_to_merge.append('plate_cluster')
+
         merged_df = pd.merge(
-            first_day[['ticker', 'stock_name', 'plate_name', 'plate_cluster', 'close']],
+            first_day[cols_to_merge],
             last_day[['ticker', 'close']],
             on='ticker',
             suffixes=['_start', '_end']
         )
 
         merged_df['price_change'] = (merged_df['close_end'] - merged_df['close_start']) / merged_df['close_start']
-        
-        # For turnover, get the last N days of data from the df
+
         last_n_days_df = df.groupby('ticker').tail(days_back).copy()
         last_n_days_df['turnover'] = last_n_days_df['close'] * last_n_days_df['volume']
         total_turnover = last_n_days_df.groupby('ticker')['turnover'].sum().reset_index()
 
         final_df = pd.merge(merged_df, total_turnover, on='ticker')
         final_df.rename(columns={'turnover': 'total_volume'}, inplace=True)
-        
-        final_df['plate_name'] = final_df['plate_name'].fillna('Unclassified')
-        final_df['plate_cluster'] = final_df['plate_cluster'].fillna('Unclassified')
-        final_df = final_df.sort_values(by='total_volume', ascending=False).head(500)
-        final_df['total_volume_str'] = (final_df['total_volume'] / 1e8).round(2).astype(str) + '亿'
 
-        logger.info(f"Finished calculating stock summary. Output data shape: {final_df.shape}")
-        return final_df
+        def weighted_avg(group):
+            return (group['price_change'] * group[weight_col]).sum() / group[weight_col].sum()
+
+        group_by_cols = [group_col]
+        if 'plate_cluster' in final_df.columns:
+            group_by_cols.append('plate_cluster')
+
+        summary = final_df.groupby(group_by_cols).apply(lambda x: pd.Series({
+            change_col: weighted_avg(x),
+            'total_volume': x['total_volume'].sum()
+        })).reset_index()
+
+        summary = summary[summary['total_volume'] >= 1e8]
+        summary = summary.sort_values(by='total_volume', ascending=False).head(200)
+
+        summary['total_volume_str'] = (summary['total_volume'] / 1e8).round(2).astype(str) + '亿'
+
+        return summary
+
+    def calculate_plate_summary(self, df: pd.DataFrame, days_back: int) -> pd.DataFrame:
+        """
+        Calculates the plate summary using the generic method.
+        """
+        return self._calculate_summary(df, days_back, 'plate_name', 'avg_price_change', 'market_cap')
+
+    def calculate_stock_summary(self, df: pd.DataFrame, days_back: int) -> pd.DataFrame:
+        """
+        Calculates the stock summary using the generic method.
+        """
+        return self._calculate_summary(df, days_back, 'stock_name', 'price_change', 'market_cap')
 
     def register_callbacks(self):
+        """
+        Registers all Dash callbacks for interactivity.
+        """
         @self.app.callback(
             [Output('main-container', 'children'), Output('view-state-store', 'data')],
             [Input('primary-view-selector', 'value'),
@@ -192,14 +187,13 @@ class Panel:
              Input('period-selector', 'value')]
         )
         def display_main_content(primary_view, secondary_view, days_back):
-            children = []
             if primary_view == 'plate':
                 raw_data = self.data_loader.get_plate_summary(days_back=days_back)
-                plate_summary_data = self.calculate_plate_summary(raw_data, days_back)
+                summary_data = self.calculate_plate_summary(raw_data, days_back)
                 if secondary_view == 'heatmap':
-                    children = dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(plate_summary_data, 'plate_name', 'avg_price_change'), style={'height': '80vh'}) # 增加：设置热力图高度，减少空白
+                    children = dcc.Graph(id='plate-treemap', figure=self.create_treemap_figure(summary_data, 'plate_name', 'avg_price_change'), style={'height': '80vh'})
                 elif secondary_view == 'list':
-                    children = self.create_summary_datatable('plate-list-table', plate_summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
+                    children = self.create_summary_datatable('plate-list-table', summary_data, "板块名称", "plate_name", "平均涨跌幅(%)", "avg_price_change")
             elif primary_view == 'stock':
                 logger.info("Fetching data for stock view...")
                 # 1. Get all stock-plate mappings
@@ -220,35 +214,35 @@ class Panel:
                 raw_data['plate_cluster'] = raw_data['plate_name'].apply(self.get_plate_cluster)
                 logger.info(f"Merged data shape: {raw_data.shape}")
 
-                stock_summary_data = self.calculate_stock_summary(raw_data, days_back)
+                summary_data = self.calculate_stock_summary(raw_data, days_back)
                 
                 if secondary_view == 'heatmap':
                     logger.info("Generating clustered stock heatmap...")
                     # Ensure there are no NaN parents and filter them out
-                    stock_summary_data = stock_summary_data.dropna(subset=['plate_name', 'plate_cluster'])
+                    summary_data = summary_data.dropna(subset=['plate_cluster'])
                     
                     # Create a hierarchical dataframe for the treemap
                     df_clusters = pd.DataFrame({
-                        'id': stock_summary_data['plate_cluster'].unique(),
+                        'id': summary_data['plate_cluster'].unique(),
                         'parent': '',
-                        'label': stock_summary_data['plate_cluster'].unique(),
+                        'label': summary_data['plate_cluster'].unique(),
                         'value': 0,
                         'color': 0,
                     })
 
                     df_stocks = pd.DataFrame({
-                        'id': stock_summary_data['stock_name'],
-                        'parent': stock_summary_data['plate_cluster'],
-                        'label': stock_summary_data['stock_name'],
-                        'value': stock_summary_data['total_volume'],
-                        'color': stock_summary_data['price_change'],
+                        'id': summary_data['stock_name'],
+                        'parent': summary_data['plate_cluster'],
+                        'label': summary_data['stock_name'],
+                        'value': summary_data['total_volume'],
+                        'color': summary_data['price_change'],
                     })
 
                     df_treemap = pd.concat([df_clusters, df_stocks], ignore_index=True)
                     
                     customdata = pd.concat([
                         pd.Series([[0, ''] for _ in df_clusters.index]), # Placeholder for clusters
-                        stock_summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1).reset_index(drop=True)
+                        summary_data.apply(lambda row: [row['price_change'], row['total_volume_str']], axis=1).reset_index(drop=True)
                     ], ignore_index=True)
 
                     fig = go.Figure(go.Treemap(
@@ -270,8 +264,8 @@ class Panel:
                     children = dcc.Graph(id='stock-treemap', figure=fig, style={'height': '80vh'})
 
                 elif secondary_view == 'list':
-                    children = self.create_summary_datatable('stock-list-table', stock_summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
-            
+                    children = self.create_summary_datatable('stock-list-table', summary_data, "股票名称", "stock_name", "涨跌幅(%)", "price_change")
+
             new_state = {'view_mode': 'main', 'primary_view': primary_view, 'secondary_view': secondary_view, 'days_back': days_back, 'selected_plate': None}
             return children, new_state
 
@@ -329,7 +323,6 @@ class Panel:
         )
         def render_based_on_state(state):
             if state['view_mode'] == 'main':
-                # Re-generate main view using state values
                 if state['primary_view'] == 'plate':
                     raw_data = self.data_loader.get_plate_summary(days_back=state['days_back'])
                     summary_data = self.calculate_plate_summary(raw_data, state['days_back'])
@@ -362,7 +355,7 @@ class Panel:
                     if state['secondary_view'] == 'heatmap':
                         logger.info("Generating clustered stock heatmap...")
                         # Ensure there are no NaN parents and filter them out
-                        summary_data = summary_data.dropna(subset=['plate_name', 'plate_cluster'])
+                        summary_data = summary_data.dropna(subset=['plate_cluster'])
                         
                         # Create a hierarchical dataframe for the treemap
                         df_clusters = pd.DataFrame({
@@ -412,37 +405,33 @@ class Panel:
                 return self.render_details_view(state['selected_plate'], state['days_back'])
             return dash.no_update
 
-    def create_treemap_figure(self, df, labels_col, colors_col, parents_col=None):
-        """Creates a treemap figure from a DataFrame."""
-        logger.info(f"Creating treemap figure. Input data shape: {df.shape}, labels: {labels_col}, colors: {colors_col}, parents: {parents_col}")
-        if df.empty:
-            return go.Figure()
-
+    def create_treemap_figure(self, df, labels_col, colors_col):
         fixed_cmax = 0.03
         fixed_cmin = -0.03
 
-        parents = df[parents_col] if parents_col and parents_col in df.columns else ["" for _ in df[labels_col]]
-
         treemap_fig = go.Figure(go.Treemap(
             labels=df[labels_col],
-            parents=parents,
+            parents=["" for _ in df[labels_col]],
             values=df['total_volume'],
             customdata=df.apply(lambda row: [row[colors_col], row['total_volume_str']], axis=1),
             texttemplate="%{label}<br>%{customdata[0]:.2%}",
             hovertemplate='<b>%{label}</b><br>Change: %{customdata[0]:.2%}<br>Total Volume: %{customdata[1]}<extra></extra>',
             marker_colors=df[colors_col],
-            marker_colorscale=[[0, '#2ca02c'], [0.4, '#006400'], [0.5, '#ffffff'], [0.6, '#8b0000'], [1, '#ff0000']],  # 美化：优化颜色渐变，更柔和
+            marker_colorscale=[[0, '#2ca02c'], [0.4, '#006400'], [0.5, '#ffffff'], [0.6, '#8b0000'], [1, '#ff0000']],
         ))
         treemap_fig.update_traces(marker_cmin=fixed_cmin, marker_cmax=fixed_cmax)
         treemap_fig.update_layout(
             yaxis_showgrid=False, yaxis_zeroline=False, yaxis_ticks='', yaxis_showticklabels=False,
             xaxis_showgrid=False, xaxis_zeroline=False, xaxis_ticks='', xaxis_showticklabels=False,
-            plot_bgcolor='#f8f9fa',  # 美化：更柔和的背景色
-            margin=dict(l=0, r=0, t=0, b=0)  # 增加：设置边距为0，减少空白
+            plot_bgcolor='#f8f9fa',
+            margin=dict(l=0, r=0, t=0, b=0)
         )
         return treemap_fig
 
     def create_summary_datatable(self, table_id, df, name_col_label, name_col_id, change_col_label, change_col_id):
+        """
+        Creates a styled DataTable for summary data.
+        """
         return dash_table.DataTable(
             id=table_id,
             columns=[
@@ -454,43 +443,30 @@ class Panel:
             sort_action="native",
             filter_action="native",
             style_header={
-                'backgroundColor': '#343a40',  # 美化：深灰色头部
+                'backgroundColor': '#343a40',
                 'color': 'white',
                 'fontWeight': 'bold',
-                'textAlign': 'center'  # 美化：居中对齐
+                'textAlign': 'center'
             },
             style_cell={
                 'textAlign': 'left',
-                'padding': '10px',  # 美化：增加间距
-                'border': '1px solid #dee2e6',  # 美化：浅灰边框
-                'fontSize': '14px'  # 美化：字体大小
+                'padding': '10px',
+                'border': '1px solid #dee2e6',
+                'fontSize': '14px'
             },
             style_data_conditional=[
-                {
-                    'if': {'row_index': 'odd'},
-                    'backgroundColor': '#f8f9fa'
-                },
-                {
-                    'if': {'filter_query': f'{{{change_col_id}}} > 0', 'column_id': change_col_id},
-                    'color': '#dc3545',  # Red for positive change
-                    'fontWeight': 'bold'
-                },
-                {
-                    'if': {'filter_query': f'{{{change_col_id}}} < 0', 'column_id': change_col_id},
-                    'color': '#28a745',  # Green for negative change
-                    'fontWeight': 'bold'
-                },
-                {
-                    'if': {'column_id': name_col_id},
-                    'cursor': 'pointer',
-                    'color': '#007bff',
-                    'textDecoration': 'underline'
-                }
+                {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+                {'if': {'filter_query': f'{{{change_col_id}}} > 0', 'column_id': change_col_id}, 'color': '#dc3545', 'fontWeight': 'bold'},
+                {'if': {'filter_query': f'{{{change_col_id}}} < 0', 'column_id': change_col_id}, 'color': '#28a745', 'fontWeight': 'bold'},
+                {'if': {'column_id': name_col_id}, 'cursor': 'pointer', 'color': '#007bff', 'textDecoration': 'underline'}
             ],
-            style_table={'border': '1px solid #dee2e6', 'borderRadius': '5px', 'overflow': 'hidden'}  # 美化：表格圆角和溢出隐藏
+            style_table={'border': '1px solid #dee2e6', 'borderRadius': '5px', 'overflow': 'hidden'}
         )
 
     def render_details_view(self, plate_name, days_back):
+        """
+        Renders the details view for a selected plate.
+        """
         plate_details_df = self.data_loader.get_plate_details(plate_name, days_back)
 
         columns = [
@@ -513,70 +489,29 @@ class Panel:
         ]
 
         return html.Div([
-            html.Button('Back to Main View', id='back-button', n_clicks=0, className="btn btn-primary mb-3"),  # 美化：使用 Bootstrap 按钮样式
-            html.H2(f"Details for {plate_name}", className="text-primary"),  # 美化：蓝色标题
+            html.Button('Back to Main View', id='back-button', n_clicks=0, className="btn btn-primary mb-3"),
+            html.H2(f"Details for {plate_name}", className="text-primary"),
             dash_table.DataTable(
                 columns=columns,
                 data=plate_details_df.to_dict('records'),
                 sort_action="native",
                 filter_action="native",
-                style_header={
-                    'backgroundColor': '#343a40',
-                    'color': 'white',
-                    'fontWeight': 'bold',
-                    'textAlign': 'center'
-                },
-                style_cell={
-                    'textAlign': 'left',
-                    'padding': '10px',
-                    'border': '1px solid #dee2e6',
-                    'fontSize': '14px'
-                },
+                style_header={'backgroundColor': '#343a40', 'color': 'white', 'fontWeight': 'bold', 'textAlign': 'center'},
+                style_cell={'textAlign': 'left', 'padding': '10px', 'border': '1px solid #dee2e6', 'fontSize': '14px'},
                 style_data_conditional=[
-                    {
-                        'if': {'row_index': 'odd'},
-                        'backgroundColor': '#f8f9fa'
-                    },
-                    {
-                        'if': {'filter_query': '{price_change_pct} > 0', 'column_id': 'price_change_pct'},
-                        'color': '#dc3545',  # Red for positive change
-                        'fontWeight': 'bold'
-                    },
-                    {
-                        'if': {'filter_query': '{price_change_pct} < 0', 'column_id': 'price_change_pct'},
-                        'color': '#28a745',  # Green for negative change
-                        'fontWeight': 'bold'
-                    },
-                    {
-                        'if': {'filter_query': '{pe_ttm} < 15 and {pe_ttm} > 0', 'column_id': 'pe_ttm'},
-                        'backgroundColor': 'rgba(255, 193, 7, 0.3)'  # 美化：黄色高亮
-                    },
-                    {
-                        'if': {'filter_query': '{pb_mrq} < 1 and {pb_mrq} > 0', 'column_id': 'pb_mrq'},
-                        'backgroundColor': 'rgba(255, 193, 7, 0.3)'
-                    },
-                    {
-                        'if': {'filter_query': '{revenue_cagr_3y} > 0.15', 'column_id': 'revenue_cagr_3y'},
-                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'  # 美化：绿色高亮
-                    },
-                    {
-                        'if': {'filter_query': '{net_income_cagr_3y} > 0.15', 'column_id': 'net_income_cagr_3y'},
-                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'
-                    },
-                    {
-                        'if': {'filter_query': '{gross_margin} > 0.40', 'column_id': 'gross_margin'},
-                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'
-                    },
-                    {
-                        'if': {'filter_query': '{net_margin} > 0.10', 'column_id': 'net_margin'},
-                        'backgroundColor': 'rgba(40, 167, 69, 0.3)'
-                    }
+                    {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+                    {'if': {'filter_query': '{price_change_pct} > 0', 'column_id': 'price_change_pct'}, 'color': '#dc3545', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{price_change_pct} < 0', 'column_id': 'price_change_pct'}, 'color': '#28a745', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{pe_ttm} < 15 and {pe_ttm} > 0', 'column_id': 'pe_ttm'}, 'backgroundColor': 'rgba(255, 193, 7, 0.3)'},
+                    {'if': {'filter_query': '{pb_mrq} < 1 and {pb_mrq} > 0', 'column_id': 'pb_mrq'}, 'backgroundColor': 'rgba(255, 193, 7, 0.3)'},
+                    {'if': {'filter_query': '{revenue_cagr_3y} > 0.15', 'column_id': 'revenue_cagr_3y'}, 'backgroundColor': 'rgba(40, 167, 69, 0.3)'},
+                    {'if': {'filter_query': '{net_income_cagr_3y} > 0.15', 'column_id': 'net_income_cagr_3y'}, 'backgroundColor': 'rgba(40, 167, 69, 0.3)'},
+                    {'if': {'filter_query': '{gross_margin} > 0.40', 'column_id': 'gross_margin'}, 'backgroundColor': 'rgba(40, 167, 69, 0.3)'},
+                    {'if': {'filter_query': '{net_margin} > 0.10', 'column_id': 'net_margin'}, 'backgroundColor': 'rgba(40, 167, 69, 0.3)'}
                 ],
                 style_table={'border': '1px solid #dee2e6', 'borderRadius': '5px', 'overflow': 'hidden'}
             )
-        ], className="p-3 bg-white rounded shadow")  # 美化：细节视图容器添加白色背景、圆角和阴影
-
-    # 其他方法和回调函数保持不变（register_callbacks 等）
+        ], className="p-3 bg-white rounded shadow")
 
     def run(self, debug=True):
         try:
