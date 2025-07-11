@@ -67,6 +67,12 @@ class Strategy(ABC):
                                      increasing_line_color='#2ca02c', decreasing_line_color='#ff0000',
                                      increasing_fillcolor='#2ca02c', decreasing_fillcolor='#ff0000'), row=1, col=1)
 
+        # Add Bollinger Bands if they exist
+        if 'BBU_20_2.0' in data.columns and 'BBL_20_2.0' in data.columns and 'BBM_20_2.0' in data.columns:
+            fig.add_trace(go.Scatter(x=data.index, y=data['BBU_20_2.0'], mode='lines', line=dict(color='blue', width=1), name='Upper BB'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=data.index, y=data['BBL_20_2.0'], mode='lines', line=dict(color='blue', width=1), name='Lower BB', fill='tonexty', fillcolor='rgba(0,0,255,0.1)'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=data.index, y=data['BBM_20_2.0'], mode='lines', line=dict(color='blue', width=1, dash='dash'), name='Middle BB'), row=1, col=1)
+
         # Buy and sell signals
         buy_signals = signals[signals['signal'] == 1]
         sell_signals = signals[signals['signal'] == -1]
