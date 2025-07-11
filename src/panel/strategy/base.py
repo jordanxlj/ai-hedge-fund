@@ -58,7 +58,8 @@ class Strategy(ABC):
         # Create a figure with 2 subplots
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                             vertical_spacing=0.05, subplot_titles=('Price and Signals', 'Equity Curve'),
-                            specs=[[{"secondary_y": True}], [{"secondary_y": False}]])
+                            specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
+                            row_heights=[0.7, 0.3])
 
         # Candlestick chart for price
         fig.add_trace(go.Candlestick(x=data.index, open=data['open'], high=data['high'], 
