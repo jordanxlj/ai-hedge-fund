@@ -66,4 +66,4 @@ class Strategy(ABC):
         plotter.plot_line(backtest_results['equity_curve'].to_frame(name='equity'), 'equity', row=2, name='Equity Curve')
 
         # Show the figure
-        plotter.show()
+        plotter.show('Strategy Backtest', ['Price', 'Equity'])
