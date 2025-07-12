@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
 
 class StrategyEvaluator:
     """
@@ -9,6 +12,8 @@ class StrategyEvaluator:
     def __init__(self, strategies: dict, data_loader):
         self.strategies = strategies
         self.data_loader = data_loader
+        self.equity_curves = {}
+        self.drawdown_curves = {}
 
     def run(self, tickers: list, start_date: str, end_date: str, initial_capital: float = 100000.0, risk_free_rate: float = 0.03, visualize: bool = False):
         """
@@ -28,9 +33,12 @@ class StrategyEvaluator:
                 df = self.data_loader.load_daily_prices(tickers=[ticker], start_date=start_date, end_date=end_date)
                 if not df.empty:
                     df = df.set_index('time')
+                    df.index = pd.to_datetime(df.index)
                     backtest_results = strategy.backtest(df, initial_capital)
                     metrics = self.calculate_metrics(backtest_results, df, risk_free_rate)
                     results[f'{strategy_name}_{ticker}'] = metrics
+                    self.equity_curves[f'{strategy_name}_{ticker}'] = backtest_results['equity_curve']
+                    self.drawdown_curves[f'{strategy_name}_{ticker}'] = (backtest_results['equity_curve'] / backtest_results['equity_curve'].cummax() - 1)
                     if visualize:
                         strategy.visualize(df)
         return results
@@ -120,6 +128,44 @@ class StrategyEvaluator:
             'mc_std_return': mc_std
         }
 
+    def visualize_results(self, results_df: pd.DataFrame):
+        """
+        Visualize the evaluation results.
+
+        :param results_df: A DataFrame with the evaluation results.
+        """
+        fig = make_subplots(
+            rows=4,
+            cols=1,
+            subplot_titles=['Equity Curve Comparison', 'Drawdown Curve Comparison', 'Metrics Radar Chart', 'Monthly Returns'],
+            specs=[[{'type': 'xy'}], [{'type': 'xy'}], [{'type': 'polar'}], [{'type': 'xy'}]],
+            vertical_spacing=0.05
+        )
+
+        # Equity Curve Comparison
+        for strategy_name, equity_curve in self.equity_curves.items():
+            fig.add_trace(go.Scatter(x=equity_curve.index, y=(1 + equity_curve.pct_change()).cumprod(), name=strategy_name), row=1, col=1)
+
+        # Drawdown Curve Comparison
+        for strategy_name, drawdown_curve in self.drawdown_curves.items():
+            fig.add_trace(go.Scatter(x=drawdown_curve.index, y=drawdown_curve, name=f'{strategy_name} Drawdown'), row=2, col=1)
+
+        # Metrics Radar Chart
+        metrics_to_plot = ['sharpe_ratio', 'sortino_ratio', 'calmar_ratio', 'win_rate', 'volatility']
+        df_metrics = results_df[metrics_to_plot].reset_index()
+        df_metrics = df_metrics.melt(id_vars='index', var_name='metric', value_name='value')
+        for i, strategy_name in enumerate(df_metrics['index'].unique()):
+            strategy_metrics = df_metrics[df_metrics['index'] == strategy_name]
+            fig.add_trace(go.Scatterpolar(r=strategy_metrics['value'], theta=strategy_metrics['metric'], name=strategy_name, fill='toself'), row=3, col=1)
+
+        # Monthly Returns
+        for strategy_name, equity_curve in self.equity_curves.items():
+            monthly_returns = equity_curve.resample('M').ffill().pct_change()
+            fig.add_trace(go.Scatter(x=monthly_returns.index, y=monthly_returns, name=f'{strategy_name} Monthly Returns'), row=4, col=1)
+
+        fig.update_layout(height=1600, title_text="Strategy Performance Evaluation")
+        fig.show()
+
 if __name__ == '__main__':
     import argparse
     from src.panel.data.data_loader import DataLoader
@@ -134,6 +180,7 @@ if __name__ == '__main__':
     parser.add_argument("--start_date", type=str, help="Start date for data loading (YYYY-MM-DD).")
     parser.add_argument("--end_date", type=str, help="End date for data loading (YYYY-MM-DD).")
     parser.add_argument("--visualize", action='store_true', help="Display strategy visualizations.")
+    parser.add_argument("--no-plot", action='store_true', help="Disable the summary plot.")
 
     args = parser.parse_args()
 
@@ -158,3 +205,6 @@ if __name__ == '__main__':
         
         results_df = pd.DataFrame(results).T
         print(results_df)
+
+        if not args.no_plot:
+            evaluator.visualize_results(results_df)
