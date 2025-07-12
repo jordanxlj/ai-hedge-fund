@@ -51,7 +51,8 @@ class Strategy(ABC):
             'total_return': total_return,
             'max_drawdown': max_drawdown,
             'win_rate': win_rate,
-            'equity_curve': signals['equity']
+            'equity_curve': signals['equity'],
+            'signals': signals
         }
 
     def visualize_strategy(self, data: pd.DataFrame, plotter: Plotter):

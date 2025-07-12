@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import statsmodels.api as sm
 
 class StrategyEvaluator:
     """
@@ -44,21 +45,59 @@ class StrategyEvaluator:
         :return: A dictionary with the calculated metrics.
         """
         equity_curve = backtest_results['equity_curve']
+        signals = backtest_results.get('signals', pd.DataFrame())
         returns = equity_curve.pct_change().dropna()
         total_return = (equity_curve.iloc[-1] - equity_curve.iloc[0]) / equity_curve.iloc[0]
-        annualized_return = (1 + total_return) ** (252 / len(returns)) - 1
-        volatility = returns.std() * np.sqrt(252)
-        max_drawdown = (equity_curve / equity_curve.cummax() - 1).min()
-        sharpe_ratio = (annualized_return - risk_free_rate) / volatility
-        sortino_ratio = (annualized_return - risk_free_rate) / (returns[returns < 0].std() * np.sqrt(252))
+        annualized_return = (1 + total_return) ** (252 / len(returns)) - 1 if len(returns) > 0 else 0
+        volatility = returns.std() * np.sqrt(252) if len(returns) > 0 else 0
+        max_drawdown = (equity_curve / equity_curve.cummax() - 1).min() if not equity_curve.empty else 0
+        sharpe_ratio = (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0
+        downside_vol = returns[returns < 0].std() * np.sqrt(252) if len(returns[returns < 0]) > 0 else 0
+        sortino_ratio = (annualized_return - risk_free_rate) / downside_vol if downside_vol > 0 else 0
         
         benchmark_returns = data['close'].pct_change().dropna()
-        benchmark_total_return = (data['close'].iloc[-1] - data['close'].iloc[0]) / data['close'].iloc[0]
-        benchmark_annualized_return = (1 + benchmark_total_return) ** (252 / len(benchmark_returns)) - 1
+        benchmark_total_return = (data['close'].iloc[-1] - data['close'].iloc[0]) / data['close'].iloc[0] if not data.empty else 0
+        benchmark_annualized_return = (1 + benchmark_total_return) ** (252 / len(benchmark_returns)) - 1 if len(benchmark_returns) > 0 else 0
         
-        information_ratio = (annualized_return - benchmark_annualized_return) / (returns - benchmark_returns).std()
-        win_rate = (returns > 0).mean()
-
+        tracking_error = (returns - benchmark_returns).std() if len(returns) == len(benchmark_returns) else 0
+        information_ratio = (annualized_return - benchmark_annualized_return) / tracking_error if tracking_error > 0 else 0
+        win_rate = (returns > 0).mean() if not returns.empty else 0
+        
+        calmar_ratio = annualized_return / abs(max_drawdown) if max_drawdown != 0 else 0
+        
+        if len(returns) == len(benchmark_returns) and len(returns) > 1:
+            X = sm.add_constant(benchmark_returns)
+            model = sm.OLS(returns, X).fit()
+            alpha = model.params[0]
+            beta = model.params[1]
+        else:
+            alpha = 0
+            beta = 0
+        
+        if not signals.empty and 'position' in signals.columns:
+            trades = signals['position'].diff().abs() > 0
+            num_trades = trades.sum()
+            avg_holding_period = len(signals) / num_trades if num_trades > 0 else 0
+            strategy_returns = signals.get('strategy_returns', returns)
+            profit_loss_ratio = strategy_returns[strategy_returns > 0].mean() / abs(strategy_returns[strategy_returns < 0].mean()) if len(strategy_returns[strategy_returns < 0]) > 0 else 0
+        else:
+            num_trades = 0
+            avg_holding_period = 0
+            profit_loss_ratio = 0
+        
+        consecutive_wins = (returns > 0).astype(int).groupby((returns > 0).ne((returns > 0).shift()).cumsum()).cumsum().max()
+        consecutive_losses = (returns < 0).astype(int).groupby((returns < 0).ne((returns < 0).shift()).cumsum()).cumsum().max()
+        
+        monte_carlo_sims = 100
+        mc_returns = []
+        for _ in range(monte_carlo_sims):
+            shuffled_returns = np.random.permutation(returns)
+            cum_ret = np.prod(1 + shuffled_returns) - 1
+            ann_ret = (1 + cum_ret) ** (252 / len(shuffled_returns)) - 1 if len(shuffled_returns) > 0 else 0
+            mc_returns.append(ann_ret)
+        mc_mean = np.mean(mc_returns) if mc_returns else 0
+        mc_std = np.std(mc_returns) if mc_returns else 0
+        
         return {
             'total_return': total_return,
             'annualized_return': annualized_return,
@@ -68,7 +107,17 @@ class StrategyEvaluator:
             'sharpe_ratio': sharpe_ratio,
             'sortino_ratio': sortino_ratio,
             'information_ratio': information_ratio,
-            'win_rate': win_rate
+            'win_rate': win_rate,
+            'calmar_ratio': calmar_ratio,
+            'alpha': alpha,
+            'beta': beta,
+            'num_trades': num_trades,
+            'avg_holding_period': avg_holding_period,
+            'profit_loss_ratio': profit_loss_ratio,
+            'consecutive_wins': consecutive_wins,
+            'consecutive_losses': consecutive_losses,
+            'mc_mean_return': mc_mean,
+            'mc_std_return': mc_std
         }
 
 if __name__ == '__main__':
