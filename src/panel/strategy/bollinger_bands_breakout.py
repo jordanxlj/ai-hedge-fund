@@ -42,11 +42,11 @@ class BollingerBandsBreakoutStrategy(Strategy):
         :param data: A DataFrame with historical data.
         :param plotter: The plotter instance.
         """
-        upper_band = f'BBU_{self.length}_{self.mult}'
         lower_band = f'BBL_{self.length}_{self.mult}'
+        upper_band = f'BBU_{self.length}_{self.mult}'
         middle_band = f'BBM_{self.length}_{self.mult}'
-        plotter.plot_line(data, upper_band, row=1, name='Upper Band', color='blue')
         plotter.plot_line(data, lower_band, row=1, name='Lower Band', color='blue', fill='tonexty', fillcolor='rgba(0,0,255,0.1)')
+        plotter.plot_line(data, upper_band, row=1, name='Upper Band', color='blue')
         plotter.plot_line(data, middle_band, row=1, name='Middle Band', color='blue', dash='dash')
 
 if __name__ == '__main__':

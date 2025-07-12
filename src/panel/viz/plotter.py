@@ -22,7 +22,6 @@ class Plotter:
             shared_xaxes=True,
             vertical_spacing=0.05,
             subplot_titles=subplot_titles,
-            specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
             row_heights=row_heights
         )
 
