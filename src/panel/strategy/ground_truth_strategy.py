@@ -65,7 +65,7 @@ if __name__ == '__main__':
     parser.add_argument("--ticker", type=str, required=True, help="Ticker symbol to test.")
     parser.add_argument("--start_date", type=str, help="Start date for data loading (YYYY-MM-DD).")
     parser.add_argument("--end_date", type=str, help="End date for data loading (YYYY-MM-DD).")
-    parser.add_argument("--smooth_window", type=int, default=5, help="Smoothing window.")
+    parser.add_argument("--smooth_window", type=int, default=15, help="Smoothing window.")
     parser.add_argument("--order", type=int, default=5, help="Order for extrema detection.")
 
     args = parser.parse_args()

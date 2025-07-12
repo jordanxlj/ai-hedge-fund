@@ -23,6 +23,9 @@ class BollingerBandsBreakoutStrategy(Strategy):
         :return: A DataFrame with a 'signal' column (-1 for sell, 1 for buy, 0 for hold).
         """
         df = data.copy()
+        feature_engine = FeatureEngine()
+        df = feature_engine.add_bollinger_bands(df, window=self.length, std=self.mult)
+
         upper_band = f'BBU_{self.length}_{self.mult}'
         lower_band = f'BBL_{self.length}_{self.mult}'
 
