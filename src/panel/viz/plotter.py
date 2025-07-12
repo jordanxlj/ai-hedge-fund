@@ -25,12 +25,12 @@ class Plotter:
             row_heights=row_heights
         )
 
-    def plot_candlestick(self, data: pd.DataFrame, row: int):
+    def plot_candlestick(self, data: pd.DataFrame, subplot: int):
         """
         Adds a candlestick chart to a specified subplot.
 
         :param data: A DataFrame with 'open', 'high', 'low', and 'close' columns.
-        :param row: The subplot row number (starting from 1).
+        :param subplot: The subplot number (starting from 1).
         """
         self.fig.add_trace(
             go.Candlestick(
@@ -43,17 +43,17 @@ class Plotter:
                 increasing_line_color='#2ca02c', decreasing_line_color='#ff0000',
                 increasing_fillcolor='#2ca02c', decreasing_fillcolor='#ff0000'
             ),
-            row=row,
+            row=subplot,
             col=1
         )
 
-    def plot_bar(self, data: pd.DataFrame, column: str, row: int, name: str = None, color: str = None, width: int = None):
+    def plot_bar(self, data: pd.DataFrame, column: str, subplot: int, name: str = None, color: str = None, width: int = None):
         """
         Adds a bar chart to a specified subplot.
 
         :param data: A DataFrame containing the data.
         :param column: The name of the column to plot.
-        :param row: The subplot row number (starting from 1).
+        :param subplot: The subplot number (starting from 1).
         :param name: An optional legend name.
         :param color: An optional color for the bars.
         :param width: An optional width for the bars.
@@ -66,17 +66,17 @@ class Plotter:
                 marker_color=color,
                 width=width
             ),
-            row=row,
+            row=subplot,
             col=1
         )
 
-    def plot_line(self, data: pd.DataFrame, column: str, row: int, name: str = None, color: str = None, width: int = None, dash: str = 'solid', fill: str = None, fillcolor: str = None):
+    def plot_line(self, data: pd.DataFrame, column: str, subplot: int, name: str = None, color: str = None, width: int = None, dash: str = 'solid', fill: str = None, fillcolor: str = None):
         """
         Adds a line chart to a specified subplot.
 
         :param data: A DataFrame containing the data.
         :param column: The name of the column to plot.
-        :param row: The subplot row number (starting from 1).
+        :param subplot: The subplot number (starting from 1).
         :param name: An optional legend name.
         :param color: An optional color for the line.
         :param width: An optional width for the line.
@@ -94,7 +94,7 @@ class Plotter:
                 fill=fill,
                 fillcolor=fillcolor
             ),
-            row=row,
+            row=subplot,
             col=1
         )
 

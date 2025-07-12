@@ -15,6 +15,16 @@ class BollingerBandsBreakoutStrategy(Strategy):
         self.length = length
         self.mult = mult
 
+    def prepare_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Prepare data for the Bollinger Bands Breakout Strategy.
+
+        :param data: A DataFrame with historical data.
+        :return: A DataFrame with Bollinger Bands.
+        """
+        feature_engine = FeatureEngine()
+        return feature_engine.add_bollinger_bands(data, window=self.length, std=self.mult)
+
     def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Generate trading signals based on Bollinger Bands breakout.
@@ -23,9 +33,6 @@ class BollingerBandsBreakoutStrategy(Strategy):
         :return: A DataFrame with a 'signal' column (-1 for sell, 1 for buy, 0 for hold).
         """
         df = data.copy()
-        feature_engine = FeatureEngine()
-        df = feature_engine.add_bollinger_bands(df, window=self.length, std=self.mult)
-
         upper_band = f'BBU_{self.length}_{self.mult}'
         lower_band = f'BBL_{self.length}_{self.mult}'
 

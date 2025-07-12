@@ -12,6 +12,17 @@ class GroundTruthStrategy(Strategy):
         self.smooth_window = smooth_window
         self.order = order
 
+    def prepare_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Prepare data for the Ground Truth Strategy.
+
+        :param data: A DataFrame with historical data.
+        :return: A DataFrame with a smoothed closing price.
+        """
+        if 'Smoothed' not in data.columns:
+            data['Smoothed'] = data['close'].rolling(window=self.smooth_window, center=True).mean().bfill().ffill()
+        return data
+
     def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Generate trading signals based on local minima and maxima.
@@ -20,8 +31,6 @@ class GroundTruthStrategy(Strategy):
         :return: A DataFrame with a 'signal' column (-1 for sell, 1 for buy, 0 for hold).
         """
         df = data.copy()
-        df['Smoothed'] = df['close'].rolling(window=self.smooth_window, center=True).mean().bfill().ffill()
-
         min_idx = argrelextrema(df['Smoothed'].values, np.less, order=self.order)[0]
         max_idx = argrelextrema(df['Smoothed'].values, np.greater, order=self.order)[0]
 
@@ -51,9 +60,7 @@ class GroundTruthStrategy(Strategy):
         :param data: A DataFrame with historical data.
         :param plotter: The plotter instance.
         """
-        df = data.copy()
-        df['Smoothed'] = df['close'].rolling(window=self.smooth_window, center=True).mean().bfill().ffill()
-        plotter.plot_line(df, 'Smoothed', row=1, name='Smoothed', color='purple', dash='dot')
+        plotter.plot_line(data, 'Smoothed', subplot=1, name='Smoothed', color='purple', dash='dot')
 
 if __name__ == '__main__':
     import argparse

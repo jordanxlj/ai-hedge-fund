@@ -77,8 +77,12 @@ class FeatureEngine:
         """
         Adds Bollinger Bands to the DataFrame.
         """
-        bbands_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.bbands(x[price_col], length=window, std=std, mamode='sma'))
-        return df.join(bbands_df)
+        bbands = ta.bbands(df[price_col], length=window, std=std, mamode='sma')
+        if bbands is not None and not bbands.empty:
+            for col in bbands.columns:
+                if col not in df.columns:
+                    df[col] = bbands[col]
+        return df
 
     def _wavetrend(self, high: pd.Series, low: pd.Series, close: pd.Series, channel_length: int = 10, average_length: int = 21, sma_length: int = 4):
         ap = (high + low + close) / 3
