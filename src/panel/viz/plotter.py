@@ -48,7 +48,7 @@ class Plotter:
             col=1
         )
 
-    def plot_bar(self, data: pd.DataFrame, column: str, row: int, name: str = None):
+    def plot_bar(self, data: pd.DataFrame, column: str, row: int, name: str = None, color: str = None, width: int = None):
         """
         Adds a bar chart to a specified subplot.
 
@@ -56,31 +56,44 @@ class Plotter:
         :param column: The name of the column to plot.
         :param row: The subplot row number (starting from 1).
         :param name: An optional legend name.
+        :param color: An optional color for the bars.
+        :param width: An optional width for the bars.
         """
         self.fig.add_trace(
             go.Bar(
                 x=data.index,
                 y=data[column],
-                name=name or column
+                name=name or column,
+                marker_color=color,
+                width=width
             ),
             row=row,
             col=1
         )
 
-    def plot_line(self, data: pd.DataFrame, column: str, row: int, name: str = None):
+    def plot_line(self, data: pd.DataFrame, column: str, row: int, name: str = None, color: str = None, width: int = None, dash: str = 'solid', fill: str = None, fillcolor: str = None):
         """
         Adds a line chart to a specified subplot.
 
         :param data: A DataFrame containing the data.
+        :param column: The name of the column to plot.
         :param row: The subplot row number (starting from 1).
         :param name: An optional legend name.
+        :param color: An optional color for the line.
+        :param width: An optional width for the line.
+        :param dash: An optional dash style for the line (e.g., 'solid', 'dash', 'dot').
+        :param fill: An optional fill style for the area under the line (e.g., 'tozeroy', 'tonexty').
+        :param fillcolor: An optional color for the fill.
         """
         self.fig.add_trace(
             go.Scatter(
                 x=data.index,
                 y=data[column],
                 mode='lines',
-                name=name
+                name=name,
+                line=dict(color=color, width=width, dash=dash),
+                fill=fill,
+                fillcolor=fillcolor
             ),
             row=row,
             col=1

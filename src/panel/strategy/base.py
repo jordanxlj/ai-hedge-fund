@@ -44,6 +44,15 @@ class Strategy(ABC):
             'equity_curve': signals['equity']
         }
 
+    def visualize_strategy(self, data: pd.DataFrame, plotter: Plotter):
+        """
+        Visualize the strategy's specific indicators.
+
+        :param data: A DataFrame with historical data.
+        :param plotter: The plotter instance.
+        """
+        pass
+
     def visualize(self, data: pd.DataFrame):
         """
         Visualize the strategy's signals and equity curve.
@@ -62,8 +71,11 @@ class Strategy(ABC):
         # Overlay the trading signals on the first subplot
         plotter.plot_signals(signals, row=1)
 
+        # Visualize the strategy's specific indicators
+        self.visualize_strategy(data, plotter)
+
         # Plot the equity curve on the second subplot
-        plotter.plot_line(backtest_results['equity_curve'].to_frame(name='equity'), 'equity', row=2, name='Equity Curve')
+        plotter.plot_line(backtest_results['equity_curve'].to_frame(name='equity'), 'equity', row=2, name='Equity Curve', color='blue', width=2)
 
         # Show the figure
         plotter.show('Strategy Backtest', ['Price', 'Equity'])

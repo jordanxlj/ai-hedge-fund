@@ -4,6 +4,7 @@ import argparse
 from src.panel.strategy.base import Strategy
 from src.panel.data.data_loader import DataLoader
 from src.panel.data.feature_engine import FeatureEngine
+from src.panel.viz.plotter import Plotter
 from src.data.db import get_database_api
 
 class BollingerBandsBreakoutStrategy(Strategy):
@@ -33,6 +34,20 @@ class BollingerBandsBreakoutStrategy(Strategy):
         df['signal'] = df['position'].diff().fillna(0)
 
         return df
+
+    def visualize_strategy(self, data: pd.DataFrame, plotter: Plotter):
+        """
+        Visualize the Bollinger Bands.
+
+        :param data: A DataFrame with historical data.
+        :param plotter: The plotter instance.
+        """
+        upper_band = f'BBU_{self.length}_{self.mult}'
+        lower_band = f'BBL_{self.length}_{self.mult}'
+        middle_band = f'BBM_{self.length}_{self.mult}'
+        plotter.plot_line(data, upper_band, row=1, name='Upper Band', color='blue')
+        plotter.plot_line(data, lower_band, row=1, name='Lower Band', color='blue', fill='tonexty', fillcolor='rgba(0,0,255,0.1)')
+        plotter.plot_line(data, middle_band, row=1, name='Middle Band', color='blue', dash='dash')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Bollinger Bands Breakout Strategy Test")
