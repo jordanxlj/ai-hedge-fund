@@ -99,12 +99,12 @@ class Plotter:
             col=1
         )
 
-    def plot_signals(self, signals: pd.DataFrame, row: int):
+    def plot_signals(self, signals: pd.DataFrame, subplot: int):
         """
         Adds trading signal markers to a specified subplot.
 
         :param signals: A DataFrame with a 'signal' column (1 for buy, -1 for sell).
-        :param row: The subplot row number (starting from 1).
+        :param subplot: The subplot number (starting from 1).
         """
         buy_signals = signals[signals['signal'] == 1]
         sell_signals = signals[signals['signal'] == -1]
@@ -121,7 +121,7 @@ class Plotter:
                 borderwidth=1,
                 borderpad=4,
                 opacity=0.8,
-                row=1, col=1
+                row=subplot, col=1
             )
 
         # Add Sell labels above the high
@@ -136,7 +136,7 @@ class Plotter:
                 borderwidth=1,
                 borderpad=4,
                 opacity=0.8,
-                row=1, col=1
+                row=subplot, col=1
             )
 
     def show(self, title: str, yaxis_titles: list):
@@ -160,7 +160,7 @@ class Plotter:
         # Update axes
         self.fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='#e0e0e0', zeroline=False)
         for index, yaxis_title in enumerate(yaxis_titles):
-            self.fig.update_yaxes(title_text=yaxis_title, row=index, col=1, showgrid=True, gridwidth=1, gridcolor='#e0e0e0')
+            self.fig.update_yaxes(title_text=yaxis_title, row=index+1, col=1, showgrid=True, gridwidth=1, gridcolor='#e0e0e0')
         self.fig.show()
 
 # 示例用法

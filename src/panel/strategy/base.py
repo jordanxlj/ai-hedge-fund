@@ -69,7 +69,7 @@ class Strategy(ABC):
         plotter.plot_candlestick(data, row=1)
 
         # Overlay the trading signals on the first subplot
-        plotter.plot_signals(signals, row=1)
+        plotter.plot_signals(signals, subplot=1)
 
         # Visualize the strategy's specific indicators
         self.visualize_strategy(data, plotter)
