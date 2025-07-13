@@ -74,8 +74,13 @@ class Strategy(ABC):
         signals = self.generate_signals(df)
         backtest_results = self.backtest(df)
 
-        # Create a Plotter instance with two subplots
-        plotter = Plotter(num_subplots=2, subplot_titles=['Price and Signals', 'Equity Curve'], row_heights=[0.7, 0.3])
+        # Create a Plotter instance with three subplots
+        plotter = Plotter(
+            num_subplots=3, 
+            subplot_titles=['Price and Signals', 'Equity Curve', 'Trade Log'], 
+            row_heights=[0.6, 0.2, 0.2],
+            specs=[[{"type": "xy"}], [{"type": "xy"}], [{"type": "domain"}]]
+        )
 
         # Plot the candlestick chart on the first subplot
         plotter.plot_candlestick(df, subplot=1)
@@ -89,5 +94,44 @@ class Strategy(ABC):
         # Plot the equity curve on the second subplot
         plotter.plot_line(backtest_results['equity_curve'].to_frame(name='equity'), 'equity', subplot=2, name='Equity Curve', color='blue', width=2)
 
+        # Create and plot the trade log table
+        trade_log = self.create_trade_log(backtest_results['signals'])
+        if not trade_log.empty:
+            plotter.plot_table(trade_log, subplot=3)
+
         # Show the figure
-        plotter.show('Strategy Backtest', ['Price', 'Equity'])
+        plotter.show('Strategy Backtest', ['Price', 'Equity', 'Trades'])
+
+    def create_trade_log(self, signals: pd.DataFrame) -> pd.DataFrame:
+        """
+        Create a trade log from the signals.
+
+        :param signals: A DataFrame with a 'signal' column.
+        :return: A DataFrame with the trade log.
+        """
+        trade_log = []
+        buy_price = 0
+        accumulated_profit = 0
+
+        for i in range(len(signals)):
+            if signals['signal'].iloc[i] == 1: # Buy signal
+                buy_price = signals['close'].iloc[i]
+                trade_log.append({
+                    'Time': signals.index[i],
+                    'Signal': 'BUY',
+                    'Price': f"{buy_price:.2f}",
+                    'Profit': '' # No profit on buy
+                })
+            elif signals['signal'].iloc[i] == -1 and buy_price != 0: # Sell signal
+                sell_price = signals['close'].iloc[i]
+                profit = (sell_price - buy_price) * 100 # Assuming 100 shares
+                accumulated_profit += profit
+                trade_log.append({
+                    'Time': signals.index[i],
+                    'Signal': 'SELL',
+                    'Price': f"{sell_price:.2f}",
+                    'Profit': f"{accumulated_profit:.2f}"
+                })
+                buy_price = 0 # Reset buy price
+        
+        return pd.DataFrame(trade_log)

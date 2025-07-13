@@ -107,8 +107,9 @@ class FeatureEngine:
         """
         df = self.add_atr(df, period=atr_period)
         
-        df['ph'] = df['high'].rolling(window=pivot_period*2+1, center=True).max()
-        df['pl'] = df['low'].rolling(window=pivot_period*2+1, center=True).min()
+        # Pine Script pivothigh/pivotlow equivalent
+        df['ph'] = df['high'].rolling(window=pivot_period*2+1, center=True).max().shift(-pivot_period)
+        df['pl'] = df['low'].rolling(window=pivot_period*2+1, center=True).min().shift(-pivot_period)
         
         df['center'] = 0.0
         df['last_pp'] = np.where(df['ph'] == df['high'], df['high'], np.where(df['pl'] == df['low'], df['low'], np.nan))
@@ -128,7 +129,7 @@ class FeatureEngine:
 
         df['trend_up'] = 0.0
         df['trend_down'] = 0.0
-        df['trend'] = 0
+        df['trend'] = 1 # Default to 1 as in nz(Trend[1], 1)
 
         for i in range(1, len(df)):
             df.loc[df.index[i], 'trend_up'] = max(df['upper_band'].iloc[i], df['trend_up'].iloc[i-1]) if df['close'].iloc[i-1] > df['trend_up'].iloc[i-1] else df['upper_band'].iloc[i]

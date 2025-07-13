@@ -8,13 +8,14 @@ class Plotter:
     Supports multiple subplots, including candlestick, bar, line, and signal plots.
     """
 
-    def __init__(self, num_subplots: int, subplot_titles: list, row_heights: list):
+    def __init__(self, num_subplots: int, subplot_titles: list, row_heights: list, specs: list = None):
         """
         Initializes the Plotter with a specified number of subplots, titles, and row heights.
 
         :param num_subplots: The number of subplots.
         :param subplot_titles: A list of titles for each subplot.
         :param row_heights: A list of row heights for each subplot.
+        :param specs: A list of subplot specs for mixed chart types.
         """
         self.fig = make_subplots(
             rows=num_subplots,
@@ -22,7 +23,8 @@ class Plotter:
             shared_xaxes=True,
             vertical_spacing=0.05,
             subplot_titles=subplot_titles,
-            row_heights=row_heights
+            row_heights=row_heights,
+            specs=specs
         )
 
     def plot_candlestick(self, data: pd.DataFrame, subplot: int):
@@ -137,6 +139,22 @@ class Plotter:
                 opacity=0.8,
                 row=subplot, col=1
             )
+
+    def plot_table(self, data: pd.DataFrame, subplot: int):
+        """
+        Adds a table to a specified subplot.
+
+        :param data: A DataFrame containing the data for the table.
+        :param subplot: The subplot number (starting from 1).
+        """
+        self.fig.add_trace(
+            go.Table(
+                header=dict(values=list(data.columns), fill_color='paleturquoise', align='left'),
+                cells=dict(values=[data[col] for col in data.columns], fill_color='lavender', align='left')
+            ),
+            row=subplot,
+            col=1
+        )
 
     def show(self, title: str, yaxis_titles: list):
         """
