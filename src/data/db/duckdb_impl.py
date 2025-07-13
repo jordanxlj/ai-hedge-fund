@@ -53,7 +53,7 @@ class DuckDBAPI(DatabaseAPI):
             
             try:
                 logger.info(f"Connecting with read_only: {read_only}, kwargs: {kwargs}")
-                self.conn = duckdb.connect(database=self.db_path, read_only=read_only, **kwargs)
+                self.conn = duckdb.connect(database=self.db_path, read_only=False, **kwargs)
                 logger.info("Database connection successful.")
             except Exception as e:
                 logger.error(f"Failed to connect to database at {self.db_path}: {e}", exc_info=True)
