@@ -149,8 +149,18 @@ class Plotter:
         """
         self.fig.add_trace(
             go.Table(
-                header=dict(values=list(data.columns), fill_color='paleturquoise', align='left'),
-                cells=dict(values=[data[col] for col in data.columns], fill_color='lavender', align='left')
+                header=dict(
+                    values=list(data.columns),
+                    fill_color='#1f77b4',
+                    align='left',
+                    font=dict(color='white', size=14)
+                ),
+                cells=dict(
+                    values=[data[col] for col in data.columns],
+                    fill_color=['#d6eaf8', 'white'] * (len(data) // 2 + 1),
+                    align='left',
+                    font=dict(color='black', size=12)
+                )
             ),
             row=subplot,
             col=1
