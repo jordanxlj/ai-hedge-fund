@@ -111,7 +111,7 @@ class FeatureEngine:
         df['ph'] = df['high'].rolling(window=pivot_period*2+1, center=True).max().shift(-pivot_period)
         df['pl'] = df['low'].rolling(window=pivot_period*2+1, center=True).min().shift(-pivot_period)
         
-        df['center'] = 0.0
+        df['center'] = np.nan
         df['last_pp'] = np.where(df['ph'] == df['high'], df['high'], np.where(df['pl'] == df['low'], df['low'], np.nan))
         df['last_pp'] = df['last_pp'].ffill()
         
@@ -127,8 +127,8 @@ class FeatureEngine:
         df['upper_band'] = df['center'] - (atr_factor * df[f'ATRr_{atr_period}'])
         df['lower_band'] = df['center'] + (atr_factor * df[f'ATRr_{atr_period}'])
 
-        df['trend_up'] = 0.0
-        df['trend_down'] = 0.0
+        df['trend_up'] = np.nan
+        df['trend_down'] = np.nan
         df['trend'] = 1 # Default to 1 as in nz(Trend[1], 1)
 
         for i in range(1, len(df)):
