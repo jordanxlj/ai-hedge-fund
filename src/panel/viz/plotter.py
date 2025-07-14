@@ -65,8 +65,9 @@ class Plotter:
                 x=data.index,
                 y=data[column],
                 name=name or column,
-                marker_color=color,
-                width=width
+                marker_color=color or '#1E90FF',  # Dodger blue
+                width=width,
+                hovertemplate='<b>Date</b>: %{x}<br><b>Value</b>: %{y:.2f}<extra></extra>'
             ),
             row=subplot,
             col=1
@@ -94,7 +95,8 @@ class Plotter:
                 name=name,
                 line=dict(color=color, width=width, dash=dash),
                 fill=fill,
-                fillcolor=fillcolor
+                fillcolor=fillcolor or 'rgba(70, 130, 180, 0.2)',  # Steel blue with transparency
+                hovertemplate='<b>Date</b>: %{x}<br><b>Value</b>: %{y:.2f}<extra></extra>'
             ),
             row=subplot,
             col=1
@@ -121,14 +123,16 @@ class Plotter:
                 bordercolor='#2ca02c',
                 borderwidth=1,
                 borderpad=4,
-                opacity=0.8,
-                row=subplot, col=1
+                opacity=0.9,
+                row=subplot, col=1,
+                hovertext=f"Buy at {row['close']:.2f} on {pd.to_datetime(idx).date()}<br>Low: {row['low']:.2f}",
+                hoverlabel=dict(bgcolor='white', font=dict(color='black'))
             )
 
-        # Add Sell labels above the high
+        # Add Sell labels above the high with tooltips
         for idx, row in sell_signals.iterrows():
             self.fig.add_annotation(
-                x=idx, y=row['high'] * 1.1,  # Adjusted to be further above to avoid overlap
+                x=idx, y=row['high'] * 1.1,
                 text='Sell',
                 showarrow=False,
                 font=dict(color='white', size=12),
@@ -136,8 +140,10 @@ class Plotter:
                 bordercolor='#ff0000',
                 borderwidth=1,
                 borderpad=4,
-                opacity=0.8,
-                row=subplot, col=1
+                opacity=0.9,
+                row=subplot, col=1,
+                hovertext=f"Sell at {row['close']:.2f} on {pd.to_datetime(idx).date()}<br>High: {row['high']:.2f}",
+                hoverlabel=dict(bgcolor='white', font=dict(color='black'))
             )
 
     def plot_table(self, data: pd.DataFrame, subplot: int):
@@ -152,14 +158,16 @@ class Plotter:
                 header=dict(
                     values=list(data.columns),
                     fill_color='#1f77b4',
-                    align='left',
-                    font=dict(color='white', size=14)
+                    align='center',
+                    font=dict(color='white', size=14),
+                    height=30
                 ),
                 cells=dict(
                     values=[data[col] for col in data.columns],
-                    fill_color=['#d6eaf8', 'white'] * (len(data) // 2 + 1),
-                    align='left',
-                    font=dict(color='black', size=12)
+                    fill_color=[['#f0f8ff', 'white'] * (len(data) // 2 + 1)],
+                    align='center',
+                    font=dict(color='black', size=12),
+                    height=25
                 )
             ),
             row=subplot,
@@ -175,13 +183,14 @@ class Plotter:
             title_text=title,
             title_font=dict(size=24, color='#333333', family='Arial Black'),
             xaxis_rangeslider_visible=False,
-            template='plotly_white',  # Clean white theme
-            height=800,
-            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-            margin=dict(l=50, r=50, t=80, b=50),
+            template='plotly_white',
+            height=900,  # Increased height for better visibility
+            legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='center', x=0.5),
+            margin=dict(l=60, r=60, t=100, b=60),
             hovermode='x unified',
             plot_bgcolor='#f8f9fa',
-            paper_bgcolor='#ffffff'
+            paper_bgcolor='#ffffff',
+            showlegend=True
         )
 
         # Update axes

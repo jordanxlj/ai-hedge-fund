@@ -118,7 +118,7 @@ class Strategy(ABC):
         # Visualize the strategy's specific indicators
         self.visualize_strategy(df, plotter)
 
-        # Plot the equity curve on the second subplot
+        # Plot the equity curve on the second subplot with dynamic scaling
         plotter.plot_line(backtest_results['equity_curve'].to_frame(name='equity'), 'equity', subplot=2, name='Equity Curve', color='blue', width=2)
 
         # Create and plot the trade log table
