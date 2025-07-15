@@ -173,6 +173,51 @@ class PNLModule:
         logger.info(f"Computed PNL for {label}: {final_pnl}")
         return final_pnl
 
+    def simulate_positions(self, weights, stocks, strategy_name, initial_capital=100000, rebalance_freq='M'):
+        logger.info(f"Simulating positions for {strategy_name} strategy")
+        prices = self.data_fetcher.prices[stocks]
+        dates = prices.index
+        positions = pd.DataFrame(0, index=dates, columns=stocks)  # Shares held
+        cash = initial_capital
+        portfolio_value = pd.Series(index=dates, dtype=float)
+        actions = []
+
+        for date in dates:
+            current_prices = prices.loc[date]
+            current_value = (positions.loc[date] * current_prices).sum() + cash
+            portfolio_value[date] = current_value
+
+            if date == dates[0] or (date.month != dates[dates.get_loc(date) - 1].month):  # Monthly rebalance
+                target_values = current_value * weights
+                target_shares = (target_values / current_prices).fillna(0).astype(int)
+                share_diff = target_shares - positions.loc[date]
+                logger.info(f"At {date}, target_shares shape: {target_shares.shape}, slice shape: {positions.loc[date:].shape}")
+
+                for stock, diff in share_diff.items():
+                    if diff > 0:
+                        action = f'Buy {diff} shares of {stock}'
+                        cost = diff * current_prices[stock]
+                        cash -= cost
+                    elif diff < 0:
+                        action = f'Sell {-diff} shares of {stock}'
+                        revenue = -diff * current_prices[stock]
+                        cash += revenue
+                    else:
+                        action = f'Hold {stock}'
+                    actions.append({'Date': date, 'Stock': stock, 'Action': action})
+
+                # Update positions after rebalance using broadcasting
+                num_rows = len(positions.loc[date:])
+                positions.loc[date:] = np.tile(target_shares.values, (num_rows, 1))
+
+            # No need for carry-forward as slice is set on rebalance
+
+        actions_df = pd.DataFrame(actions)
+        actions_df.to_csv(f'result/{strategy_name}_position_actions.csv', index=False)
+        logger.info(f"{strategy_name} Position Actions:\n{actions_df}")
+        portfolio_value.to_csv(f'result/{strategy_name}_portfolio_value.csv')
+        logger.info(f"Final portfolio value for {strategy_name}: {portfolio_value.iloc[-1]}")
+
     def run(self):
         self.iteration += 1
         if self.iteration > self.max_iterations:
@@ -192,7 +237,7 @@ class PNLModule:
             return
         expected_returns = selected_returns.mean().values
         cov_matrix = selected_returns.cov(min_periods=1).values
-        logger.info("Original cov_matrix:", cov_matrix)
+        logger.info(f"Original cov_matrix: {cov_matrix}")
         cov_matrix = np.nan_to_num(cov_matrix, nan=0.0)
         cov_matrix = (cov_matrix + cov_matrix.T) / 2
         logger.info(f"Processed cov_matrix (NaNs replaced and symmetrized): {cov_matrix}")
@@ -209,6 +254,19 @@ class PNLModule:
         # Compute PNL
         pnl_aggr = self.compute_pnl(aggressive_weights, selected_stocks, 'Aggressive')
         pnl_cons = self.compute_pnl(conservative_weights, selected_stocks, 'Conservative')
+
+        # Generate buy/sell signals based on weights
+        def generate_signals(weights, stocks, strategy_name):
+            signals_df = pd.DataFrame({'Stock': stocks, 'Weight': weights, 'Signal': ['Buy' if w > 0 else 'Hold' for w in weights]})
+            signals_df.to_csv(f'result/{strategy_name}_signals.csv', index=False)
+            logger.info(f"{strategy_name} Signals:\n{signals_df}")
+
+        generate_signals(aggressive_weights, selected_stocks, 'aggressive')
+        generate_signals(conservative_weights, selected_stocks, 'conservative')
+
+        # Simulate position management
+        self.simulate_positions(aggressive_weights, selected_stocks, 'aggressive')
+        self.simulate_positions(conservative_weights, selected_stocks, 'conservative')
 
         # Closed loop: Re-optimize if PNL below threshold
         if min(pnl_aggr, pnl_cons) < self.pnl_threshold:
