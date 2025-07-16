@@ -46,7 +46,7 @@ class FactorEngine:
         # Momentum Factor
         factors['momentum'] = self.prices.pct_change(252).shift(1)
         # Value Factor (simplified: inverse of price to MA)
-        factors['value'] = 1 / (self.prices / self.prices.rolling(252).mean())
+        #factors['value'] = 1 / (self.prices / self.prices.rolling(252).mean())
         logger.info("Calculated factors: momentum and value")
         return factors
 
@@ -142,52 +142,135 @@ class RiskManager:
 
 # PNL Module (Main Closed-Loop System)
 class PNLModule:
-    def __init__(self, tickers, start_date, end_date, risk_aversion=0.5, pnl_threshold=0.1, max_iterations=5):
+    def __init__(self, tickers, start_date, end_date, risk_aversion=0.5, initial_capital=100000):
         self.tickers = tickers
         self.start_date = start_date
         self.end_date = end_date
         self.risk_aversion = risk_aversion
-        self.pnl_threshold = pnl_threshold
-        self.max_iterations = max_iterations
-        self.iteration = 0
+        self.initial_capital = initial_capital
         self.data_fetcher = DataFetcher(tickers, start_date, end_date)
-        self.factor_engine = FactorEngine(self.data_fetcher.prices)
-        self.factors = self.factor_engine.calculate_factors()
-        self.strategy_gen = StrategyGenerator(self.factors, self.data_fetcher.prices)
-        self.strategies = self.strategy_gen.generate_strategies()
-        self.returns = self.data_fetcher.prices.pct_change().dropna(how='all')
+        self.prices = self.data_fetcher.prices
+        self.returns = self.prices.pct_change().dropna(how='all')
         logger.info(f"Computed returns shape: {self.returns.shape}. Sample returns: {self.returns.head()}")
         logger.info(f"PNLModule initialized. Returns shape: {self.returns.shape}")
 
-    def select_best_strategy(self):
-        best_key = max(self.strategies, key=lambda k: self.strategies[k].filter(like='forward_returns').mean().mean())
+    def get_data_slice(self, end_date):
+        return self.prices.loc[:end_date], self.returns.loc[:end_date]
+
+    def backtest(self):
+        overall_portfolio_value = pd.Series(dtype=float)
+        current_cash = self.initial_capital
+        current_positions = pd.Series(0, index=self.tickers)
+
+        # Initial period: up to 2024-06-30 (calculation only, no simulation)
+        initial_end = pd.to_datetime('2024-06-30')
+        prices_initial, returns_initial = self.get_data_slice(initial_end)
+        factor_engine = FactorEngine(prices_initial)
+        factors = factor_engine.calculate_factors()
+        strategy_gen = StrategyGenerator(factors, prices_initial)
+        strategies = strategy_gen.generate_strategies()
+        factor_data = self.select_best_strategy(strategies)
+        selected_stocks = factor_data.index.get_level_values(1).unique()[:10]
+        selected_returns = returns_initial[selected_stocks].dropna(how='all', axis=1)
+        selected_stocks = selected_returns.columns.tolist()
+        if not selected_stocks:
+            logger.warning("No valid stocks in initial period. Aborting backtest.")
+            return
+        expected_returns = selected_returns.mean().values
+        cov_matrix = selected_returns.cov(min_periods=1).values
+        cov_matrix = np.nan_to_num(cov_matrix, nan=0.0)
+        cov_matrix = (cov_matrix + cov_matrix.T) / 2
+        pm = PortfolioManager(expected_returns, cov_matrix, self.risk_aversion)
+        weights = pm.optimize('aggressive')
+        # Set initial positions at end of period
+        initial_end_date = prices_initial.index[prices_initial.index <= initial_end].max()
+        initial_prices = prices_initial.loc[initial_end_date]
+        initial_values = self.initial_capital * weights
+        initial_shares = (initial_values / initial_prices[selected_stocks]).fillna(0).astype(int)
+        initial_cash = self.initial_capital - (initial_shares * initial_prices[selected_stocks]).sum()
+        initial_pv = pd.Series(self.initial_capital, index=[initial_end])
+        overall_portfolio_value = initial_pv
+        current_positions[selected_stocks] = initial_shares
+        current_cash = initial_cash
+        logger.info(f"Initial positions set at {initial_end}: Shares {initial_shares}, Cash {initial_cash}, Value {self.initial_capital}")
+
+        # Monthly iterations from 2024-07-01 to 2025-07-11
+        dates = pd.date_range(start='2024-07-01', end='2025-07-11', freq='M')
+        for month_end in dates:
+            month_start = month_end - pd.offsets.MonthBegin(1)
+            prices_month, returns_month = self.get_data_slice(month_end)
+            factor_engine = FactorEngine(prices_month)
+            factors = factor_engine.calculate_factors()
+            strategy_gen = StrategyGenerator(factors, prices_month)
+            strategies = strategy_gen.generate_strategies()
+            factor_data = self.select_best_strategy(strategies)
+            selected_stocks = factor_data.index.get_level_values(1).unique()[:10]
+            selected_returns = returns_month[selected_stocks].dropna(how='all', axis=1)
+            selected_stocks = selected_returns.columns.tolist()
+            if not selected_stocks:
+                logger.warning(f"No valid stocks for {month_end}. Skipping month.")
+                continue
+            expected_returns = selected_returns.mean().values
+            cov_matrix = selected_returns.cov(min_periods=1).values
+            cov_matrix = np.nan_to_num(cov_matrix, nan=0.0)
+            cov_matrix = (cov_matrix + cov_matrix.T) / 2
+            pm = PortfolioManager(expected_returns, cov_matrix, self.risk_aversion)
+            new_weights = pm.optimize('aggressive')
+            # Trend-following: adjust weights based on momentum
+            last_date = factors['momentum'].index[factors['momentum'].index <= month_end].max()
+            momentum = factors['momentum'].loc[last_date, selected_stocks]
+            trend_adjust = (momentum > 0).astype(int) * 1.2 + (momentum <= 0).astype(int) * 0.8
+            new_weights *= trend_adjust.values
+            new_weights /= new_weights.sum()  # Renormalize
+            month_pv, month_pos, month_cash = self.simulate_positions(new_weights, selected_stocks, f'month_{month_end.strftime("%Y-%m")}', initial_capital=current_cash, start_date=month_start, end_date=month_end, initial_positions=current_positions[selected_stocks])
+            overall_portfolio_value = pd.concat([overall_portfolio_value, month_pv])
+            current_positions[selected_stocks] = month_pos
+            current_cash = month_cash
+
+        # Plot equity curve
+        plt.figure(figsize=(12, 6))
+        overall_portfolio_value.plot()
+        plt.title('Equity Return Curve')
+        plt.xlabel('Date')
+        plt.ylabel('Portfolio Value')
+        plt.savefig('result/equity_curve.png')
+        logger.info("Saved equity return curve to result/equity_curve.png")
+
+    def select_best_strategy(self, strategies):
+        best_key = max(strategies, key=lambda k: strategies[k].filter(like='forward_returns').mean().mean())
         logger.info(f"Selected best strategy: {best_key}")
-        return self.strategies[best_key]
+        return strategies[best_key]
 
     def compute_pnl(self, weights, selected_stocks, label):
         portfolio_returns = self.returns[selected_stocks] @ weights
         portfolio_returns.name = label
-        pf.create_full_tear_sheet(portfolio_returns)
+        pf.create_full_tear_sheet(portfolio_returns, display_plots=False)
         pnl = portfolio_returns.cumsum()
         final_pnl = pnl.iloc[-1]
         logger.info(f"Computed PNL for {label}: {final_pnl}")
         return final_pnl
 
-    def simulate_positions(self, weights, stocks, strategy_name, initial_capital=100000, rebalance_freq='M'):
-        logger.info(f"Simulating positions for {strategy_name} strategy")
+    def simulate_positions(self, weights, stocks, strategy_name, initial_capital=100000, rebalance_freq='M', start_date=None, end_date=None, initial_positions=None):
+        logger.info(f"Simulating positions for {strategy_name} strategy from {start_date} to {end_date}")
         prices = self.data_fetcher.prices[stocks]
+        if start_date:
+            prices = prices.loc[start_date:]
+        if end_date:
+            prices = prices.loc[:end_date]
         dates = prices.index
         positions = pd.DataFrame(0, index=dates, columns=stocks)  # Shares held
+        if initial_positions is not None:
+            positions.iloc[0] = initial_positions
         cash = initial_capital
         portfolio_value = pd.Series(index=dates, dtype=float)
         actions = []
 
-        for date in dates:
+        for i, date in enumerate(dates):
             current_prices = prices.loc[date]
             current_value = (positions.loc[date] * current_prices).sum() + cash
             portfolio_value[date] = current_value
 
-            if date == dates[0] or (date.month != dates[dates.get_loc(date) - 1].month):  # Monthly rebalance
+            if i == 0 or (date.month != dates[i - 1].month):  # Monthly rebalance
                 target_values = current_value * weights
                 target_shares = (target_values / current_prices).fillna(0).astype(int)
                 share_diff = target_shares - positions.loc[date]
@@ -206,78 +289,18 @@ class PNLModule:
                         action = f'Hold {stock}'
                     actions.append({'Date': date, 'Stock': stock, 'Action': action})
 
-                # Update positions after rebalance using broadcasting
                 num_rows = len(positions.loc[date:])
                 positions.loc[date:] = np.tile(target_shares.values, (num_rows, 1))
-
-            # No need for carry-forward as slice is set on rebalance
 
         actions_df = pd.DataFrame(actions)
         actions_df.to_csv(f'result/{strategy_name}_position_actions.csv', index=False)
         logger.info(f"{strategy_name} Position Actions:\n{actions_df}")
         portfolio_value.to_csv(f'result/{strategy_name}_portfolio_value.csv')
         logger.info(f"Final portfolio value for {strategy_name}: {portfolio_value.iloc[-1]}")
-
-    def run(self):
-        self.iteration += 1
-        if self.iteration > self.max_iterations:
-            logger.info("Max iterations reached. Stopping.")
-            return
-
-        factor_data = self.select_best_strategy()
-        selected_stocks = factor_data.index.get_level_values(1).unique()[:10]  # Top 10 stocks
-        logger.info(f"Selected stocks: {selected_stocks}")
-        selected_returns = self.returns[selected_stocks].dropna(how='all', axis=1)
-        dropped_stocks = set(selected_stocks) - set(selected_returns.columns)
-        logger.info(f"Dropped stocks due to all-NaN returns: {dropped_stocks}")
-        selected_stocks = selected_returns.columns.tolist()
-        logger.info(f"Filtered stocks (after dropping all-NaN columns): {selected_stocks}")
-        if not selected_stocks:
-            logger.warning("No valid stocks with data after filtering. Check data availability for selected tickers. Skipping optimization.")
-            return
-        expected_returns = selected_returns.mean().values
-        cov_matrix = selected_returns.cov(min_periods=1).values
-        logger.info(f"Original cov_matrix: {cov_matrix}")
-        cov_matrix = np.nan_to_num(cov_matrix, nan=0.0)
-        cov_matrix = (cov_matrix + cov_matrix.T) / 2
-        logger.info(f"Processed cov_matrix (NaNs replaced and symmetrized): {cov_matrix}")
-
-        pm = PortfolioManager(expected_returns, cov_matrix, self.risk_aversion)
-        aggressive_weights = pm.optimize('aggressive')
-        conservative_weights = pm.optimize('conservative')
-
-        rm_aggr = RiskManager(self.returns[selected_stocks] @ aggressive_weights)
-        aggressive_weights = rm_aggr.adjust_portfolio(aggressive_weights)
-        rm_cons = RiskManager(self.returns[selected_stocks] @ conservative_weights)
-        conservative_weights = rm_cons.adjust_portfolio(conservative_weights)
-
-        # Compute PNL
-        pnl_aggr = self.compute_pnl(aggressive_weights, selected_stocks, 'Aggressive')
-        pnl_cons = self.compute_pnl(conservative_weights, selected_stocks, 'Conservative')
-
-        # Generate buy/sell signals based on weights
-        def generate_signals(weights, stocks, strategy_name):
-            signals_df = pd.DataFrame({'Stock': stocks, 'Weight': weights, 'Signal': ['Buy' if w > 0 else 'Hold' for w in weights]})
-            signals_df.to_csv(f'result/{strategy_name}_signals.csv', index=False)
-            logger.info(f"{strategy_name} Signals:\n{signals_df}")
-
-        generate_signals(aggressive_weights, selected_stocks, 'aggressive')
-        generate_signals(conservative_weights, selected_stocks, 'conservative')
-
-        # Simulate position management
-        self.simulate_positions(aggressive_weights, selected_stocks, 'aggressive')
-        self.simulate_positions(conservative_weights, selected_stocks, 'conservative')
-
-        # Closed loop: Re-optimize if PNL below threshold
-        if min(pnl_aggr, pnl_cons) < self.pnl_threshold:
-            self.risk_aversion *= 1.2 if pnl_aggr > pnl_cons else 0.8  # Adjust based on which is lower
-            logger.info(f"Iteration {self.iteration}: PNL below threshold. Re-optimizing with risk_aversion={self.risk_aversion}")
-            self.run()
-        else:
-            logger.info(f"Optimal PNL achieved: Aggressive={pnl_aggr:.2f}, Conservative={pnl_cons:.2f}")
+        return portfolio_value, positions.iloc[-1], cash
 
 # Example Usage
 if __name__ == '__main__':
-    tickers = ['0002.HK', '0003.HK', '0139.HK', '1810.HK', '0001.HK', '0690.HK', '2020.HK', '0012.HK', '1044.HK', '1093.HK', '1109.HK', '0267.HK', '0388.HK', '101.HK', '027.HK', '2319.HK', '2331.HK', '9988.HK', '0669.HK', '9633.HK']  # Reduced for demo
-    pnl_module = PNLModule(tickers, '2020-01-01', '2025-07-14')
-    pnl_module.run()
+    tickers = ['0002.HK', '0003.HK', '0139.HK', '1810.HK', '0001.HK', '0690.HK', '2020.HK', '0012.HK', '1044.HK', '1093.HK', '1109.HK', '0267.HK', '0388.HK', '101.HK', '027.HK', '2319.HK', '2331.HK', '9988.HK', '0669.HK', '9633.HK']
+    pnl_module = PNLModule(tickers, '2020-01-01', '2025-07-11')
+    pnl_module.backtest()
