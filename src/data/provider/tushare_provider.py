@@ -197,9 +197,9 @@ class TushareProvider(AbstractDataProvider):
             ]
 
             # 抓取三大报表
-            income_df = self._fetch_data('income_vip', effective_ticker, end_date_ts, get_tushare_fields('income', income_fields))
-            balance_df = self._fetch_data('balancesheet_vip', effective_ticker, end_date_ts, get_tushare_fields('balance', balance_fields))
-            cashflow_df = self._fetch_data('cashflow_vip', effective_ticker, end_date_ts, get_tushare_fields('cashflow', cashflow_fields))
+            income_df = self._fetch_data('income', effective_ticker, end_date_ts, get_tushare_fields('income', income_fields))
+            balance_df = self._fetch_data('balancesheet', effective_ticker, end_date_ts, get_tushare_fields('balance', balance_fields))
+            cashflow_df = self._fetch_data('cashflow', effective_ticker, end_date_ts, get_tushare_fields('cashflow', cashflow_fields))
 
             # 处理三大报表
             income_data = self._process_dataframe(income_df, income_fields, 'income') if income_df is not None else {}
@@ -310,6 +310,155 @@ class TushareProvider(AbstractDataProvider):
         except Exception as e:
             logger.error(f"获取财务画像失败 {ticker}: {e}", exc_info=True)
             return []
+
+    def _fetch_data_all(self, api_method: str, period: str, fields: str) -> Optional[pd.DataFrame]:
+        """批量获取三大报表数据：按 period 返回全市场数据。"""
+        try:
+            df = getattr(self.pro, api_method)(
+                period=period,
+                fields=fields,
+            )
+            if df is None or df.empty:
+                logger.debug(f"No data found for {api_method} at period {period}")
+                return None
+            logger.debug(f"Fetched ALL {api_method} data: {len(df)} rows")
+            return df
+        except Exception as e:
+            logger.error(f"批量获取 {api_method} 失败 (period={period}): {e}")
+            return None
+
+    def get_all_financial_profiles(
+        self,
+        end_date: str,
+        limit: int = 1,
+    ) -> List[FinancialProfile]:
+        """
+        使用 income_vip / balancesheet_vip / cashflow_vip 的批量接口（period 参数）
+        获取全市场指定报告期的基础三大报表数据，并生成 FinancialProfile 列表。
+
+        说明：此方法不会逐只股票调用 API，而是一次性获取全市场数据。
+        """
+        if not self.is_available():
+            logger.error("Tushare API not initialized")
+            return []
+
+        period_str = self._convert_date_format(end_date)
+
+        income_fields = [
+            'revenue', 'operating_profit', 'total_profit', 'net_income',
+            'basic_eps', 'total_cost_of_goods_sold', 'selling_expenses',
+            'administrative_expenses', 'finance_expenses', 'investment_income',
+            'interest_expense', 'operating_expense', 'ebit', 'ebitda',
+            'income_tax_expense'
+        ]
+        balance_fields = [
+            'total_assets', 'total_liabilities', 'shareholders_equity',
+            'current_assets', 'current_liabilities', 'accounts_receivable',
+            'inventories', 'accounts_payable', 'fixed_assets',
+            'long_term_borrowings', 'research_and_development', 'goodwill',
+            'intangible_assets', 'short_term_borrowings'
+        ]
+        cashflow_fields = [
+            'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
+            'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
+            'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
+            'net_cash_increase', 'cash_from_investments',
+            'dividends_and_other_cash_distributions', 'cash_and_equivalents'
+        ]
+
+        income_df = self._fetch_data_all('income_vip', period='20241231', fields=get_tushare_fields('income', income_fields))
+        balance_df = self._fetch_data_all('balancesheet_vip', period='20241231', fields=get_tushare_fields('balance', balance_fields))
+        cashflow_df = self._fetch_data_all('cashflow_vip', period='20241231', fields=get_tushare_fields('cashflow', cashflow_fields))
+
+        if all(df is None or df.empty for df in [income_df, balance_df, cashflow_df]):
+            logger.warning(f"三大报表批量接口在 {period_str} 无数据")
+            return []
+
+        # 分 ticker 处理，合并三大报表。此处为内存分组，不会触发额外 API 请求。
+        profiles: List[FinancialProfile] = []
+        tickers: set[str] = set()
+        for df in [income_df, balance_df, cashflow_df]:
+            if df is not None and not df.empty and 'ts_code' in df.columns:
+                tickers.update(df['ts_code'].astype(str).unique())
+
+        logger.info(f"三大报表批量 period={period_str} 覆盖股票数: {len(tickers)}")
+
+        for ts_code in tickers:
+            inc_sub = income_df[income_df['ts_code'] == ts_code] if income_df is not None and 'ts_code' in income_df.columns else None
+            bal_sub = balance_df[balance_df['ts_code'] == ts_code] if balance_df is not None and 'ts_code' in balance_df.columns else None
+            cfs_sub = cashflow_df[cashflow_df['ts_code'] == ts_code] if cashflow_df is not None and 'ts_code' in cashflow_df.columns else None
+
+            income_data = self._process_dataframe(inc_sub, income_fields, 'income') if inc_sub is not None and not inc_sub.empty else {}
+            balance_data = self._process_dataframe(bal_sub, balance_fields, 'balance') if bal_sub is not None and not bal_sub.empty else {}
+            cashflow_data = self._process_dataframe(cfs_sub, cashflow_fields, 'cashflow') if cfs_sub is not None and not cfs_sub.empty else {}
+
+            # 仅使用三大报表合并，不额外获取财务指标/估值
+            currency = "CNY"  # 批量接口主要覆盖 A 股
+            aggregated = self._aggregate_data(income_data, balance_data, cashflow_data, ts_code, self._get_period_type(end_date), currency)
+
+            for report_period in sorted(aggregated.keys()):
+                base = aggregated[report_period]
+                profile_data: Dict[str, float] = {**base}
+                profile_data['ticker'] = ts_code
+                profile_data.setdefault('currency', currency)
+                profile_data.setdefault('report_period', report_period)
+                profile_data.setdefault('period', self._get_period_type(report_period))
+                profile_data.setdefault('name', ts_code)
+
+                # 字段别名与派生计算（保持与单只接口一致）
+                if 'operating_profit' in profile_data and profile_data.get('operating_income') is None:
+                    profile_data['operating_income'] = profile_data.get('operating_profit')
+                if 'short_term_borrowings' in profile_data and profile_data.get('short_term_debt') is None:
+                    profile_data['short_term_debt'] = profile_data.get('short_term_borrowings')
+                if 'long_term_borrowings' in profile_data and profile_data.get('long_term_debt') is None:
+                    profile_data['long_term_debt'] = profile_data.get('long_term_borrowings')
+                if profile_data.get('sales_expense_ratio') is None:
+                    if 'sales_expense_to_revenue' in profile_data:
+                        profile_data['sales_expense_ratio'] = profile_data.get('sales_expense_to_revenue')
+                    elif profile_data.get('selling_expenses') is not None and profile_data.get('revenue'):
+                        try:
+                            profile_data['sales_expense_ratio'] = profile_data['selling_expenses'] / profile_data['revenue'] if profile_data['revenue'] else None
+                        except Exception:
+                            pass
+                if profile_data.get('operating_profit_to_total_profit') is None and 'operating_profit_to_ebt' in profile_data:
+                    profile_data['operating_profit_to_total_profit'] = profile_data.get('operating_profit_to_ebt')
+                if profile_data.get('operating_revenue_cash_cover') is None and 'sales_cash_to_operating_revenue' in profile_data:
+                    profile_data['operating_revenue_cash_cover'] = profile_data.get('sales_cash_to_operating_revenue')
+                ca = profile_data.get('current_assets')
+                cl = profile_data.get('current_liabilities')
+                if profile_data.get('working_capital') is None and ca is not None and cl is not None:
+                    profile_data['working_capital'] = ca - cl
+                gw = profile_data.get('goodwill')
+                ia = profile_data.get('intangible_assets')
+                if profile_data.get('goodwill_and_intangible_assets') is None and gw is not None and ia is not None:
+                    profile_data['goodwill_and_intangible_assets'] = gw + ia
+                ocf = profile_data.get('operating_cash_flow')
+                capex = profile_data.get('capital_expenditure')
+                if profile_data.get('capex_to_operating_cash_flow') is None and ocf is not None and ocf != 0 and capex is not None:
+                    try:
+                        profile_data['capex_to_operating_cash_flow'] = capex / ocf
+                    except Exception:
+                        pass
+                if profile_data.get('current_assets_ratio') is None and 'current_assets_to_total_assets' in profile_data:
+                    profile_data['current_assets_ratio'] = profile_data.get('current_assets_to_total_assets')
+                if profile_data.get('current_liabilities_ratio') is None and 'current_debt_to_total_debt' in profile_data:
+                    profile_data['current_liabilities_ratio'] = profile_data.get('current_debt_to_total_debt')
+                ltd = profile_data.get('long_term_debt')
+                ta = profile_data.get('total_assets')
+                if profile_data.get('long_term_debt_to_assets_ratio') is None and ltd is not None and ta:
+                    try:
+                        profile_data['long_term_debt_to_assets_ratio'] = ltd / ta if ta else None
+                    except Exception:
+                        pass
+
+                try:
+                    profiles.append(FinancialProfile(**profile_data))
+                except Exception as e:
+                    logger.warning(f"创建FinancialProfile失败 {ts_code} - {report_period}: {e}")
+
+        # 如果需要限制返回条数，可在上层按 ticker+period 过滤；此处直接返回所有。
+        logger.info(f"批量生成 FinancialProfile 完成：{len(profiles)} 条")
+        return profiles
 
     @with_timeout_retry("get_financial_metrics")
     def get_financial_metrics(

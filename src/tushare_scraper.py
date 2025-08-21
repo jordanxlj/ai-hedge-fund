@@ -37,7 +37,7 @@ class TushareScraper:
         logger.info(f"Fetching stock basic information for exchange: {exchange}")
         df = self.provider.get_stock_basic(exchange)
         if df is None or df.empty:
-            logger.warning(f"No stock basic data retrieved for market: {market}")
+            logger.warning(f"No stock basic data retrieved for exchange: {exchange}")
             return
 
         company_facts_objects = [
@@ -157,6 +157,31 @@ class TushareScraper:
         except Exception as e:
             logger.error(f"Failed to fetch/store financial profile for {ticker}: {e}")
 
+    def scrape_all_financial_profiles(self, end_date: str, limit: int = 1, batch_size: int = 2000):
+        """Fetch all stocks' financial profiles via bulk VIP endpoints and upsert in batches."""
+        try:
+            logger.info(f"Fetching ALL financial profiles for report period ending {end_date} (limit={limit}) via VIP bulk endpoints...")
+            profiles = self.provider.get_all_financial_profiles(end_date=end_date, limit=limit)
+            if not profiles:
+                logger.warning("No financial profiles returned from bulk VIP endpoints.")
+                return
+
+            table_name = "cn_financial_profile"
+            primary_keys = ["ticker", "report_period"]
+            self.db.create_table_from_model(table_name, FinancialProfile, primary_keys)
+
+            total = len(profiles)
+            start = 0
+            while start < total:
+                end = min(start + batch_size, total)
+                batch = profiles[start:end]
+                self.db.upsert_data_from_models(table_name, batch, primary_keys)
+                logger.info(f"Upserted {start + 1}-{end} of {total} financial profile records.")
+                start = end
+            logger.info("Completed bulk upsert for ALL financial profiles.")
+        except Exception as e:
+            logger.error(f"Failed to fetch/store ALL financial profiles: {e}")
+
     def get_all_cn_company_tickers(self) -> list[str]:
         """Retrieve all tickers from cn_company_facts table."""
         try:
@@ -194,11 +219,11 @@ if __name__ == "__main__":
             scraper.scrape_stock_basic(args.exchange)
         elif args.fetch_financial_profile and args.ticker and args.end_date:
             if args.ticker.strip().lower() == "all":
-                tickers = scraper.get_all_cn_company_tickers()
+                scraper.scrape_all_financial_profiles(args.end_date, limit=args.limit)
             else:
                 tickers = [t.strip() for t in args.ticker.split(",") if t.strip()]
-            for t in tickers:
-                scraper.scrape_financial_profile(t, args.end_date, args.period, args.limit)
+                for t in tickers:
+                    scraper.scrape_financial_profile(t, args.end_date, args.period, args.limit)
         elif args.start_date and args.end_date:
             scraper.run(args.start_date, args.end_date)
         else:
