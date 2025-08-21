@@ -312,3 +312,12 @@ class StockPlateMapping(BaseModel):
     market: str  # e.g., "HK", "SH", "SZ"
 
     model_config = {"extra": "allow"}
+
+class Plate(BaseModel):
+    """Represents a plate (sector/industry) from Tushare."""
+    ts_code: str
+    name: str
+    market: str
+    type: str
+    list_date: str
+    src: str

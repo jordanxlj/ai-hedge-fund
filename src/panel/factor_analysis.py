@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 from src.utils.log_util import logger_setup as _init_logging
+from sklearn.covariance import LedoitWolf
 
 _init_logging()
 logger = logging.getLogger(__name__)
@@ -28,6 +29,8 @@ class DataFetcher:
         data = yf.download(self.tickers, start=self.start_date, end=self.end_date)
         prices = data['Close']
         prices.index = prices.index.tz_localize(None)
+        # Forward-fill NaNs
+        prices = prices.ffill()
         # Filter out tickers with insufficient data
         valid_tickers = [ticker for ticker in prices.columns if prices[ticker].dropna().shape[0] >= 252]
         prices = prices[valid_tickers]
@@ -45,9 +48,12 @@ class FactorEngine:
         factors = {}
         # Momentum Factor
         factors['momentum'] = self.prices.pct_change(252).shift(1)
-        # Value Factor (simplified: inverse of price to MA)
-        #factors['value'] = 1 / (self.prices / self.prices.rolling(252).mean())
-        logger.info("Calculated factors: momentum and value")
+        # Volatility Factor (inverse for low-vol preference)
+        returns = self.prices.pct_change()
+        factors['volatility'] = 1 / returns.rolling(252).std().shift(1)
+        # Composite Factor (average of momentum and volatility)
+        factors['composite'] = (factors['momentum'] + factors['volatility']) / 2
+        logger.info("Calculated factors: momentum, volatility, and composite")
         return factors
 
     def normalize_factors(self, factor):
@@ -183,19 +189,20 @@ class PNLModule:
         pm = PortfolioManager(expected_returns, cov_matrix, self.risk_aversion)
         weights = pm.optimize('aggressive')
         # Set initial positions at end of period
-        initial_end_date = prices_initial.index[prices_initial.index <= initial_end].max()
+        initial_end_date = prices_initial.index.max()
         initial_prices = prices_initial.loc[initial_end_date]
         initial_values = self.initial_capital * weights
         initial_shares = (initial_values / initial_prices[selected_stocks]).fillna(0).astype(int)
         initial_cash = self.initial_capital - (initial_shares * initial_prices[selected_stocks]).sum()
-        initial_pv = pd.Series(self.initial_capital, index=[initial_end])
+        initial_pv = pd.Series(self.initial_capital, index=[initial_end_date])
         overall_portfolio_value = initial_pv
         current_positions[selected_stocks] = initial_shares
         current_cash = initial_cash
-        logger.info(f"Initial positions set at {initial_end}: Shares {initial_shares}, Cash {initial_cash}, Value {self.initial_capital}")
+        logger.info(f"Initial positions set at {initial_end_date}: Shares {initial_shares}, Cash {initial_cash}, Value {self.initial_capital}")
 
-        # Monthly iterations from 2024-07-01 to 2025-07-11
-        dates = pd.date_range(start='2024-07-01', end='2025-07-11', freq='M')
+        # Monthly iterations from 2024-07-01 to min(2025-07-11, last data date)
+        last_data_date = self.prices.index.max()
+        dates = pd.date_range(start='2024-07-01', end=min(pd.to_datetime('2025-07-11'), last_data_date), freq='M')
         for month_end in dates:
             month_start = month_end - pd.offsets.MonthBegin(1)
             prices_month, returns_month = self.get_data_slice(month_end)
@@ -251,53 +258,66 @@ class PNLModule:
         return final_pnl
 
     def simulate_positions(self, weights, stocks, strategy_name, initial_capital=100000, rebalance_freq='M', start_date=None, end_date=None, initial_positions=None):
-        logger.info(f"Simulating positions for {strategy_name} strategy from {start_date} to {end_date}")
-        prices = self.data_fetcher.prices[stocks]
-        if start_date:
-            prices = prices.loc[start_date:]
-        if end_date:
-            prices = prices.loc[:end_date]
-        dates = prices.index
-        positions = pd.DataFrame(0, index=dates, columns=stocks)  # Shares held
-        if initial_positions is not None:
-            positions.iloc[0] = initial_positions
-        cash = initial_capital
-        portfolio_value = pd.Series(index=dates, dtype=float)
-        actions = []
+        try:
+            logger.info(f"Simulating positions for {strategy_name} strategy from {start_date} to {end_date}")
+            prices = self.data_fetcher.prices[stocks]
+            if start_date:
+                prices = prices.loc[start_date:]
+            if end_date:
+                prices = prices.loc[:end_date]
+            # Check if prices are constant (future data)
+            if (prices.std() == 0).all():
+                logger.warning(f"Prices are constant for {strategy_name} period. Skipping rebalancing and carrying forward value.")
+                dates = prices.index
+                portfolio_value = pd.Series(initial_capital, index=dates)
+                return portfolio_value, initial_positions, initial_capital
+            dates = prices.index
+            positions = pd.DataFrame(0, index=dates, columns=stocks)  # Shares held
+            if initial_positions is not None:
+                positions.iloc[0] = initial_positions
+            cash = initial_capital
+            portfolio_value = pd.Series(index=dates, dtype=float)
+            actions = []
+            transaction_cost_rate = 0.001  # 0.1%
 
-        for i, date in enumerate(dates):
-            current_prices = prices.loc[date]
-            current_value = (positions.loc[date] * current_prices).sum() + cash
-            portfolio_value[date] = current_value
+            for i, date in enumerate(dates):
+                current_prices = prices.loc[date]
+                current_value = (positions.loc[date] * current_prices).sum() + cash
+                portfolio_value[date] = current_value
 
-            if i == 0 or (date.month != dates[i - 1].month):  # Monthly rebalance
-                target_values = current_value * weights
-                target_shares = (target_values / current_prices).fillna(0).astype(int)
-                share_diff = target_shares - positions.loc[date]
-                logger.info(f"At {date}, target_shares shape: {target_shares.shape}, slice shape: {positions.loc[date:].shape}")
+                if i == 0 or (date.month != dates[i - 1].month):  # Monthly rebalance
+                    logger.info(f"Pre-rebalance at {date}: Cash {cash}, Value {current_value}")
+                    target_values = current_value * weights
+                    target_shares = (target_values / current_prices).fillna(0).astype(int)
+                    share_diff = target_shares - positions.loc[date]
+                    logger.info(f"At {date}, target_shares shape: {target_shares.shape}, slice shape: {positions.loc[date:].shape}")
 
-                for stock, diff in share_diff.items():
-                    if diff > 0:
-                        action = f'Buy {diff} shares of {stock}'
-                        cost = diff * current_prices[stock]
-                        cash -= cost
-                    elif diff < 0:
-                        action = f'Sell {-diff} shares of {stock}'
-                        revenue = -diff * current_prices[stock]
-                        cash += revenue
-                    else:
-                        action = f'Hold {stock}'
-                    actions.append({'Date': date, 'Stock': stock, 'Action': action})
+                    for stock, diff in share_diff.items():
+                        trade_amount = abs(diff) * current_prices[stock]
+                        cost = trade_amount * transaction_cost_rate
+                        if diff > 0:
+                            action = f'Buy {diff} shares of {stock}'
+                            cash -= (trade_amount + cost)
+                        elif diff < 0:
+                            action = f'Sell {-diff} shares of {stock}'
+                            cash += (trade_amount - cost)
+                        else:
+                            action = f'Hold {stock}'
+                        actions.append({'Date': date, 'Stock': stock, 'Action': action, 'Cost': cost})
 
-                num_rows = len(positions.loc[date:])
-                positions.loc[date:] = np.tile(target_shares.values, (num_rows, 1))
+                    num_rows = len(positions.loc[date:])
+                    positions.loc[date:] = np.tile(target_shares.values, (num_rows, 1))
+                    logger.info(f"Post-rebalance at {date}: Cash {cash}, Value {(positions.loc[date] * current_prices).sum() + cash}")
 
-        actions_df = pd.DataFrame(actions)
-        actions_df.to_csv(f'result/{strategy_name}_position_actions.csv', index=False)
-        logger.info(f"{strategy_name} Position Actions:\n{actions_df}")
-        portfolio_value.to_csv(f'result/{strategy_name}_portfolio_value.csv')
-        logger.info(f"Final portfolio value for {strategy_name}: {portfolio_value.iloc[-1]}")
-        return portfolio_value, positions.iloc[-1], cash
+            actions_df = pd.DataFrame(actions)
+            actions_df.to_csv(f'result/{strategy_name}_position_actions.csv', index=False)
+            logger.info(f"{strategy_name} Position Actions:\n{actions_df}")
+            portfolio_value.to_csv(f'result/{strategy_name}_portfolio_value.csv')
+            logger.info(f"Final portfolio value for {strategy_name}: {portfolio_value.iloc[-1]}")
+            return portfolio_value, positions.iloc[-1], cash
+        except Exception as e:
+            logger.error(f"Simulation failed for {strategy_name}: {e}")
+            return pd.Series(), pd.Series(), initial_capital
 
 # Example Usage
 if __name__ == '__main__':

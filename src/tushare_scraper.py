@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from src.data.db import get_database_api, DatabaseAPI
 from src.data.provider.tushare_provider import TushareProvider
 from src.utils.log_util import logger_setup as _init_logging
-from src.data.models import Price
+from src.data.models import Price, CompanyFacts, FinancialProfile
 
 _init_logging()
 logger = logging.getLogger(__name__)
@@ -31,6 +31,32 @@ class TushareScraper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit point. Closes the database connection."""
         self.db.close()
+
+    def scrape_stock_basic(self, exchange: str):
+        """Fetches stock basic information from Tushare and stores it in the database."""
+        logger.info(f"Fetching stock basic information for exchange: {exchange}")
+        df = self.provider.get_stock_basic(exchange)
+        if df is None or df.empty:
+            logger.warning(f"No stock basic data retrieved for market: {market}")
+            return
+
+        company_facts_objects = [
+            CompanyFacts(
+                ticker=row.ts_code,
+                name=row.name,
+                industry=row.industry,
+                market=row.market,
+                listing_date=row.list_date,
+                location=row.area,
+            )
+            for row in df.itertuples()
+        ]
+
+        table_name = "cn_company_facts"
+        primary_keys = ["ticker"]
+        self.db.create_table_from_model(table_name, CompanyFacts, primary_keys)
+        self.db.upsert_data_from_models(table_name, company_facts_objects, primary_keys)
+        logger.info(f"Successfully stored {len(company_facts_objects)} records for exchange: {exchange}.")
 
     def get_hk_stock_tickers(self) -> list[str]:
         """
@@ -65,7 +91,7 @@ class TushareScraper:
         df = self.provider.get_stock_minute(ts_code, start_date=start_date, end_date=end_date)
         return df
 
-    def run(self, start_date: str, end_date: str):
+    def run(self, start_date: str, end_date: str, fetch_basic=False, fetch_plates=False):
         """
         Fetches minute-level price data for all HK stocks for a given date range and stores it in the database.
         """
@@ -114,12 +140,49 @@ class TushareScraper:
 
         logger.info("Tushare minute data scraping finished.")
 
+    def scrape_financial_profile(self, ticker: str, end_date: str, period: str = "annual", limit: int = 10):
+        """Fetch financial profile for a ticker and store it in the database."""
+        try:
+            logger.info(f"Fetching financial profile for {ticker} (end_date={end_date}, period={period}, limit={limit})")
+            profiles = self.provider.get_financial_profile(ticker=ticker, end_date=end_date, period=period, limit=limit)
+            if not profiles:
+                logger.warning(f"No financial profile data returned for {ticker}.")
+                return
+
+            table_name = "cn_financial_profiles"
+            primary_keys = ["ticker", "report_period"]
+            self.db.create_table_from_model(table_name, FinancialProfile, primary_keys)
+            self.db.upsert_data_from_models(table_name, profiles, primary_keys)
+            logger.info(f"Stored {len(profiles)} financial profile records for {ticker}.")
+        except Exception as e:
+            logger.error(f"Failed to fetch/store financial profile for {ticker}: {e}")
+
+    def get_all_cn_company_tickers(self) -> list[str]:
+        """Retrieve all tickers from cn_company_facts table."""
+        try:
+            query = "SELECT DISTINCT ticker FROM cn_company_facts"
+            df = self.db.query_to_dataframe(query)
+            if df.empty:
+                logger.warning("No tickers found in 'cn_company_facts'.")
+                return []
+            return [str(row["ticker"]) for _, row in df.iterrows()]
+        except Exception as e:
+            logger.error(f"Error fetching tickers from 'cn_company_facts': {e}")
+            return []
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Scrape minute-level stock data from Tushare.")
-    parser.add_argument("--start_date", type=str, required=True, help="Start date in YYYY-MM-DD format.")
-    parser.add_argument("--end_date", type=str, required=True, help="End date in YYYY-MM-DD format.")
+    parser = argparse.ArgumentParser(description="Scrape data from Tushare.")
+    parser.add_argument("--start_date", type=str, help="Start date in YYYY-MM-DD format.")
+    parser.add_argument("--end_date", type=str, help="End date in YYYY-MM-DD format.")
     parser.add_argument("--db_path", type=str, default="data/futu_financials.duckdb", help="Path to the database file.")
+    parser.add_argument("--fetch_stock_basic", action="store_true", help="Fetch stock basic info.")
+    parser.add_argument("--exchange", type=str, default="", help="The exchange to fetch stock basic info from (e.g., 'HK', 'SSE', 'SZSE').")
+    parser.add_argument("--fetch_financial_profile", action="store_true", help="Fetch financial profile for a ticker.")
+    parser.add_argument("--ticker", type=str, help="Ticker code (e.g., 600519.SH or 00700.HK). For multiple, separate by comma.")
+    parser.add_argument("--period", type=str, default="annual", help="Period for financial profile: 'annual' or 'quarter'.")
+    parser.add_argument("--limit", type=int, default=10, help="Max number of profile records to fetch.")
+
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -127,4 +190,16 @@ if __name__ == "__main__":
     db_api = get_database_api("duckdb", db_path=args.db_path)
     
     with TushareScraper(db_api) as scraper:
-        scraper.run(args.start_date, args.end_date) 
+        if args.fetch_stock_basic:
+            scraper.scrape_stock_basic(args.exchange)
+        elif args.fetch_financial_profile and args.ticker and args.end_date:
+            if args.ticker.strip().lower() == "all":
+                tickers = scraper.get_all_cn_company_tickers()
+            else:
+                tickers = [t.strip() for t in args.ticker.split(",") if t.strip()]
+            for t in tickers:
+                scraper.scrape_financial_profile(t, args.end_date, args.period, args.limit)
+        elif args.start_date and args.end_date:
+            scraper.run(args.start_date, args.end_date)
+        else:
+            parser.print_help() 

@@ -155,8 +155,161 @@ class TushareProvider(AbstractDataProvider):
         period: str = "annual",
         limit: int = 1
     ) -> List[FinancialProfile]:
-        logger.warning("get_financial_profile is not implemented for TushareProvider.")
-        return []
+        """获取全面财务画像，合并三大报表、财务指标与估值指标并计算关键派生项。
+
+        注:
+        - 港股若存在对应A股，将使用A股指标接口查询；否则目前不支持纯港股基本面。
+        - 返回值不做limit裁剪，由上层控制。
+        """
+        if not self.is_available():
+            logger.error("Tushare API not initialized")
+            return []
+
+        try:
+            effective_ticker = self._get_effective_ticker(ticker)
+            if effective_ticker is None:
+                return []
+
+            end_date_ts = self._convert_date_format(end_date)
+            currency = "HKD" if self._is_hk_stock(ticker) else "CNY"
+
+            # 选取用于画像的核心字段
+            income_fields = [
+                'revenue', 'operating_profit', 'total_profit', 'net_income',
+                'basic_eps', 'total_cost_of_goods_sold', 'selling_expenses',
+                'administrative_expenses', 'finance_expenses', 'investment_income',
+                'interest_expense', 'operating_expense', 'ebit', 'ebitda',
+                'income_tax_expense'
+            ]
+            balance_fields = [
+                'total_assets', 'total_liabilities', 'shareholders_equity',
+                'current_assets', 'current_liabilities', 'accounts_receivable',
+                'inventories', 'accounts_payable', 'fixed_assets',
+                'long_term_borrowings', 'research_and_development', 'goodwill',
+                'intangible_assets', 'short_term_borrowings'
+            ]
+            cashflow_fields = [
+                'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
+                'free_cash_flow', 'capital_expenditure', 'cash_from_sales',
+                'cash_paid_for_goods', 'cash_paid_to_employees', 'cash_paid_for_taxes',
+                'net_cash_increase', 'cash_from_investments',
+                'dividends_and_other_cash_distributions', 'cash_and_equivalents'
+            ]
+
+            # 抓取三大报表
+            income_df = self._fetch_data('income_vip', effective_ticker, end_date_ts, get_tushare_fields('income', income_fields))
+            balance_df = self._fetch_data('balancesheet_vip', effective_ticker, end_date_ts, get_tushare_fields('balance', balance_fields))
+            cashflow_df = self._fetch_data('cashflow_vip', effective_ticker, end_date_ts, get_tushare_fields('cashflow', cashflow_fields))
+
+            # 处理三大报表
+            income_data = self._process_dataframe(income_df, income_fields, 'income') if income_df is not None else {}
+            balance_data = self._process_dataframe(balance_df, balance_fields, 'balance') if balance_df is not None else {}
+            cashflow_data = self._process_dataframe(cashflow_df, cashflow_fields, 'cashflow') if cashflow_df is not None else {}
+
+            # 合并为基础期次数据
+            aggregated_data = self._aggregate_data(income_data, balance_data, cashflow_data, ticker, period, currency)
+
+            # 财务指标与估值指标
+            financial_metrics_df = self._fetch_financial_metrics_data(effective_ticker, end_date_ts)
+            financial_metrics_data = self._process_financial_metrics_dataframe(financial_metrics_df) if financial_metrics_df is not None else {}
+
+            valuation_metrics_df = self._fetch_valuation_metrics_data(effective_ticker, end_date_ts)
+            valuation_data = self._process_valuation_metrics_dataframe(valuation_metrics_df) if valuation_metrics_df is not None else {}
+
+            # 生成FinancialProfile
+            profiles: List[FinancialProfile] = []
+            for report_period in sorted(aggregated_data.keys()):
+                base = aggregated_data[report_period]
+
+                profile_data: Dict[str, float] = {
+                    **base,
+                    **financial_metrics_data.get(report_period, {}),
+                    **valuation_data,
+                }
+
+                # 补充必需基础信息
+                profile_data['ticker'] = ticker
+                profile_data.setdefault('currency', currency)
+                profile_data.setdefault('report_period', report_period)
+                profile_data.setdefault('period', self._get_period_type(report_period))
+                # name字段在模型中为必填，使用ticker占位
+                profile_data.setdefault('name', ticker)
+
+                # 字段别名与派生计算
+                # 经营性利润 -> operating_income
+                if 'operating_profit' in profile_data and profile_data.get('operating_income') is None:
+                    profile_data['operating_income'] = profile_data.get('operating_profit')
+
+                # 长短期债务统一
+                if 'short_term_borrowings' in profile_data and profile_data.get('short_term_debt') is None:
+                    profile_data['short_term_debt'] = profile_data.get('short_term_borrowings')
+                if 'long_term_borrowings' in profile_data and profile_data.get('long_term_debt') is None:
+                    profile_data['long_term_debt'] = profile_data.get('long_term_borrowings')
+
+                # 销售费用率
+                if profile_data.get('sales_expense_ratio') is None:
+                    if 'sales_expense_to_revenue' in profile_data:
+                        profile_data['sales_expense_ratio'] = profile_data.get('sales_expense_to_revenue')
+                    elif profile_data.get('selling_expenses') is not None and profile_data.get('revenue'):
+                        try:
+                            profile_data['sales_expense_ratio'] = profile_data['selling_expenses'] / profile_data['revenue'] if profile_data['revenue'] else None
+                        except Exception:
+                            pass
+
+                # 营业利润占利润总额比
+                if profile_data.get('operating_profit_to_total_profit') is None and 'operating_profit_to_ebt' in profile_data:
+                    profile_data['operating_profit_to_total_profit'] = profile_data.get('operating_profit_to_ebt')
+
+                # 现金收入比
+                if profile_data.get('operating_revenue_cash_cover') is None and 'sales_cash_to_operating_revenue' in profile_data:
+                    profile_data['operating_revenue_cash_cover'] = profile_data.get('sales_cash_to_operating_revenue')
+
+                # 营运资本
+                ca = profile_data.get('current_assets')
+                cl = profile_data.get('current_liabilities')
+                if profile_data.get('working_capital') is None and ca is not None and cl is not None:
+                    profile_data['working_capital'] = ca - cl
+
+                # 商誉与无形资产合计
+                gw = profile_data.get('goodwill')
+                ia = profile_data.get('intangible_assets')
+                if profile_data.get('goodwill_and_intangible_assets') is None and gw is not None and ia is not None:
+                    profile_data['goodwill_and_intangible_assets'] = gw + ia
+
+                # 资本开支/经营现金流
+                ocf = profile_data.get('operating_cash_flow')
+                capex = profile_data.get('capital_expenditure')
+                if profile_data.get('capex_to_operating_cash_flow') is None and ocf is not None and ocf != 0 and capex is not None:
+                    try:
+                        profile_data['capex_to_operating_cash_flow'] = capex / ocf
+                    except Exception:
+                        pass
+
+                # 流动资产/总资产 比、流动负债/负债合计 比
+                if profile_data.get('current_assets_ratio') is None and 'current_assets_to_total_assets' in profile_data:
+                    profile_data['current_assets_ratio'] = profile_data.get('current_assets_to_total_assets')
+                if profile_data.get('current_liabilities_ratio') is None and 'current_debt_to_total_debt' in profile_data:
+                    profile_data['current_liabilities_ratio'] = profile_data.get('current_debt_to_total_debt')
+
+                # 长期债务/总资产
+                ltd = profile_data.get('long_term_debt')
+                ta = profile_data.get('total_assets')
+                if profile_data.get('long_term_debt_to_assets_ratio') is None and ltd is not None and ta:
+                    try:
+                        profile_data['long_term_debt_to_assets_ratio'] = ltd / ta if ta else None
+                    except Exception:
+                        pass
+
+                try:
+                    profiles.append(FinancialProfile(**profile_data))
+                except Exception as e:
+                    logger.warning(f"创建FinancialProfile失败 {ticker} - {report_period}: {e}")
+
+            return profiles
+
+        except Exception as e:
+            logger.error(f"获取财务画像失败 {ticker}: {e}", exc_info=True)
+            return []
 
     @with_timeout_retry("get_financial_metrics")
     def get_financial_metrics(
@@ -799,3 +952,17 @@ class TushareProvider(AbstractDataProvider):
 
     def convert_period(self, period: str) -> str:
         return "annual" if period == 'ttm' else period
+
+    @with_timeout_retry("get_stock_basic")
+    def get_stock_basic(self, exchange: str = '') -> Optional[pd.DataFrame]:
+        """获取股票基本信息"""
+        if not self.is_available():
+            logger.error("Tushare API not initialized")
+            return None
+        try:
+            list_df = self.pro.stock_basic(exchange=exchange, fields='ts_code,symbol,name,area,industry,market,list_date', list_status='L')
+            delist_df = self.pro.stock_basic(exchange=exchange, fields='ts_code,symbol,name,area,industry,market,list_date', list_status='D')
+            return pd.concat([list_df, delist_df])
+        except Exception as e:
+            logger.error(f"Failed to get stock_basic data for {exchange}: {e}", exc_info=True)
+            return None

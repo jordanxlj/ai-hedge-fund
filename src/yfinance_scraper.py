@@ -123,6 +123,9 @@ class YFinanceScraper:
         for i in range(0, len(batch_tickers), batch_size):
             batch = batch_tickers[i:i + batch_size]
             logger.info(f"Processing batch {i//batch_size + 1}: {len(batch)} tickers")
+            if (i//batch_size) < 20:
+                logger.info(f"skip the batch {i//batch_size + 1}")
+                continue
 
             if scrape_type == 'kline1d':
                 price_objects = self.scrape_prices(batch, start_date, end_date)
