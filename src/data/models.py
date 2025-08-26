@@ -37,6 +37,7 @@ class FinancialMetrics(BaseModel):
     report_period: str          # 报告期间
     period: str                 # 数据周期
     currency: str | None = None   # 货币单位
+    ann_date: str | None = None   # 公告时间
 
     # 估值指标
     price_to_earnings_ratio: float | None = None          # 市盈率

@@ -19,6 +19,7 @@ from src.data.models import (
 )
 from src.utils.timeout_retry import with_timeout_retry
 from src.data.provider.tushare_mapping import get_tushare_fields, apply_field_mapping
+from test_dict_comparison import financial_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -327,9 +328,57 @@ class TushareProvider(AbstractDataProvider):
             logger.error(f"批量获取 {api_method} 失败 (period={period}): {e}")
             return None
 
+    def _compute_period_list(self, end_date: str, period: str, limit: int) -> List[str]:
+        """根据 end_date、period 与 limit 计算需要查询的期间列表（YYYYMMDD）。"""
+        # 归一化 end_date
+        end_date_str = self._convert_date_format(end_date)
+        try:
+            end_dt = datetime.strptime(end_date_str, "%Y%m%d")
+        except Exception:
+            # 如果格式异常，直接返回传入日期
+            return [end_date_str]
+
+        periods: List[str] = []
+        if period == "annual":
+            # 使用每年 12-31，取不晚于 end_date 的最近年末，然后向前取 limit 个
+            year = end_dt.year
+            year_end = datetime(year, 12, 31)
+            if year_end > end_dt:
+                year -= 1
+            for i in range(limit):
+                periods.append(f"{year - i}1231")
+        else:
+            # quarter: 使用季度末 03-31, 06-30, 09-30, 12-31
+            quarter_ends = [(3, 31), (6, 30), (9, 30), (12, 31)]
+            # 找到不晚于 end_date 的最近季度末
+            candidate = None
+            for m, d in reversed(quarter_ends):
+                q_dt = datetime(end_dt.year, m, d)
+                if q_dt <= end_dt:
+                    candidate = q_dt
+                    break
+            if candidate is None:
+                # 使用上一年 12-31
+                candidate = datetime(end_dt.year - 1, 12, 31)
+            # 向前取 limit 个季度
+            cur = candidate
+            for _ in range(limit):
+                periods.append(cur.strftime("%Y%m%d"))
+                # 回退到上个季度末
+                if cur.month == 3:
+                    cur = datetime(cur.year - 1, 12, 31)
+                elif cur.month == 6:
+                    cur = datetime(cur.year, 3, 31)
+                elif cur.month == 9:
+                    cur = datetime(cur.year, 6, 30)
+                else:
+                    cur = datetime(cur.year, 9, 30)
+        return periods
+
     def get_all_financial_profiles(
         self,
         end_date: str,
+        period: str = "annual",
         limit: int = 1,
     ) -> List[FinancialProfile]:
         """
@@ -341,8 +390,9 @@ class TushareProvider(AbstractDataProvider):
         if not self.is_available():
             logger.error("Tushare API not initialized")
             return []
-
-        period_str = self._convert_date_format(end_date)
+        period = period or "annual"
+        period_list = self._compute_period_list(end_date, period, limit)
+        print(f"period_list: {period_list}")
 
         income_fields = [
             'revenue', 'operating_profit', 'total_profit', 'net_income',
@@ -356,7 +406,7 @@ class TushareProvider(AbstractDataProvider):
             'current_assets', 'current_liabilities', 'accounts_receivable',
             'inventories', 'accounts_payable', 'fixed_assets',
             'long_term_borrowings', 'research_and_development', 'goodwill',
-            'intangible_assets', 'short_term_borrowings'
+            'intangible_assets', 'short_term_borrowings', 'total_shares_outstanding'
         ]
         cashflow_fields = [
             'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
@@ -366,35 +416,60 @@ class TushareProvider(AbstractDataProvider):
             'dividends_and_other_cash_distributions', 'cash_and_equivalents'
         ]
 
-        income_df = self._fetch_data_all('income_vip', period='20241231', fields=get_tushare_fields('income', income_fields))
-        balance_df = self._fetch_data_all('balancesheet_vip', period='20241231', fields=get_tushare_fields('balance', balance_fields))
-        cashflow_df = self._fetch_data_all('cashflow_vip', period='20241231', fields=get_tushare_fields('cashflow', cashflow_fields))
+        # 汇总多个期间的数据
+        income_dfs = []
+        balance_dfs = []
+        cashflow_dfs = []
+        financial_metrics_dfs = []
+        for p in period_list:
+            print(f"period = {p}")
+            df_inc = self._fetch_data_all('income_vip', period=p, fields=get_tushare_fields('income', income_fields))
+            if df_inc is not None and not df_inc.empty:
+                income_dfs.append(df_inc)
+            df_bal = self._fetch_data_all('balancesheet_vip', period=p, fields=get_tushare_fields('balance', balance_fields))
+            if df_bal is not None and not df_bal.empty:
+                balance_dfs.append(df_bal)
+            df_cfs = self._fetch_data_all('cashflow_vip', period=p, fields=get_tushare_fields('cashflow', cashflow_fields))
+            if df_cfs is not None and not df_cfs.empty:
+                cashflow_dfs.append(df_cfs)
 
-        if all(df is None or df.empty for df in [income_df, balance_df, cashflow_df]):
-            logger.warning(f"三大报表批量接口在 {period_str} 无数据")
+            # 财务指标
+            df_financial = self._fetch_data_all('fina_indicator_vip', period=p, fields=get_tushare_fields('financial_metrics'))
+            if df_financial is not None and not df_financial.empty:
+                financial_metrics_dfs.append(df_financial)
+
+        income_df = pd.concat(income_dfs, ignore_index=True) if income_dfs else None
+        balance_df = pd.concat(balance_dfs, ignore_index=True) if balance_dfs else None
+        cashflow_df = pd.concat(cashflow_dfs, ignore_index=True) if cashflow_dfs else None
+        financial_metrics_df = pd.concat(financial_metrics_dfs, ignore_index=True) if financial_metrics_dfs else None
+
+        if all(df is None or df.empty for df in [income_df, balance_df, cashflow_df, financial_metrics_df]):
+            logger.warning("四大报表批量接口无数据")
             return []
 
         # 分 ticker 处理，合并三大报表。此处为内存分组，不会触发额外 API 请求。
         profiles: List[FinancialProfile] = []
         tickers: set[str] = set()
-        for df in [income_df, balance_df, cashflow_df]:
+        for df in [income_df, balance_df, cashflow_df, financial_metrics_df]:
             if df is not None and not df.empty and 'ts_code' in df.columns:
                 tickers.update(df['ts_code'].astype(str).unique())
 
-        logger.info(f"三大报表批量 period={period_str} 覆盖股票数: {len(tickers)}")
+        logger.info(f"四大报表批量 覆盖股票数: {len(tickers)}; 期间: {', '.join(period_list)}")
 
         for ts_code in tickers:
             inc_sub = income_df[income_df['ts_code'] == ts_code] if income_df is not None and 'ts_code' in income_df.columns else None
             bal_sub = balance_df[balance_df['ts_code'] == ts_code] if balance_df is not None and 'ts_code' in balance_df.columns else None
             cfs_sub = cashflow_df[cashflow_df['ts_code'] == ts_code] if cashflow_df is not None and 'ts_code' in cashflow_df.columns else None
+            financial_sub = financial_metrics_df[financial_metrics_df['ts_code'] == ts_code] if financial_metrics_df is not None and 'ts_code' in financial_metrics_df.columns else None
 
             income_data = self._process_dataframe(inc_sub, income_fields, 'income') if inc_sub is not None and not inc_sub.empty else {}
             balance_data = self._process_dataframe(bal_sub, balance_fields, 'balance') if bal_sub is not None and not bal_sub.empty else {}
             cashflow_data = self._process_dataframe(cfs_sub, cashflow_fields, 'cashflow') if cfs_sub is not None and not cfs_sub.empty else {}
+            financial_data = self._process_financial_metrics_dataframe(financial_sub)
 
             # 仅使用三大报表合并，不额外获取财务指标/估值
             currency = "CNY"  # 批量接口主要覆盖 A 股
-            aggregated = self._aggregate_data(income_data, balance_data, cashflow_data, ts_code, self._get_period_type(end_date), currency)
+            aggregated = self._aggregate_data(income_data, balance_data, cashflow_data, financial_data, ts_code, period, currency)
 
             for report_period in sorted(aggregated.keys()):
                 base = aggregated[report_period]
@@ -404,6 +479,8 @@ class TushareProvider(AbstractDataProvider):
                 profile_data.setdefault('report_period', report_period)
                 profile_data.setdefault('period', self._get_period_type(report_period))
                 profile_data.setdefault('name', ts_code)
+                if financial_data and financial_data.get(report_period) and financial_data[report_period].get('ann_date'):
+                    profile_data.setdefault('ann_date', financial_data[report_period]['ann_date'])
 
                 # 字段别名与派生计算（保持与单只接口一致）
                 if 'operating_profit' in profile_data and profile_data.get('operating_income') is None:
@@ -591,7 +668,9 @@ class TushareProvider(AbstractDataProvider):
             
             # 转换数据并存储
             for standard_field, value in mapped_fields.items():
-                converted_value = self._convert_financial_metric_value(standard_field, value)
+                converted_value = value
+                if standard_field != 'ann_date':
+                    converted_value = self._convert_financial_metric_value(standard_field, value)
                 data_by_period[report_period][standard_field] = converted_value
             
             logger.debug(f"财务指标数据处理完成: {report_period}")
@@ -838,17 +917,17 @@ class TushareProvider(AbstractDataProvider):
             
             row_dict = row.to_dict()
             mapped_fields = apply_field_mapping(row_dict, statement_type)
-            
+
             for field in target_fields:
                 data_by_period[report_period][field] = self.safe_convert(field, mapped_fields)
-            
             logger.debug(f"{statement_type}字段映射结果: {[f'{k}:{v}' for k,v in data_by_period[report_period].items() if k in target_fields]}")
         
         return data_by_period
 
     def _aggregate_data(self, income_data: Dict[str, Dict[str, float]], 
                         balance_data: Dict[str, Dict[str, float]], 
-                        cashflow_data: Dict[str, Dict[str, float]], 
+                        cashflow_data: Dict[str, Dict[str, float]],
+                        financial_data: Dict[str, Dict[str, float]],
                         ticker: str, period: str, currency: str) -> Dict[str, Dict[str, float]]:
         """Aggregate data from income, balance, and cashflow statements.
         
@@ -863,13 +942,13 @@ class TushareProvider(AbstractDataProvider):
         Returns:
             A dictionary mapping report periods to their aggregated data.
         """
-        all_periods = set(income_data.keys()) | set(balance_data.keys()) | set(cashflow_data.keys())
+        all_periods = set(income_data.keys()) | set(balance_data.keys()) | set(cashflow_data.keys()) | set(financial_data.keys())
         # 按时间顺序排序（从小到大）
         sorted_periods = sorted(all_periods)
         aggregated_data = {}
         
         logger.debug(f"Aggregating data for periods: {sorted_periods}")
-        
+
         for report_period in sorted_periods:
             aggregated_data[report_period] = {
                 'ticker': ticker,
@@ -878,7 +957,8 @@ class TushareProvider(AbstractDataProvider):
                 'currency': currency,
                 **income_data.get(report_period, {}),
                 **balance_data.get(report_period, {}),
-                **cashflow_data.get(report_period, {})
+                **cashflow_data.get(report_period, {}),
+                **financial_data.get(report_period, {}),
             }
             logger.debug(f"Aggregated data for {report_period}: {aggregated_data[report_period]}")
 

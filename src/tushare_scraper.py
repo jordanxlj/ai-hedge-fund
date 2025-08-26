@@ -157,11 +157,11 @@ class TushareScraper:
         except Exception as e:
             logger.error(f"Failed to fetch/store financial profile for {ticker}: {e}")
 
-    def scrape_all_financial_profiles(self, end_date: str, limit: int = 1, batch_size: int = 2000):
+    def scrape_all_financial_profiles(self, end_date: str, period: str = "annual", limit: int = 1, batch_size: int = 2000):
         """Fetch all stocks' financial profiles via bulk VIP endpoints and upsert in batches."""
         try:
-            logger.info(f"Fetching ALL financial profiles for report period ending {end_date} (limit={limit}) via VIP bulk endpoints...")
-            profiles = self.provider.get_all_financial_profiles(end_date=end_date, limit=limit)
+            logger.info(f"Fetching ALL financial profiles (period={period}, end_date={end_date}, limit={limit}) via VIP bulk endpoints...")
+            profiles = self.provider.get_all_financial_profiles(end_date=end_date, period=period, limit=limit)
             if not profiles:
                 logger.warning("No financial profiles returned from bulk VIP endpoints.")
                 return
@@ -219,7 +219,7 @@ if __name__ == "__main__":
             scraper.scrape_stock_basic(args.exchange)
         elif args.fetch_financial_profile and args.ticker and args.end_date:
             if args.ticker.strip().lower() == "all":
-                scraper.scrape_all_financial_profiles(args.end_date, limit=args.limit)
+                scraper.scrape_all_financial_profiles(args.end_date, args.period, limit=args.limit)
             else:
                 tickers = [t.strip() for t in args.ticker.split(",") if t.strip()]
                 for t in tickers:

@@ -172,7 +172,7 @@ BALANCE_FIELD_MAPPING = {
     'end_date': 'end_date',
     'report_type': 'report_type',
     'comp_type': 'comp_type',
-    'total_share': 'total_shares',                       # 期末总股本
+    'total_share': 'total_shares_outstanding',           # 期末总股本
     'cap_rese': 'capital_reserves',                      # 资本公积金
     'undistr_porfit': 'undistributed_profits',           # 未分配利润
     'surplus_rese': 'surplus_reserves',                  # 盈余公积金
@@ -519,7 +519,7 @@ VALUATION_METRICS_FIELD_MAPPING = {
     'ps_ttm': 'ps_ttm',                                  # 市销率(TTM)
     'dv_ratio': 'dividend_yield',                        # 股息率(%)
     'dv_ttm': 'dividend_yield_ttm',                      # 股息率(TTM)(%)
-    'total_share': 'total_shares_outstanding',           # 总股本(万股)
+    #'total_share': 'total_shares_outstanding',           # 总股本(万股)
     'float_share': 'outstanding_shares',                 # 流通股本(万股)
     'free_share': 'free_float_shares',                   # 自由流通股本(万股)
     'total_mv': 'total_market_value',                    # 总市值(万元)
@@ -568,7 +568,7 @@ def get_tushare_fields(table_type: str, target_fields: list = None) -> str:
                 tushare_fields.append(reverse_mapping[field])
         
         # 添加基础字段
-        base_fields = ['ts_code', 'end_date', 'report_type', 'comp_type']
+        base_fields = ['ts_code', 'end_date', 'report_type', 'comp_type', 'ann_date ']
         for base_field in base_fields:
             if base_field not in tushare_fields:
                 tushare_fields.insert(0, base_field)
