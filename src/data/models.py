@@ -177,6 +177,7 @@ class CompanyFacts(BaseModel):
     name: str
     cik: str | None = None
     industry: str | None = None
+    industry_code: str | None = None
     sector: str | None = None
     category: str | None = None
     exchange: str | None = None
@@ -282,7 +283,7 @@ class FinancialProfile(FinancialMetrics):
 
     # 股份相关
     issuance_or_purchase_of_equity_shares: float | None = None # 股权发行或回购
-
+    other_equity_instruments_preferred: float | None = None #优先股
     # 股息相关
     dividends_and_other_cash_distributions: float | None = None # 股息和其他现金分配
     dividend_yield: float | None = None                   # 股息收益率

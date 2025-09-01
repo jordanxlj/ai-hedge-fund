@@ -6,6 +6,7 @@ import pandas as pd
 from tenacity import retry, stop_after_attempt, wait_fixed
 from typing import Optional
 from dotenv import load_dotenv
+import hashlib
 
 from src.data.db import get_database_api, DatabaseAPI
 from src.data.provider.tushare_provider import TushareProvider
@@ -40,11 +41,54 @@ class TushareScraper:
             logger.warning(f"No stock basic data retrieved for exchange: {exchange}")
             return
 
+        # Build or extend industry -> industry_code (5-digit, unique) mapping
+        industry_to_code: dict[str, str] = {}
+        used_codes: set[str] = set()
+        try:
+            existing = self.db.query_to_dataframe(
+                "SELECT DISTINCT industry, industry_code FROM cn_company_facts WHERE industry IS NOT NULL AND industry_code IS NOT NULL"
+            )
+            if existing is not None and not existing.empty:
+                for _, row in existing.iterrows():
+                    ind = str(row["industry"]).strip()
+                    code = str(row["industry_code"]).strip()
+                    if ind and code:
+                        industry_to_code[ind] = code
+                        used_codes.add(code)
+        except Exception:
+            # Table may not exist yet; start with empty mapping
+            pass
+
+        # Determine codes for any new industries
+        unique_industries = sorted({str(x).strip() for x in df["industry"].dropna().unique() if str(x).strip()})
+
+        def compute_code_for_industry(industry_name: str) -> str:
+            # Stable base using md5 hashed to 5 digits
+            digest = hashlib.md5(industry_name.encode("utf-8")).hexdigest()
+            base_num = int(digest[:8], 16) % 100000
+            candidate = base_num
+            # Linear probe to avoid conflicts; keep 5-digit zero-padded
+            for _ in range(100000):
+                code_str = f"{candidate:05d}"
+                if code_str not in used_codes:
+                    return code_str
+                candidate = (candidate + 1) % 100000
+            # Fallback (should never hit)
+            return f"{base_num:05d}"
+
+        for ind in unique_industries:
+            if ind in industry_to_code:
+                continue
+            code = compute_code_for_industry(ind)
+            industry_to_code[ind] = code
+            used_codes.add(code)
+
         company_facts_objects = [
             CompanyFacts(
                 ticker=row.ts_code,
                 name=row.name,
                 industry=row.industry,
+                industry_code=industry_to_code.get(str(row.industry).strip()) if pd.notna(row.industry) else None,
                 market=row.market,
                 listing_date=row.list_date,
                 location=row.area,

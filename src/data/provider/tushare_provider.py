@@ -187,7 +187,7 @@ class TushareProvider(AbstractDataProvider):
                 'current_assets', 'current_liabilities', 'accounts_receivable',
                 'inventories', 'accounts_payable', 'fixed_assets',
                 'long_term_borrowings', 'research_and_development', 'goodwill',
-                'intangible_assets', 'short_term_borrowings'
+                'intangible_assets', 'short_term_borrowings', 'other_equity_instruments_preferred'
             ]
             cashflow_fields = [
                 'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
@@ -406,7 +406,8 @@ class TushareProvider(AbstractDataProvider):
             'current_assets', 'current_liabilities', 'accounts_receivable',
             'inventories', 'accounts_payable', 'fixed_assets',
             'long_term_borrowings', 'research_and_development', 'goodwill',
-            'intangible_assets', 'short_term_borrowings', 'total_shares_outstanding'
+            'intangible_assets', 'short_term_borrowings', 'total_shares_outstanding',
+            'other_equity_instruments_preferred'
         ]
         cashflow_fields = [
             'operating_cash_flow', 'investing_cash_flow', 'financing_cash_flow',
