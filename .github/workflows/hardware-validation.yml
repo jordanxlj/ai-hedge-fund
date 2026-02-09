@@ -1,0 +1,102 @@
+name: hardware-validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_flash:
+        description: "Run board flashing step"
+        type: boolean
+        default: false
+      run_board_tests:
+        description: "Run board tests"
+        type: boolean
+        default: false
+      run_visual_validation:
+        description: "Run visual validation (Unity or custom)"
+        type: boolean
+        default: false
+      board_target:
+        description: "Board target name"
+        type: string
+        default: ""
+      firmware_path:
+        description: "Firmware image path"
+        type: string
+        default: ""
+      flash_cmd:
+        description: "Custom flash command"
+        type: string
+        default: ""
+      test_cmd:
+        description: "Custom board test command"
+        type: string
+        default: ""
+      visual_cmd:
+        description: "Custom visual validation command"
+        type: string
+        default: ""
+      unity_project_path:
+        description: "Unity project path"
+        type: string
+        default: ""
+      unity_executable:
+        description: "Unity executable path"
+        type: string
+        default: ""
+      unity_execute_method:
+        description: "Unity execute method"
+        type: string
+        default: ""
+
+concurrency:
+  group: hardware-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hardware:
+    name: Hardware flashing and validation
+    runs-on: [self-hosted, board]
+    permissions:
+      contents: read
+    timeout-minutes: 120
+    if: inputs.run_flash == true || inputs.run_board_tests == true || inputs.run_visual_validation == true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Flash board
+        if: inputs.run_flash == true
+        env:
+          BOARD_TARGET: ${{ inputs.board_target }}
+          FIRMWARE_PATH: ${{ inputs.firmware_path }}
+          BOARD_FLASH_CMD: ${{ inputs.flash_cmd }}
+          CICD_LOG_PATH: reports/flash.log
+        run: |
+          mkdir -p reports
+          scripts/cicd/flash_board.sh
+      - name: Run board tests
+        if: inputs.run_board_tests == true
+        env:
+          BOARD_TARGET: ${{ inputs.board_target }}
+          BOARD_TEST_CMD: ${{ inputs.test_cmd }}
+          BOARD_TEST_OUTPUT: reports/board-tests.log
+        run: |
+          mkdir -p reports
+          scripts/cicd/board_tests.sh
+      - name: Visual validation
+        if: inputs.run_visual_validation == true
+        env:
+          VISUAL_VALIDATION_CMD: ${{ inputs.visual_cmd }}
+          UNITY_PROJECT_PATH: ${{ inputs.unity_project_path }}
+          UNITY_EXECUTABLE: ${{ inputs.unity_executable }}
+          UNITY_EXECUTE_METHOD: ${{ inputs.unity_execute_method }}
+          UNITY_LOG_FILE: reports/unity.log
+          CICD_LOG_PATH: reports/visual.log
+        run: |
+          mkdir -p reports
+          scripts/cicd/visual_validation.sh
+      - name: Upload hardware reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-reports
+          path: reports
