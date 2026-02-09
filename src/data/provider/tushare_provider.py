@@ -19,7 +19,6 @@ from src.data.models import (
 )
 from src.utils.timeout_retry import with_timeout_retry
 from src.data.provider.tushare_mapping import get_tushare_fields, apply_field_mapping
-from test_dict_comparison import financial_metrics
 
 logger = logging.getLogger(__name__)
 
