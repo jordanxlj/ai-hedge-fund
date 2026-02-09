@@ -58,3 +58,4 @@ poetry.lock
 *.csv
 .cursor/
 .cache/
+.cicd/
