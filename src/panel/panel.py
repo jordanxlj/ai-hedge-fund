@@ -352,7 +352,10 @@ class Panel:
                 new_state = current_state.copy()
                 new_state['view_mode'] = 'main'
                 new_state['selected_plate'] = None
-                return new_state
+                # Dash passes `outputs_list` as a list for this callback wrapper in tests
+                # (and for wildcard-style output specs). Returning a 1-element list keeps the
+                # callback compatible with that output grouping.
+                return [new_state]
             return dash.no_update
 
         @self.app.callback(
