@@ -1,5 +1,4 @@
 import pandas as pd
-import pandas_ta as ta
 import argparse
 import numpy as np
 from src.panel.data.data_loader import DataLoader
@@ -12,11 +11,92 @@ logger = logging.getLogger(__name__)
 class FeatureEngine:
     """
     A class for engineering features on financial panel data.
-    This class leverages the pandas-ta library to provide a rich set of technical indicators.
+    This class provides a small set of common technical indicators.
+
+    Notes:
+    - The project previously depended on `pandas-ta`. That dependency became hard to resolve
+      (older versions were removed from PyPI; newer versions require newer Python/numpy).
+    - To keep installs reproducible, we implement the indicators we use in tests directly.
     """
 
     def __init__(self):
         pass
+
+    @staticmethod
+    def _sma(x: pd.Series, length: int) -> pd.Series:
+        return x.rolling(window=length, min_periods=length).mean()
+
+    @staticmethod
+    def _ema(x: pd.Series, length: int) -> pd.Series:
+        return x.ewm(span=length, adjust=False, min_periods=length).mean()
+
+    @staticmethod
+    def _wma(x: pd.Series, length: int) -> pd.Series:
+        weights = np.arange(1, length + 1, dtype=float)
+
+        def _calc(arr: np.ndarray) -> float:
+            return float(np.dot(arr, weights) / weights.sum())
+
+        return x.rolling(window=length, min_periods=length).apply(lambda a: _calc(np.asarray(a)), raw=False)
+
+    @staticmethod
+    def _rsi(x: pd.Series, length: int) -> pd.Series:
+        delta = x.diff()
+        gain = delta.clip(lower=0.0)
+        loss = (-delta).clip(lower=0.0)
+        avg_gain = gain.rolling(window=length, min_periods=length).mean()
+        avg_loss = loss.rolling(window=length, min_periods=length).mean()
+        rs = avg_gain / avg_loss.replace(0.0, np.nan)
+        rsi = 100.0 - (100.0 / (1.0 + rs))
+        return rsi
+
+    @staticmethod
+    def _macd(x: pd.Series, fast: int, slow: int, signal: int) -> pd.DataFrame:
+        fast_ema = x.ewm(span=fast, adjust=False, min_periods=fast).mean()
+        slow_ema = x.ewm(span=slow, adjust=False, min_periods=slow).mean()
+        macd = fast_ema - slow_ema
+        macds = macd.ewm(span=signal, adjust=False, min_periods=signal).mean()
+        macdh = macd - macds
+        return pd.DataFrame(
+            {
+                f"MACD_{fast}_{slow}_{signal}": macd,
+                f"MACDh_{fast}_{slow}_{signal}": macdh,
+                f"MACDs_{fast}_{slow}_{signal}": macds,
+            },
+            index=x.index,
+        )
+
+    @staticmethod
+    def _bbands(x: pd.Series, length: int, std: float) -> pd.DataFrame:
+        mid = x.rolling(window=length, min_periods=length).mean()
+        s = x.rolling(window=length, min_periods=length).std()
+        upper = mid + std * s
+        lower = mid - std * s
+        std_str = str(float(std))
+        return pd.DataFrame(
+            {
+                f"BBL_{length}_{std_str}": lower,
+                f"BBM_{length}_{std_str}": mid,
+                f"BBU_{length}_{std_str}": upper,
+            },
+            index=x.index,
+        )
+
+    @staticmethod
+    def _atr(high: pd.Series, low: pd.Series, close: pd.Series, length: int) -> pd.DataFrame:
+        prev_close = close.shift(1)
+        tr = pd.concat(
+            [
+                (high - low).abs(),
+                (high - prev_close).abs(),
+                (low - prev_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        atr = tr.rolling(window=length, min_periods=length).mean()
+        # "ATRr" is treated as "relative ATR" (ATR divided by close) for compatibility with existing code/tests.
+        atrr = atr / close.replace(0.0, np.nan)
+        return pd.DataFrame({f"ATRr_{length}": atrr}, index=close.index)
 
     def add_moving_average(self, df: pd.DataFrame, window: int, ma_type: str = 'sma', price_col: str = 'close') -> pd.DataFrame:
         """
@@ -26,9 +106,9 @@ class FeatureEngine:
             raise ValueError(f"Price column '{price_col}' not found in DataFrame.")
 
         ma_func = {
-            'sma': ta.sma,
-            'ema': ta.ema,
-            'wma': ta.wma
+            'sma': self._sma,
+            'ema': self._ema,
+            'wma': self._wma,
         }.get(ma_type.lower())
 
         if not ma_func:
@@ -36,7 +116,7 @@ class FeatureEngine:
 
         # Use transform for robust, index-aligned single-column feature creation
         feature_name = f"{ma_type.upper()}_{window}"
-        df[feature_name] = df.groupby('ticker', group_keys=False)[price_col].transform(lambda x: ma_func(x, length=window))
+        df[feature_name] = df.groupby('ticker', group_keys=False)[price_col].transform(lambda x: ma_func(x, window))
         return df
 
     def add_volatility(self, df: pd.DataFrame, window: int, vol_type: str = 'std', price_col: str = 'close') -> pd.DataFrame:
@@ -51,8 +131,10 @@ class FeatureEngine:
         elif vol_type.lower() == 'atr':
             if not all(col in df.columns for col in ['high', 'low', 'close']):
                 raise ValueError("'high', 'low', and 'close' columns are required for ATR calculation.")
-            # Use the pandas-ta accessor
-            df.ta.atr(length=window, append=True)
+            atr_df = df.groupby('ticker', group_keys=False).apply(
+                lambda x: self._atr(x['high'], x['low'], x['close'], length=window)
+            )
+            df = df.join(atr_df)
         else:
             raise ValueError(f"Invalid volatility type: {vol_type}")
         return df
@@ -68,26 +150,22 @@ class FeatureEngine:
         Adds the Relative Strength Index (RSI) to the DataFrame.
         """
         feature_name = f"RSI_{window}"
-        df[feature_name] = df.groupby('ticker', group_keys=False)[price_col].transform(lambda x: ta.rsi(x, length=window))
+        df[feature_name] = df.groupby('ticker', group_keys=False)[price_col].transform(lambda x: self._rsi(x, window))
         return df
 
     def add_macd(self, df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9, price_col: str = 'close') -> pd.DataFrame:
         """
         Adds the Moving Average Convergence Divergence (MACD) to the DataFrame.
         """
-        macd_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.macd(x[price_col], fast=fast, slow=slow, signal=signal))
+        macd_df = df.groupby('ticker', group_keys=False).apply(lambda x: self._macd(x[price_col], fast=fast, slow=slow, signal=signal))
         return df.join(macd_df)
 
     def add_bollinger_bands(self, df: pd.DataFrame, window: int = 20, std: int = 2, price_col: str = 'close') -> pd.DataFrame:
         """
         Adds Bollinger Bands to the DataFrame.
         """
-        bbands = ta.bbands(df[price_col], length=window, std=std, mamode='sma')
-        if bbands is not None and not bbands.empty:
-            for col in bbands.columns:
-                if col not in df.columns:
-                    df[col] = bbands[col]
-        return df
+        bbands_df = df.groupby('ticker', group_keys=False).apply(lambda x: self._bbands(x[price_col], length=window, std=float(std)))
+        return df.join(bbands_df)
 
     def add_supertrend(self, df: pd.DataFrame, period: int = 7, multiplier: float = 3.0) -> pd.DataFrame:
         """
@@ -98,7 +176,50 @@ class FeatureEngine:
         if supertrend_col in df.columns:
             return df
 
-        supertrend_df = df.groupby('ticker', group_keys=False).apply(lambda x: ta.supertrend(x['high'], x['low'], x['close'], length=period, multiplier=multiplier))
+        def _supertrend(x: pd.DataFrame) -> pd.DataFrame:
+            atr = self._atr(x['high'], x['low'], x['close'], length=period)[f"ATRr_{period}"] * x['close']
+            hl2 = (x['high'] + x['low']) / 2.0
+            upperband = hl2 + (multiplier * atr)
+            lowerband = hl2 - (multiplier * atr)
+
+            final_upper = upperband.copy()
+            final_lower = lowerband.copy()
+            trend = pd.Series(index=x.index, dtype=float)
+
+            for i in range(1, len(x)):
+                idx = x.index[i]
+                prev = x.index[i - 1]
+
+                if upperband.loc[idx] < final_upper.loc[prev] or x['close'].loc[prev] > final_upper.loc[prev]:
+                    final_upper.loc[idx] = upperband.loc[idx]
+                else:
+                    final_upper.loc[idx] = final_upper.loc[prev]
+
+                if lowerband.loc[idx] > final_lower.loc[prev] or x['close'].loc[prev] < final_lower.loc[prev]:
+                    final_lower.loc[idx] = lowerband.loc[idx]
+                else:
+                    final_lower.loc[idx] = final_lower.loc[prev]
+
+                if x['close'].loc[idx] > final_upper.loc[prev]:
+                    trend.loc[idx] = 1.0
+                elif x['close'].loc[idx] < final_lower.loc[prev]:
+                    trend.loc[idx] = -1.0
+                else:
+                    trend.loc[idx] = trend.loc[prev] if pd.notna(trend.loc[prev]) else 1.0
+
+            st = pd.Series(index=x.index, dtype=float)
+            for i in range(len(x)):
+                idx = x.index[i]
+                if pd.isna(trend.loc[idx]):
+                    st.loc[idx] = np.nan
+                elif trend.loc[idx] > 0:
+                    st.loc[idx] = final_lower.loc[idx]
+                else:
+                    st.loc[idx] = final_upper.loc[idx]
+
+            return pd.DataFrame({supertrend_col: st}, index=x.index)
+
+        supertrend_df = df.groupby('ticker', group_keys=False).apply(_supertrend)
         return df.join(supertrend_df)
 
     def add_pivot_point_super_trend(self, df: pd.DataFrame, pivot_period: int = 2, atr_factor: float = 3.0, atr_period: int = 10) -> pd.DataFrame:
