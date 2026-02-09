@@ -1,0 +1,74 @@
+name: HIL - Board flash & test (self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_source:
+        description: "Where to fetch firmware from (e.g. release, previous_run, url)"
+        required: true
+        default: "previous_run"
+      run_id:
+        description: "GitHub Actions run id to download artifacts from (when artifact_source=previous_run)"
+        required: false
+      board_pool:
+        description: "Board pool label (e.g. board-a, board-b)"
+        required: true
+        default: "board-a"
+
+jobs:
+  flash-and-test:
+    name: Flash & Test
+    # IMPORTANT:
+    # - This job requires a self-hosted runner connected to physical boards.
+    # - Add runner labels like: self-hosted, lab, board-a
+    runs-on: [self-hosted, lab, "${{ inputs.board_pool }}"]
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout (for test scripts)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest allure-pytest labgrid pyserial
+
+      - name: Fetch firmware artifacts (placeholder)
+        run: |
+          mkdir -p artifacts
+          echo "TODO: download firmware into ./artifacts"
+          echo "Example options:"
+          echo "  - from current workflow artifacts: actions/download-artifact"
+          echo "  - from another run id: gh run download <run_id>"
+          echo "  - from release assets: gh release download <tag>"
+
+      - name: Acquire board lock (placeholder)
+        run: |
+          echo "TODO: acquire exclusive access (labgrid place lock / custom lock service)"
+
+      - name: Flash board (placeholder)
+        run: |
+          echo "TODO: implement flashing via openocd/dfu-util/fastboot/vendor tool"
+          echo "TODO: capture flash logs and serial logs"
+
+      - name: Run board tests (placeholder)
+        run: |
+          echo "TODO: run pytest suite against board"
+          echo "Example: pytest -m board --junitxml=reports/junit.xml"
+
+      - name: Upload logs & reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hil-logs-and-reports
+          path: |
+            artifacts/
+            reports/
+            logs/
+          if-no-files-found: ignore
+

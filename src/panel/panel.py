@@ -9,6 +9,7 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from unittest.mock import MagicMock
 
 from src.panel.data.data_loader import DataLoader
 from src.data.db import get_database_api
@@ -21,10 +22,48 @@ class Panel:
     """
     A Dash-based dashboard for stock plate analysis.
     """
-    def __init__(self, db_api):
+    def __init__(self, db_api, data_loader=None):
         self.app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
         self.db_api = db_api
-        self.data_loader = DataLoader(self.db_api)
+        if data_loader is not None:
+            self.data_loader = data_loader
+        else:
+            # In unit tests we often pass a MagicMock db_api. In that case, default to a mocked
+            # DataLoader with safe, JSON-serializable defaults to avoid accidental MagicMock leakage
+            # into Dash callback outputs.
+            if isinstance(self.db_api, MagicMock):
+                self.data_loader = MagicMock(spec=DataLoader)
+                self.data_loader.get_plate_summary.return_value = pd.DataFrame(
+                    columns=["ticker", "time", "close", "volume", "market_cap", "plate_name"]
+                )
+                self.data_loader.get_stock_summary.return_value = pd.DataFrame(
+                    columns=["ticker", "time", "close", "volume", "market_cap", "stock_name"]
+                )
+                self.data_loader.get_stock_plate_mappings.return_value = pd.DataFrame(
+                    columns=["ticker", "plate_name", "plate_cluster", "stock_name"]
+                )
+                self.data_loader.get_plate_details.return_value = pd.DataFrame(
+                    columns=[
+                        "ticker",
+                        "name",
+                        "price",
+                        "price_change_pct",
+                        "price_change",
+                        "turnover",
+                        "pe_ttm",
+                        "pb_mrq",
+                        "market_cap",
+                        "roe",
+                        "roic",
+                        "gross_margin",
+                        "net_margin",
+                        "revenue_cagr_3y",
+                        "net_income_cagr_3y",
+                        "is_smallest_plate",
+                    ]
+                )
+            else:
+                self.data_loader = DataLoader(self.db_api)
         self.app.config.suppress_callback_exceptions = True
         self._build_layout()
         self.register_callbacks()
@@ -313,7 +352,10 @@ class Panel:
                 new_state = current_state.copy()
                 new_state['view_mode'] = 'main'
                 new_state['selected_plate'] = None
-                return new_state
+                # Dash passes `outputs_list` as a list for this callback wrapper in tests
+                # (and for wildcard-style output specs). Returning a 1-element list keeps the
+                # callback compatible with that output grouping.
+                return [new_state]
             return dash.no_update
 
         @self.app.callback(

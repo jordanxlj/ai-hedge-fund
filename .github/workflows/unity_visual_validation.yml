@@ -1,0 +1,50 @@
+name: Visual Validation - Unity (self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_path:
+        description: "Path to Unity project on the runner"
+        required: true
+        default: "UnityProject"
+      test_filter:
+        description: "Optional Unity test filter/category"
+        required: false
+
+jobs:
+  unity-tests:
+    name: Run Unity tests & capture artifacts
+    # Runner should have Unity installed (licensed / headless capable) and GPU if needed.
+    runs-on: [self-hosted, lab, unity]
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout (optional - for scripts)
+        uses: actions/checkout@v4
+
+      - name: Run Unity in batchmode (placeholder)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p unity-artifacts
+          echo "TODO: run Unity in batchmode and output results into ./unity-artifacts"
+          echo "Example:"
+          echo "  unity-editor -batchmode -nographics -quit \\"
+          echo "    -projectPath \"${{ inputs.project_path }}\" \\"
+          echo "    -runTests -testPlatform PlayMode \\"
+          echo "    -testResults unity-artifacts/results.xml \\"
+          echo "    -logFile unity-artifacts/unity.log"
+
+      - name: Visual diff (placeholder)
+        run: |
+          echo "TODO: compare screenshots/video against golden baseline"
+          echo "      produce diff images and a summary report"
+
+      - name: Upload Unity artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-visual-artifacts
+          path: unity-artifacts/
+          if-no-files-found: ignore
+

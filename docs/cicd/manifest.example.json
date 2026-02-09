@@ -1,0 +1,17 @@
+{
+  "repos": [
+    {
+      "url": "https://github.com/your-org/firmware.git",
+      "ref": "v1.2.3",
+      "path": "deps/firmware",
+      "depth": 1
+    },
+    {
+      "url": "https://github.com/your-org/app.git",
+      "ref": "main",
+      "path": "deps/app",
+      "depth": 1
+    }
+  ]
+}
+
