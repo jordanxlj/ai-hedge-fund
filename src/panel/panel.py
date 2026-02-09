@@ -352,7 +352,10 @@ class Panel:
                 new_state = current_state.copy()
                 new_state['view_mode'] = 'main'
                 new_state['selected_plate'] = None
-                return new_state
+                # Dash may provide a wildcard-style output spec when calling callbacks.
+                # Returning a nested list keeps this compatible with both Dash runtime and unit tests
+                # that call the callback wrapper with `outputs_list=[{...}]`.
+                return [[new_state]]
             return dash.no_update
 
         @self.app.callback(
